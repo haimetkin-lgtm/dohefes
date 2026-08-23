@@ -201,6 +201,12 @@ export default function CalculatorPage() {
       {/* אזור ועלויות בנייה */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
         <div className="font-bold text-[#123640] mb-2 text-sm">עלויות בנייה, ברירת מחדל מהלשכה</div>
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-3 leading-relaxed">
+          לפי מתודולוגיית הלשכה, האומדן מתייחס לעלויות בנייה ישירות בלבד ואינו כולל עלויות
+          עקיפות, כגון: תכנון וייעוצים, ניהול ופיקוח, אגרות בנייה והיטלים, תקורה (הנהלה
+          וכלליות) ועלויות מימון. סעיפים אלה יש להזין בנפרד, בסקשן &quot;מיסים ועלויות עקיפות&quot;
+          למטה.
+        </p>
         <div className="grid sm:grid-cols-2 gap-2 mb-3">
           <select
             value={region}
