@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { computeProject } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
+import { downloadWorkbook } from "@/lib/report/exportExcel";
+import ReportView from "./ReportView";
 
 const HEIGHT_LABELS: Record<BuildingHeight, string> = {
   low: "בניין נמוך (עד 13 מ')",
@@ -24,6 +26,7 @@ function fmt(n: number, digits = 0): string {
 }
 
 export default function CalculatorPage() {
+  const [projectName, setProjectName] = useState("");
   const [dealType, setDealType] = useState<DealType>("tama38");
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
@@ -66,7 +69,7 @@ export default function CalculatorPage() {
   const inputs: ProjectInputs = useMemo(
     () => ({
       dealType,
-      projectName: "פרויקט",
+      projectName,
       units,
       costs: {
         balconyWeight: 0.5,
@@ -105,7 +108,7 @@ export default function CalculatorPage() {
       },
     }),
     [
-      dealType, units, mainCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
+      projectName, dealType, units, mainCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
       purchaseTaxRate, engineeringSupervisionRate, marketingRate, legalRate, overheadRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
     ],
@@ -118,15 +121,29 @@ export default function CalculatorPage() {
   }
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-8">
+    <>
+    <main className="max-w-3xl mx-auto px-4 py-8 print:hidden">
       <h1 className="text-xl font-bold text-[#14502F] mb-1">מחשבון דוח אפס</h1>
       <p className="text-sm text-gray-500 mb-1">
-        גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. חיבור לתשלום ולהפקת קובץ Excel/PDF בשלב הבא.
+        גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. חיבור לתשלום ולשמירת פרויקטים בשלב הבא.
       </p>
       <p className="text-xs text-gray-400 mb-6">
         עלויות הבנייה נטענות כברירת מחדל מאומדן לשכת שמאי המקרקעין, {CHAMBER_COST_DATE}. אפשר לשנות
         כל ערך.
       </p>
+
+      {/* שם הפרויקט */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-gray-500 text-xs">שם הפרויקט (יופיע בדוח ובקובץ המורד)</span>
+          <input
+            value={projectName}
+            onChange={(e) => setProjectName(e.target.value)}
+            placeholder="למשל: רחוב הרצל 12, רמת גן"
+            className="border border-gray-300 rounded-lg px-3 py-2"
+          />
+        </label>
+      </section>
 
       {/* סוג עסקה */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
@@ -524,7 +541,7 @@ export default function CalculatorPage() {
           </div>
         </div>
 
-        <div className="border-t border-[#BFE0CC] pt-3 flex items-center justify-between">
+        <div className="border-t border-[#BFE0CC] pt-3 flex items-center justify-between mb-4">
           <div>
             <div className="text-xs text-gray-500">רווח שוטף</div>
             <div className="font-bold text-lg text-[#14502F]">{nis(result.profitability.currentProfitNis)}</div>
@@ -538,6 +555,21 @@ export default function CalculatorPage() {
             </div>
           </div>
         </div>
+
+        <div className="flex flex-col sm:flex-row gap-2 border-t border-[#BFE0CC] pt-4">
+          <button
+            onClick={() => downloadWorkbook(inputs, result)}
+            className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          >
+            הורדת קובץ Excel
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          >
+            הדפסה / שמירה כ-PDF
+          </button>
+        </div>
       </section>
 
       <p className="text-xs text-gray-400 text-center">
@@ -549,5 +581,7 @@ export default function CalculatorPage() {
         .
       </p>
     </main>
+    <ReportView inputs={inputs} result={result} />
+    </>
   );
 }

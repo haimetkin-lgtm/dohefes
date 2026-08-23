@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { LogoBar } from "./components/Logo";
 import "./globals.css";
 
 const SITE_ORIGIN = "https://haimetkin-lgtm.github.io";
@@ -34,27 +35,6 @@ export const metadata: Metadata = {
   },
 };
 
-function BrandLogo() {
-  return (
-    <div className="flex items-center gap-2">
-      <svg width="30" height="30" viewBox="0 0 72 72" role="img" aria-label="לוגו דוח אפס">
-        <rect width="72" height="72" rx="14" fill="#1D6F42" />
-        <g stroke="#FFFFFF" strokeOpacity=".55" strokeWidth="1.6">
-          <line x1="0" y1="24" x2="72" y2="24" />
-          <line x1="0" y1="48" x2="72" y2="48" />
-          <line x1="24" y1="0" x2="24" y2="72" />
-          <line x1="48" y1="0" x2="48" y2="72" />
-        </g>
-        <rect x="24" y="24" width="24" height="24" fill="#FFFFFF" />
-        <text x="36" y="42" fontFamily="ui-monospace, Consolas, monospace" fontSize="16" fontWeight="700" fill="#14502F" textAnchor="middle">
-          0
-        </text>
-      </svg>
-      <span className="text-base font-bold text-[#14502F]">דוח אפס</span>
-    </div>
-  );
-}
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl">
@@ -64,10 +44,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet" />
       </head>
       <body className="min-h-screen bg-gray-50">
-        <header className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
+        <header className="print:hidden sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
           <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
             <a href="/dohefes/">
-              <BrandLogo />
+              <LogoBar height={30} />
             </a>
             <nav className="flex items-center gap-4 text-xs text-gray-500">
               <a href="/dohefes/calculator/" className="hover:text-gray-800 transition-colors">
@@ -82,7 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {children}
 
-        <footer className="text-center py-6 text-xs text-gray-400 border-t border-gray-100 mt-8 px-4">
+        <footer className="print:hidden text-center py-6 text-xs text-gray-400 border-t border-gray-100 mt-8 px-4">
           <p className="max-w-2xl mx-auto mb-2">
             כלי חישוב עזר בלבד. כל נתון שהוזן הוא באחריות המזין. אינו מהווה חוות דעת שמאית ואינו
             תחליף לבדיקת שמאי מקרקעין מוסמך. השימוש באתר ובכלי כפוף ל
