@@ -16,7 +16,7 @@ const DEAL_TYPES: { id: DealType; title: string; description: string }[] = [
   {
     id: "tama38",
     title: 'תמ"א 38',
-    description: "הריסה ובנייה מחדש, או חיזוק מבנה קיים.",
+    description: "הריסה ובנייה מחדש.",
   },
   {
     id: "pinuyBinui",
