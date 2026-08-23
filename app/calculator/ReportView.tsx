@@ -20,7 +20,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   return (
     <div id="report-view" className="hidden print:block bg-white text-black text-sm p-8 max-w-3xl mx-auto" dir="rtl">
       <div className="flex items-center justify-between border-b-2 border-[#1D6F42] pb-3 mb-4">
-        <Logo height={36} />
+        <Logo height={50} />
         <div className="text-xs text-gray-500">{new Date().toLocaleDateString("he-IL")}</div>
       </div>
       <div className="text-sm text-gray-500 mb-4">טיוטת חישוב</div>

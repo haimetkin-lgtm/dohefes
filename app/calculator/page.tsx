@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { computeProject, isCashLandDeal } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
@@ -37,9 +37,16 @@ function fmt(n: number, digits = 0): string {
 
 export default function CalculatorPage() {
   const [projectName, setProjectName] = useState("");
-  const [dealType, setDealType] = useState<DealType>("tama38");
+  const [dealType, setDealType] = useState<DealType>("basic");
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
+
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("dealType");
+    if (fromUrl && DEAL_TYPE_ORDER.includes(fromUrl as DealType)) {
+      setDealType(fromUrl as DealType);
+    }
+  }, []);
   const [units, setUnits] = useState<UnitType[]>([emptyUnit()]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
