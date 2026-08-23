@@ -1,4 +1,4 @@
-import { LogoFull } from "./components/Logo";
+import Banner from "./components/Banner";
 
 const SERVICE_JSON_LD = {
   "@context": "https://schema.org",
@@ -20,8 +20,8 @@ export default function Home() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SERVICE_JSON_LD) }} />
 
       <section className="text-center mb-10">
-        <div className="flex justify-center mb-5">
-          <LogoFull width={280} />
+        <div className="mb-6">
+          <Banner />
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-[#14502F] leading-snug mb-3">
           כדאיות כלכלית לפרויקט התחדשות עירונית,
