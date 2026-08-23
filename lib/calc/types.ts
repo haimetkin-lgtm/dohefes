@@ -72,12 +72,17 @@ export interface CostInputs {
   purchaseTaxRate: number; // מס רכישה, % (ברירת מחדל 6%)
   electricConnectionPerUnitNis: number; // חיבור חשמל ליח"ד
   planningFlatNis: number; // תכנון ומדידות, סכום קבוע
-  engineeringSupervisionRate: number; // פיקוח הנדסי, % מעלות בנייה ישירה
+  /** תכנון ויועצים, % מעלות בנייה ישירה (2.5% במקור, "עלויות!A12" בקבצי המקור) */
+  planningConsultantsRate: number;
+  /** פיקוח הנדסי, סכום קבוע, ₪. שדה נפרד מ"תכנון ויועצים" (במקור: שכר חודשי למפקח × תקופת הבנייה) */
+  engineeringInspectionFlatNis: number;
   marketingRate: number; // שיווק ופרסום, % מהכנסות
   legalRate: number; // משפטי, % מהכנסות כולל מע"מ
   legalRefundPerUnitNis: number; // החזר שכ"ט עו"ד ליח"ד (שלילי בדרך כלל)
-  financialSupervisionFlatNis: number; // פיקוח פיננסי, סכום קבוע
-  overheadRate: number; // תקורות הנהלה, % מעלות בנייה
+  financialSupervisionFlatNis: number; // פיקוח פיננסי (ליווי בנקאי), סכום קבוע
+  overheadRate: number; // תקורות הנהלה וכלליות, % מעלות בנייה
+  /** דמי ניהול וניהול כספי, % מעלות בנייה. סעיף נפרד מתקורות הנהלה ומפיקוח פיננסי (6% במקור, "דוגמא.xlsx") */
+  managementFeeRate: number;
   contingencyRate: number; // בצ"מ, % מעלות בנייה
 
   // עמלות מימון (מפושט, ר' הערה במנוע)

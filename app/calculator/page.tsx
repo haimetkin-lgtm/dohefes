@@ -76,10 +76,12 @@ export default function CalculatorPage() {
   const [organizerFee, setOrganizerFee] = useState(0);
 
   const [purchaseTaxRate, setPurchaseTaxRate] = useState(0.06);
-  const [engineeringSupervisionRate, setEngineeringSupervisionRate] = useState(0.025);
+  const [planningConsultantsRate, setPlanningConsultantsRate] = useState(0.025);
+  const [engineeringInspectionFlat, setEngineeringInspectionFlat] = useState(0);
   const [marketingRate, setMarketingRate] = useState(0.025);
   const [legalRate, setLegalRate] = useState(0.01);
   const [overheadRate, setOverheadRate] = useState(0.025);
+  const [managementFeeRate, setManagementFeeRate] = useState(0.06);
   const [contingencyRate, setContingencyRate] = useState(0.05);
 
   function applyRegionDefaults(nextRegion: string, nextHeight: BuildingHeight) {
@@ -110,12 +112,14 @@ export default function CalculatorPage() {
         purchaseTaxRate,
         electricConnectionPerUnitNis: 4500,
         planningFlatNis: 30000,
-        engineeringSupervisionRate,
+        planningConsultantsRate,
+        engineeringInspectionFlatNis: engineeringInspectionFlat,
         marketingRate,
         legalRate,
         legalRefundPerUnitNis: -5000,
         financialSupervisionFlatNis: 250000,
         overheadRate,
+        managementFeeRate,
         contingencyRate,
         guaranteeCommissionRate: 0.0085,
         unusedCreditCommissionRate: 0.0035,
@@ -135,7 +139,7 @@ export default function CalculatorPage() {
     }),
     [
       projectName, dealType, units, mainCost, commercialCost, officeCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
-      purchaseTaxRate, engineeringSupervisionRate, marketingRate, legalRate, overheadRate, contingencyRate,
+      purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
     ],
   );
@@ -540,12 +544,21 @@ export default function CalculatorPage() {
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-gray-500 text-xs">פיקוח הנדסי, % מעלות בנייה</span>
+              <span className="text-gray-500 text-xs">תכנון ויועצים, % מעלות בנייה</span>
               <input
                 type="number"
                 step="0.01"
-                value={engineeringSupervisionRate}
-                onChange={(e) => setEngineeringSupervisionRate(Number(e.target.value))}
+                value={planningConsultantsRate}
+                onChange={(e) => setPlanningConsultantsRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">פיקוח הנדסי, סכום קבוע (₪)</span>
+              <input
+                type="number"
+                value={engineeringInspectionFlat}
+                onChange={(e) => setEngineeringInspectionFlat(Number(e.target.value))}
                 className="border border-gray-300 rounded-lg px-3 py-2"
               />
             </label>
@@ -576,6 +589,16 @@ export default function CalculatorPage() {
                 step="0.01"
                 value={overheadRate}
                 onChange={(e) => setOverheadRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">דמי ניהול וניהול כספי, % מעלות בנייה</span>
+              <input
+                type="number"
+                step="0.01"
+                value={managementFeeRate}
+                onChange={(e) => setManagementFeeRate(Number(e.target.value))}
                 className="border border-gray-300 rounded-lg px-3 py-2"
               />
             </label>

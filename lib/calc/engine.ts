@@ -129,11 +129,13 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const brokerageNis = landNis > 0 ? landNis * costs.brokerageRate : 0;
   const purchaseTaxNis = purchaseTaxBasis * costs.purchaseTaxRate;
   const electricNis = areas.unitCount * costs.electricConnectionPerUnitNis;
-  const engineeringSupervisionNis = directConstructionNis * costs.engineeringSupervisionRate;
+  const planningConsultantsNis = directConstructionNis * costs.planningConsultantsRate;
+  const engineeringInspectionNis = costs.engineeringInspectionFlatNis;
   const marketingNis = revenue.developerRevenueExclVatNis * costs.marketingRate;
   const legalNis = revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.legalRate;
   const legalRefundNis = areas.unitCount * costs.legalRefundPerUnitNis;
   const overheadNis = directConstructionNis * costs.overheadRate;
+  const managementFeeNis = directConstructionNis * costs.managementFeeRate;
   const contingencyNis = directConstructionNis * costs.contingencyRate;
   // שכר מארגן, רלוונטי רק לקבוצת רכישה (0 בשאר סוגי העסקה)
   const organizerFeeNis = dealType === "purchaseGroup" ? costs.organizerFeeNis : 0;
@@ -144,12 +146,14 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     purchaseTaxNis +
     electricNis +
     costs.planningFlatNis +
-    engineeringSupervisionNis +
+    planningConsultantsNis +
+    engineeringInspectionNis +
     marketingNis +
     legalNis +
     legalRefundNis +
     costs.financialSupervisionFlatNis +
     overheadNis +
+    managementFeeNis +
     contingencyNis +
     organizerFeeNis;
 
