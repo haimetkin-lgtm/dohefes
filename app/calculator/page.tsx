@@ -1,17 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { computeProject } from "@/lib/calc/engine";
+import { computeProject, isCashLandDeal } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import ReportView from "./ReportView";
+import ConsultationCTA from "@/app/components/ConsultationCTA";
 
 const HEIGHT_LABELS: Record<BuildingHeight, string> = {
   low: "בניין נמוך (עד 13 מ')",
   high: "בניין גבוה (עד 29 מ')",
   highrise: "בניין רב קומות (מעל 29 מ')",
 };
+
+const DEAL_TYPE_LABELS: Record<DealType, string> = {
+  basic: "דוח אפס בסיסי",
+  tama38: 'תמ"א 38',
+  pinuyBinui: "פינוי בינוי",
+  kombinatsia: "קומבינציה בעין",
+};
+
+const DEAL_TYPE_ORDER: DealType[] = ["basic", "tama38", "pinuyBinui", "kombinatsia"];
 
 function emptyUnit(): UnitType {
   return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
@@ -135,7 +145,10 @@ export default function CalculatorPage() {
       {/* שם הפרויקט */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="text-gray-500 text-xs">שם הפרויקט (יופיע בדוח ובקובץ המורד)</span>
+          <span className="text-gray-500 text-xs">
+            שם הפרויקט (יופיע בדוח ובקובץ המורד), אין חובה להזין כתובת, ניתן לתת כל שם שתבחר
+            לפרויקט שלך
+          </span>
           <input
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
@@ -148,8 +161,8 @@ export default function CalculatorPage() {
       {/* סוג עסקה */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
         <div className="font-bold text-[#123640] mb-2 text-sm">סוג עסקה</div>
-        <div className="flex gap-2">
-          {(["tama38", "kombinatsia"] as DealType[]).map((dt) => (
+        <div className="flex flex-wrap gap-2">
+          {DEAL_TYPE_ORDER.map((dt) => (
             <button
               key={dt}
               onClick={() => setDealType(dt)}
@@ -159,7 +172,7 @@ export default function CalculatorPage() {
                   : "bg-white text-gray-600 border-gray-300"
               }`}
             >
-              {dt === "tama38" ? "תמ\"א 38" : "קומבינציה בעין"}
+              {DEAL_TYPE_LABELS[dt]}
             </button>
           ))}
         </div>
@@ -262,7 +275,7 @@ export default function CalculatorPage() {
       {/* קרקע */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
         <div className="font-bold text-[#123640] mb-2 text-sm">קרקע</div>
-        {dealType === "tama38" ? (
+        {isCashLandDeal(dealType) ? (
           <div className="grid sm:grid-cols-2 gap-2 text-sm">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">רכישת קרקע (₪)</span>
@@ -286,7 +299,9 @@ export default function CalculatorPage() {
         ) : (
           <div className="grid sm:grid-cols-2 gap-2 text-sm">
             <label className="flex flex-col gap-1">
-              <span className="text-gray-500 text-xs">אחוז הקומבינציה לבעל הקרקע</span>
+              <span className="text-gray-500 text-xs">
+                {dealType === "pinuyBinui" ? "אחוז החלוקה לדיירים הקיימים" : "אחוז הקומבינציה לבעל הקרקע"}
+              </span>
               <input
                 type="number"
                 step="0.01"
@@ -571,6 +586,10 @@ export default function CalculatorPage() {
           </button>
         </div>
       </section>
+
+      <div className="mb-4">
+        <ConsultationCTA />
+      </div>
 
       <p className="text-xs text-gray-400 text-center">
         עמלות המימון ועלות המימון מחושבות כאן בקירוב מפושט (לא סימולציית תזרים רבעונית מלאה). כלי

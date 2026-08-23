@@ -1,7 +1,10 @@
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
+import Logo from "@/app/components/Logo";
 
 const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
+  basic: "דוח אפס בסיסי",
   tama38: 'תמ"א 38',
+  pinuyBinui: "פינוי בינוי",
   kombinatsia: "קומבינציה בעין",
 };
 
@@ -17,9 +20,10 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   return (
     <div id="report-view" className="hidden print:block bg-white text-black text-sm p-8 max-w-3xl mx-auto" dir="rtl">
       <div className="flex items-center justify-between border-b-2 border-[#1D6F42] pb-3 mb-4">
-        <div className="text-lg font-bold text-[#14502F]">דוח אפס, טיוטת חישוב</div>
+        <Logo height={36} />
         <div className="text-xs text-gray-500">{new Date().toLocaleDateString("he-IL")}</div>
       </div>
+      <div className="text-sm text-gray-500 mb-4">טיוטת חישוב</div>
 
       <div className="grid grid-cols-2 gap-2 mb-6 text-xs">
         <div>

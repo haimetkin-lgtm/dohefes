@@ -12,8 +12,6 @@ const SERVICE_JSON_LD = {
   ],
 };
 
-const WHATSAPP_TEXT = encodeURIComponent("שלום חיים, אני מעוניין בדוח אפס בהתאמה אישית לפרויקט שלי");
-
 export default function Home() {
   return (
     <main className="max-w-2xl mx-auto px-4 py-10">
@@ -24,48 +22,44 @@ export default function Home() {
           <Banner />
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-[#14502F] leading-snug mb-3">
-          כדאיות כלכלית לפרויקט התחדשות עירונית,
-          <br />
-          בלי לפתוח את האקסל.
+          כדאיות כלכלית והיתכנות לפרויקט נדל&quot;ן – דוחות אפס
         </h1>
         <p className="text-gray-600 max-w-xl mx-auto leading-relaxed">
-          מזינים שטחים, תמהיל דירות ועלויות, מקבלים דוח כדאיות כלכלית מלא: עלויות בנייה, הכנסות
-          צפויות ורווח לעלות, לפרויקטי תמ&quot;א 38 וקומבינציה. עלויות ברירת המחדל מבוססות על
-          אומדן לשכת שמאי המקרקעין.
+          מזינים שטחים, תמהיל דירות או סוגי נכסים ומקבלים דוח אפס - כדאיות כלכלית.
         </p>
-        <div className="mt-6">
-          <a
-            href="/dohefes/calculator/"
-            className="inline-block bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold px-6 py-3 rounded-lg transition-colors"
-          >
-            פתח מחשבון, 980 ₪
-          </a>
-        </div>
       </section>
 
       <section className="grid sm:grid-cols-2 gap-4 mb-10">
         <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-          <div className="font-bold text-[#14502F] mb-1">דוח אפס עצמאי, 980 ₪</div>
+          <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי, 980 ₪</div>
           <p className="text-sm text-gray-600 mb-3">
-            ממלאים בעצמכם שטחים, תמהיל דירות, עלויות והכנסות. התשלום כולל את דוח האפס וגם את כל
-            דוחות המעקב לאותו פרויקט, ללא תשלום נוסף.
+            שטחים, תמהיל דירות, עלויות והכנסות. התשלום כולל את דוח האפס וגם את כל דוחות המעקב
+            לאותו פרויקט, ללא תשלום נוסף.
           </p>
-          <a href="/dohefes/calculator/" className="text-sm font-medium text-[#1D6F42] hover:underline">
+          <a href="/dohefes/start/" className="text-sm font-medium text-[#1D6F42] hover:underline">
             פתיחת מחשבון ←
           </a>
         </div>
         <div className="bg-white border border-[#D8AD62] rounded-xl p-5 shadow-sm">
-          <div className="font-bold text-[#14502F] mb-1">דוח אפס בהתאמה אישית, 1,800 ₪</div>
+          <div className="font-bold text-[#14502F] mb-1 flex items-center gap-1.5">
+            דוח אפס בהתאמה אישית, 1,800 ₪
+            <span className="relative group inline-flex">
+              <span className="w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center cursor-help leading-none">
+                ?
+              </span>
+              <span className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg leading-relaxed">
+                יש לנו סוכן חכם שקורא את התיאור והקבצים שהעלית ותופר מהם שלד דוח אפס מותאם לפרויקט
+                שלך: שטחים, תמהיל ונתונים פיזיים. את הערכים הכספיים (מחירי מכירה וכו&apos;) אתה
+                משלים בעצמך בטופס שמתקבל.
+              </span>
+            </span>
+          </div>
           <p className="text-sm text-gray-600 mb-3">
-            מתארים את הפרויקט בחופשיות ומעלים קבצים (פרוגרמה, Word, Excel, PDF), ואנחנו בונים
-            עבורכם את הדוח המלא, כולל שיחת ייעוץ בסיום.
+            מתארים את הפרויקט במלל חופשי ובהרחבה, מעלים קבצים שיש ברשותכם (פרוגרמה, Word, Excel,
+            PDF), ואנחנו בונים עבורכם את המסגרת לדוח האפס המלא, המותאם לפרויקט שלכם.
           </p>
-          <a
-            href={`https://wa.me/972523728828?text=${WHATSAPP_TEXT}`}
-            target="_blank"
-            className="text-sm font-medium text-[#1D6F42] hover:underline"
-          >
-            השארת פרטים בוואטסאפ ←
+          <a href="/dohefes/custom/" className="text-sm font-medium text-[#1D6F42] hover:underline">
+            מעבר לתיאור הפרויקט ←
           </a>
         </div>
       </section>

@@ -13,6 +13,12 @@ import type { ProjectInputs, AreaSummary, RevenueSummary, CostBreakdown, Profita
 
 const VAT_FACTOR = 1.17;
 
+// tama38/basic: קרקע נרכשת/משולמת במזומן, קלט ישיר. kombinatsia/pinuyBinui: קרקע "משולמת"
+// באחוז חלוקה מהשטח הבנוי (לבעלי הקרקע/דיירים הקיימים), בלי תשלום כספי נפרד.
+export function isCashLandDeal(dealType: ProjectInputs["dealType"]): boolean {
+  return dealType === "tama38" || dealType === "basic";
+}
+
 export function computeAreas(inputs: ProjectInputs): AreaSummary {
   const { units, costs } = inputs;
   let totalMainAreaSqm = 0;
@@ -44,8 +50,9 @@ export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): Reven
   }
   const totalRevenueExclVatNis = totalRevenueInclVatNis / VAT_FACTOR;
 
-  const developerShare =
-    inputs.dealType === "kombinatsia" ? 1 - inputs.land.combinationOwnerShare : 1;
+  const developerShare = isCashLandDeal(inputs.dealType)
+    ? 1
+    : 1 - inputs.land.combinationOwnerShare;
   const developerRevenueExclVatNis = totalRevenueExclVatNis * developerShare;
 
   const averagePricePerSqmNis =
@@ -61,9 +68,9 @@ function units_(inputs: ProjectInputs) {
 export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue: RevenueSummary): CostBreakdown {
   const { costs, land, dealType } = inputs;
 
-  // A. קרקע. תמ"א 38: תשלום במזומן. קומבינציה: תמיד 0, התמורה גלומה בפער בין
-  // עלות בניית 100% מהבניין להכרה בהכנסה מחלק היזם בלבד (ר' מפרט 05-קומבינציה-בעין.md).
-  const landNis = dealType === "tama38" ? land.landPurchaseNis + land.bettermentLevyNis : 0;
+  // A. קרקע. תמ"א 38/בסיסי: תשלום במזומן. קומבינציה/פינוי בינוי: תמיד 0, התמורה גלומה
+  // בפער בין עלות בניית 100% מהבניין להכרה בהכנסה מחלק היזם בלבד (ר' מפרט 05-קומבינציה-בעין.md).
+  const landNis = isCashLandDeal(dealType) ? land.landPurchaseNis + land.bettermentLevyNis : 0;
 
   // D. בנייה ישירה, תמיד על 100% מהבניין, ללא קשר לחלוקת קומבינציה.
   const balconyCostPerSqm = costs.mainConstructionCostPerSqm * costs.balconyConstructionCostRatio;
@@ -76,8 +83,9 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
 
   // B. עלויות עקיפות. בסיס הכנסות = חלק היזם בלבד (developerRevenueExclVatNis),
   // תואם לשני המודלים כי ב-תמ"א 38 developerRevenueExclVatNis = 100% ההכנסה ממילא.
-  const purchaseTaxBasis =
-    dealType === "tama38" ? land.landPurchaseNis : land.combinationLandValueForTaxNis;
+  const purchaseTaxBasis = isCashLandDeal(dealType)
+    ? land.landPurchaseNis
+    : land.combinationLandValueForTaxNis;
   const brokerageNis = landNis > 0 ? landNis * costs.brokerageRate : 0;
   const purchaseTaxNis = purchaseTaxBasis * costs.purchaseTaxRate;
   const electricNis = areas.unitCount * costs.electricConnectionPerUnitNis;
@@ -149,10 +157,10 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   if (inputs.units.length === 0) {
     warnings.push("לא הוזנו יחידות דיור.");
   }
-  if (inputs.dealType === "kombinatsia" && inputs.land.combinationOwnerShare <= 0) {
-    warnings.push("אחוז הקומבינציה לבעל הקרקע הוא 0 או לא הוזן, כדאי לבדוק.");
+  if (!isCashLandDeal(inputs.dealType) && inputs.land.combinationOwnerShare <= 0) {
+    warnings.push("אחוז החלוקה לבעלי הקרקע/הדיירים הקיימים הוא 0 או לא הוזן, כדאי לבדוק.");
   }
-  if (inputs.dealType === "tama38" && inputs.land.landPurchaseNis <= 0) {
+  if (isCashLandDeal(inputs.dealType) && inputs.land.landPurchaseNis <= 0) {
     warnings.push("לא הוזנה עלות רכישת קרקע.");
   }
 

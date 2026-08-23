@@ -2,7 +2,9 @@ import * as XLSX from "xlsx";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 
 const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
+  basic: "דוח אפס בסיסי",
   tama38: 'תמ"א 38',
+  pinuyBinui: "פינוי בינוי",
   kombinatsia: "קומבינציה בעין",
 };
 

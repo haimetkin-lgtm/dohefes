@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import Logo from "./components/Logo";
 import "./globals.css";
 
 const SITE_ORIGIN = "https://haimetkin-lgtm.github.io";
@@ -47,9 +48,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen bg-gray-50">
         <header className="print:hidden sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
-          <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-            <a href="/dohefes/" className="text-lg font-bold text-[#14502F]" style={{ fontFamily: "'Frank Ruhl Libre', serif" }}>
-              דוח אפס
+          <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+            <a href="/dohefes/">
+              <Logo height={44} />
             </a>
             <nav className="flex items-center gap-4 text-xs text-gray-500">
               <a href="/dohefes/calculator/" className="hover:text-gray-800 transition-colors">
@@ -71,7 +72,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/dohefes/terms/" className="underline hover:text-gray-600">
               תנאי השימוש והגבלת האחריות
             </a>
-            , ועצם השימוש מהווה הסכמה להם.
+            , ועצם השימוש מהווה הסכמה להם. עלויות ברירת המחדל מבוססות על{" "}
+            <a
+              href="https://landvalue.org.il/loadedFiles/1783338676-KVFVS.pdf"
+              target="_blank"
+              className="underline hover:text-gray-600"
+            >
+              אומדן לשכת שמאי המקרקעין יוני 2026
+            </a>
+            . המחירון יתעדכן מעת לעת בהתאם ובכפוף לעדכוני לשכת שמאי המקרקעין.
           </p>
           <p>
             © כל הזכויות שמורות לחיים אטקין ו/או לבית שמאי ·{" "}
