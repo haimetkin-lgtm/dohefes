@@ -28,8 +28,8 @@ export default function ConsultationCTA() {
     <div className="print:hidden bg-white border border-gray-200 rounded-xl p-4">
       <div className="font-bold text-[#14502F] text-sm mb-1">קביעת שיחת ייעוץ עם חיים אטקין</div>
       <p className="text-xs text-gray-500 leading-relaxed mb-3">
-        שיחת הייעוץ היא שיחה מקוונת במערכת ה-Meet של גוגל, שאליה יישלח אליכם קישור. השיחה מוגבלת
-        לעד שעה, תוקלט, ובסיומה ההקלטה תישלח אליכם.
+        שיחת הייעוץ היא שיחה מקוונת במערכת ה-Meet של גוגל, אליה יישלח אליך קישור. השיחה מוגבלת
+        לעד שעה, תוקלט, ובסיומה ההקלטה תישלח אליך.
       </p>
       <div className="flex flex-col sm:flex-row gap-2">
         <button
