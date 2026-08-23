@@ -6,7 +6,6 @@ import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/cal
 import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import ReportView from "./ReportView";
-import ConsultationCTA from "@/app/components/ConsultationCTA";
 
 const HEIGHT_LABELS: Record<BuildingHeight, string> = {
   low: "בניין נמוך (עד 13 מ')",
@@ -648,10 +647,6 @@ export default function CalculatorPage() {
         >
           הדפסה / שמירה כ-PDF
         </button>
-      </div>
-
-      <div className="print:hidden mt-4">
-        <ConsultationCTA />
       </div>
 
       <p className="print:hidden text-xs text-gray-400 text-center mt-4">

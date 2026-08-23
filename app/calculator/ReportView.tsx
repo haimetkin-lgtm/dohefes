@@ -1,5 +1,6 @@
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import Logo from "@/app/components/Logo";
+import ConsultationCTA from "@/app/components/ConsultationCTA";
 
 const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
   basic: "דוח אפס בסיסי",
@@ -161,6 +162,10 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
               {fmt(result.profitability.profitToCostRatio * 100, 1)}%
             </div>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <ConsultationCTA />
         </div>
       </div>
 
