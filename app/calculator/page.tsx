@@ -1,0 +1,553 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { computeProject } from "@/lib/calc/engine";
+import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
+import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
+
+const HEIGHT_LABELS: Record<BuildingHeight, string> = {
+  low: "בניין נמוך (עד 13 מ')",
+  high: "בניין גבוה (עד 29 מ')",
+  highrise: "בניין רב קומות (מעל 29 מ')",
+};
+
+function emptyUnit(): UnitType {
+  return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
+}
+
+function nis(n: number): string {
+  return Math.round(n).toLocaleString("he-IL") + " ₪";
+}
+
+function fmt(n: number, digits = 0): string {
+  return n.toLocaleString("he-IL", { maximumFractionDigits: digits, minimumFractionDigits: digits });
+}
+
+export default function CalculatorPage() {
+  const [dealType, setDealType] = useState<DealType>("tama38");
+  const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
+  const [height, setHeight] = useState<BuildingHeight>("low");
+  const [units, setUnits] = useState<UnitType[]>([emptyUnit()]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const chamberRow = CHAMBER_COSTS.find((r) => r.region === region)!;
+
+  const [mainCost, setMainCost] = useState(chamberRow[height]);
+  const [undergroundCost, setUndergroundCost] = useState(chamberRow.underground);
+  const [undergroundArea, setUndergroundArea] = useState(0);
+  const [netPlotArea, setNetPlotArea] = useState(0);
+  const [demolition, setDemolition] = useState(0);
+  const [municipalFees, setMunicipalFees] = useState(0);
+
+  const [landPurchase, setLandPurchase] = useState(0);
+  const [bettermentLevy, setBettermentLevy] = useState(0);
+  const [combinationShare, setCombinationShare] = useState(0.4);
+  const [combinationLandValue, setCombinationLandValue] = useState(0);
+
+  const [equity, setEquity] = useState(0);
+  const [presaleRate, setPresaleRate] = useState(0.15);
+  const [interestRate, setInterestRate] = useState(0.04);
+  const [constructionMonths, setConstructionMonths] = useState(30);
+
+  const [purchaseTaxRate, setPurchaseTaxRate] = useState(0.06);
+  const [engineeringSupervisionRate, setEngineeringSupervisionRate] = useState(0.025);
+  const [marketingRate, setMarketingRate] = useState(0.025);
+  const [legalRate, setLegalRate] = useState(0.01);
+  const [overheadRate, setOverheadRate] = useState(0.025);
+  const [contingencyRate, setContingencyRate] = useState(0.05);
+
+  function applyRegionDefaults(nextRegion: string, nextHeight: BuildingHeight) {
+    const row = CHAMBER_COSTS.find((r) => r.region === nextRegion);
+    if (!row) return;
+    setMainCost(row[nextHeight]);
+    setUndergroundCost(row.underground);
+  }
+
+  const inputs: ProjectInputs = useMemo(
+    () => ({
+      dealType,
+      projectName: "פרויקט",
+      units,
+      costs: {
+        balconyWeight: 0.5,
+        mainConstructionCostPerSqm: mainCost,
+        undergroundConstructionCostPerSqm: undergroundCost,
+        balconyConstructionCostRatio: 0.5,
+        developmentCostPerSqm: 500,
+        undergroundAreaSqm: undergroundArea,
+        netPlotAreaSqm: netPlotArea,
+        demolitionFlatNis: demolition,
+        municipalFeesNis: municipalFees,
+        brokerageRate: 0.01,
+        purchaseTaxRate,
+        electricConnectionPerUnitNis: 4500,
+        planningFlatNis: 30000,
+        engineeringSupervisionRate,
+        marketingRate,
+        legalRate,
+        legalRefundPerUnitNis: -5000,
+        financialSupervisionFlatNis: 250000,
+        overheadRate,
+        contingencyRate,
+        guaranteeCommissionRate: 0.0085,
+        unusedCreditCommissionRate: 0.0035,
+        annualInterestRate: interestRate,
+        constructionMonths,
+        permitMonths: 12,
+        equityNis: equity,
+        presaleRate,
+      },
+      land: {
+        landPurchaseNis: landPurchase,
+        bettermentLevyNis: bettermentLevy,
+        combinationOwnerShare: combinationShare,
+        combinationLandValueForTaxNis: combinationLandValue,
+      },
+    }),
+    [
+      dealType, units, mainCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
+      purchaseTaxRate, engineeringSupervisionRate, marketingRate, legalRate, overheadRate, contingencyRate,
+      interestRate, constructionMonths, equity, presaleRate, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
+    ],
+  );
+
+  const result = useMemo(() => computeProject(inputs), [inputs]);
+
+  function updateUnit(index: number, patch: Partial<UnitType>) {
+    setUnits((prev) => prev.map((u, i) => (i === index ? { ...u, ...patch } : u)));
+  }
+
+  return (
+    <main className="max-w-3xl mx-auto px-4 py-8">
+      <h1 className="text-xl font-bold text-[#14502F] mb-1">מחשבון דוח אפס</h1>
+      <p className="text-sm text-gray-500 mb-1">
+        גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. חיבור לתשלום ולהפקת קובץ Excel/PDF בשלב הבא.
+      </p>
+      <p className="text-xs text-gray-400 mb-6">
+        עלויות הבנייה נטענות כברירת מחדל מאומדן לשכת שמאי המקרקעין, {CHAMBER_COST_DATE}. אפשר לשנות
+        כל ערך.
+      </p>
+
+      {/* סוג עסקה */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <div className="font-bold text-[#123640] mb-2 text-sm">סוג עסקה</div>
+        <div className="flex gap-2">
+          {(["tama38", "kombinatsia"] as DealType[]).map((dt) => (
+            <button
+              key={dt}
+              onClick={() => setDealType(dt)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border ${
+                dealType === dt
+                  ? "bg-[#1D6F42] text-white border-[#1D6F42]"
+                  : "bg-white text-gray-600 border-gray-300"
+              }`}
+            >
+              {dt === "tama38" ? "תמ\"א 38" : "קומבינציה בעין"}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* אזור ועלויות בנייה */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <div className="font-bold text-[#123640] mb-2 text-sm">עלויות בנייה, ברירת מחדל מהלשכה</div>
+        <div className="grid sm:grid-cols-2 gap-2 mb-3">
+          <select
+            value={region}
+            onChange={(e) => {
+              setRegion(e.target.value);
+              applyRegionDefaults(e.target.value, height);
+            }}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            {CHAMBER_COSTS.map((r) => (
+              <option key={r.region} value={r.region}>
+                {r.region}
+              </option>
+            ))}
+          </select>
+          <select
+            value={height}
+            onChange={(e) => {
+              const h = e.target.value as BuildingHeight;
+              setHeight(h);
+              applyRegionDefaults(region, h);
+            }}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            {(Object.keys(HEIGHT_LABELS) as BuildingHeight[]).map((h) => (
+              <option key={h} value={h}>
+                {HEIGHT_LABELS[h]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2 text-sm">
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר עיקרי (₪)</span>
+            <input
+              type="number"
+              value={mainCost}
+              onChange={(e) => setMainCost(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר תת קרקעי (₪)</span>
+            <input
+              type="number"
+              value={undergroundCost}
+              onChange={(e) => setUndergroundCost(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">שטח מרתף/חניה (מ&quot;ר)</span>
+            <input
+              type="number"
+              value={undergroundArea}
+              onChange={(e) => setUndergroundArea(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">שטח מגרש נטו (מ&quot;ר)</span>
+            <input
+              type="number"
+              value={netPlotArea}
+              onChange={(e) => setNetPlotArea(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">הריסה ופינוי, סכום קבוע (₪)</span>
+            <input
+              type="number"
+              value={demolition}
+              onChange={(e) => setDemolition(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">
+              אגרות והיטלים עירוניים, סכום כולל (₪) <span className="text-gray-400">תלוי רשות מקומית</span>
+            </span>
+            <input
+              type="number"
+              value={municipalFees}
+              onChange={(e) => setMunicipalFees(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+        </div>
+      </section>
+
+      {/* קרקע */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <div className="font-bold text-[#123640] mb-2 text-sm">קרקע</div>
+        {dealType === "tama38" ? (
+          <div className="grid sm:grid-cols-2 gap-2 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">רכישת קרקע (₪)</span>
+              <input
+                type="number"
+                value={landPurchase}
+                onChange={(e) => setLandPurchase(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">היטל השבחה בגין הקלות (₪)</span>
+              <input
+                type="number"
+                value={bettermentLevy}
+                onChange={(e) => setBettermentLevy(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+          </div>
+        ) : (
+          <div className="grid sm:grid-cols-2 gap-2 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">אחוז הקומבינציה לבעל הקרקע</span>
+              <input
+                type="number"
+                step="0.01"
+                value={combinationShare}
+                onChange={(e) => setCombinationShare(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">
+                אומדן שווי קרקע לצורך מס רכישה, חלק היזם בלבד (₪)
+              </span>
+              <input
+                type="number"
+                value={combinationLandValue}
+                onChange={(e) => setCombinationLandValue(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+          </div>
+        )}
+      </section>
+
+      {/* תמהיל דירות */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-bold text-[#123640] text-sm">תמהיל דירות והכנסות</div>
+          <button
+            onClick={() => setUnits((prev) => [...prev, emptyUnit()])}
+            className="text-xs font-medium text-[#1D6F42] hover:underline"
+          >
+            + הוספת טיפוס דירה
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[640px]">
+            <thead>
+              <tr className="text-gray-500 text-right">
+                <th className="py-1 pl-2">טיפוס</th>
+                <th className="py-1 pl-2">כמות</th>
+                <th className="py-1 pl-2">שטח עיקרי</th>
+                <th className="py-1 pl-2">ממ&quot;ד</th>
+                <th className="py-1 pl-2">מרפסת</th>
+                <th className="py-1 pl-2">מרפסת גג</th>
+                <th className="py-1 pl-2">מחיר ליחידה כולל מע&quot;מ</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {units.map((u, i) => (
+                <tr key={i} className="border-t border-gray-100">
+                  <td className="py-1 pl-2">
+                    <input
+                      value={u.name}
+                      onChange={(e) => updateUnit(i, { name: e.target.value })}
+                      placeholder="דירת 4 חדרים"
+                      aria-label={`טיפוס דירה, שורה ${i + 1}`}
+                      className="w-28 border border-gray-200 rounded px-2 py-1"
+                    />
+                  </td>
+                  {(
+                    [
+                      ["count", "כמות"],
+                      ["areaSqm", "שטח עיקרי"],
+                      ["mamadSqm", "ממ\"ד"],
+                      ["balconySqm", "מרפסת"],
+                      ["roofBalconySqm", "מרפסת גג"],
+                      ["priceNis", "מחיר ליחידה"],
+                    ] as const
+                  ).map(([field, label]) => (
+                    <td key={field} className="py-1 pl-2">
+                      <input
+                        type="number"
+                        value={u[field]}
+                        onChange={(e) => updateUnit(i, { [field]: Number(e.target.value) })}
+                        aria-label={`${label}, שורה ${i + 1}`}
+                        className="w-20 border border-gray-200 rounded px-2 py-1"
+                      />
+                    </td>
+                  ))}
+                  <td>
+                    <button
+                      onClick={() => setUnits((prev) => prev.filter((_, idx) => idx !== i))}
+                      className="text-gray-400 hover:text-red-500 px-1"
+                      aria-label="מחיקה"
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* מימון */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <div className="font-bold text-[#123640] mb-2 text-sm">מימון</div>
+        <div className="grid sm:grid-cols-2 gap-2 text-sm">
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">הון עצמי מושקע (₪)</span>
+            <input
+              type="number"
+              value={equity}
+              onChange={(e) => setEquity(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">אחוז מכירה מוקדמת (פרי-סייל)</span>
+            <input
+              type="number"
+              step="0.01"
+              value={presaleRate}
+              onChange={(e) => setPresaleRate(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">ריבית שנתית</span>
+            <input
+              type="number"
+              step="0.01"
+              value={interestRate}
+              onChange={(e) => setInterestRate(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">משך תקופת הבנייה (חודשים)</span>
+            <input
+              type="number"
+              value={constructionMonths}
+              onChange={(e) => setConstructionMonths(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2"
+            />
+          </label>
+        </div>
+      </section>
+
+      {/* מיסים ועלויות עקיפות, מתקדם */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+        <button
+          onClick={() => setShowAdvanced((s) => !s)}
+          className="font-bold text-[#123640] text-sm w-full text-right"
+        >
+          {showAdvanced ? "▲" : "▼"} מיסים ועלויות עקיפות, ברירות מחדל ניתנות לעריכה
+        </button>
+        {showAdvanced && (
+          <div className="grid sm:grid-cols-2 gap-2 text-sm mt-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">מס רכישה</span>
+              <input
+                type="number"
+                step="0.01"
+                value={purchaseTaxRate}
+                onChange={(e) => setPurchaseTaxRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">פיקוח הנדסי, % מעלות בנייה</span>
+              <input
+                type="number"
+                step="0.01"
+                value={engineeringSupervisionRate}
+                onChange={(e) => setEngineeringSupervisionRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">שיווק ופרסום, % מהכנסות</span>
+              <input
+                type="number"
+                step="0.01"
+                value={marketingRate}
+                onChange={(e) => setMarketingRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">משפטי, % מהכנסות כולל מע&quot;מ</span>
+              <input
+                type="number"
+                step="0.01"
+                value={legalRate}
+                onChange={(e) => setLegalRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">תקורות הנהלה, % מעלות בנייה</span>
+              <input
+                type="number"
+                step="0.01"
+                value={overheadRate}
+                onChange={(e) => setOverheadRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">בצ&quot;מ (בלתי צפוי), % מעלות בנייה</span>
+              <input
+                type="number"
+                step="0.01"
+                value={contingencyRate}
+                onChange={(e) => setContingencyRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+          </div>
+        )}
+      </section>
+
+      {/* תוצאות */}
+      <section className="bg-[#EAF3EC] border border-[#BFE0CC] rounded-xl p-5 mb-4">
+        <div className="font-bold text-[#14502F] mb-3">תוצאות</div>
+
+        {result.warnings.length > 0 && (
+          <ul className="text-xs text-amber-700 mb-3 space-y-0.5">
+            {result.warnings.map((w) => (
+              <li key={w}>⚠ {w}</li>
+            ))}
+          </ul>
+        )}
+
+        <div className="grid sm:grid-cols-2 gap-4 text-sm mb-4">
+          <div>
+            <div className="text-gray-500 text-xs mb-1">שטחים</div>
+            <div>שטח עיקרי: {fmt(result.areas.totalMainAreaSqm)} מ&quot;ר</div>
+            <div>שטח לשיווק (כולל ממ&quot;ד ומרפסות): {fmt(result.areas.totalMarketableAreaSqm)} מ&quot;ר</div>
+            <div>יחידות דיור: {result.areas.unitCount}</div>
+          </div>
+          <div>
+            <div className="text-gray-500 text-xs mb-1">הכנסות</div>
+            <div>סה&quot;כ הכנסה כולל מע&quot;מ: {nis(result.revenue.totalRevenueInclVatNis)}</div>
+            <div>הכנסת היזם (לא כולל מע&quot;מ): {nis(result.revenue.developerRevenueExclVatNis)}</div>
+            <div>מחיר ממוצע למ&quot;ר: {nis(result.revenue.averagePricePerSqmNis)}</div>
+          </div>
+        </div>
+
+        <div className="text-sm mb-4">
+          <div className="text-gray-500 text-xs mb-1">עלויות</div>
+          <div className="grid sm:grid-cols-2 gap-x-6">
+            <div>קרקע: {nis(result.costs.landNis)}</div>
+            <div>עקיפות: {nis(result.costs.indirectNis)}</div>
+            <div>עמלות מימון: {nis(result.costs.commissionsNis)}</div>
+            <div>בנייה ישירה: {nis(result.costs.directConstructionNis)}</div>
+            <div>מימון: {nis(result.costs.financingNis)}</div>
+            <div className="font-medium">סה&quot;כ: {nis(result.costs.totalInclFinancingNis)}</div>
+          </div>
+        </div>
+
+        <div className="border-t border-[#BFE0CC] pt-3 flex items-center justify-between">
+          <div>
+            <div className="text-xs text-gray-500">רווח שוטף</div>
+            <div className="font-bold text-lg text-[#14502F]">{nis(result.profitability.currentProfitNis)}</div>
+          </div>
+          <div className="text-left">
+            <div className="text-xs text-gray-500">רווח לעלות</div>
+            <div
+              className={`font-bold text-2xl ${result.profitability.profitToCostRatio >= 0 ? "text-[#14502F]" : "text-red-600"}`}
+            >
+              {fmt(result.profitability.profitToCostRatio * 100, 1)}%
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <p className="text-xs text-gray-400 text-center">
+        עמלות המימון ועלות המימון מחושבות כאן בקירוב מפושט (לא סימולציית תזרים רבעונית מלאה). כלי
+        חישוב עזר בלבד, ר&apos;{" "}
+        <a href="/dohefes/terms/" className="underline">
+          תנאי השימוש
+        </a>
+        .
+      </p>
+    </main>
+  );
+}
