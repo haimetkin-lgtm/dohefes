@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { LogoBar } from "./components/Logo";
 import "./globals.css";
 
 const SITE_ORIGIN = "https://haimetkin-lgtm.github.io";
@@ -41,13 +40,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&family=Frank+Ruhl+Libre:wght@700;800&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body className="min-h-screen bg-gray-50">
         <header className="print:hidden sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm">
           <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
-            <a href="/dohefes/">
-              <LogoBar height={30} />
+            <a href="/dohefes/" className="text-lg font-bold text-[#14502F]" style={{ fontFamily: "'Frank Ruhl Libre', serif" }}>
+              דוח אפס
             </a>
             <nav className="flex items-center gap-4 text-xs text-gray-500">
               <a href="/dohefes/calculator/" className="hover:text-gray-800 transition-colors">
