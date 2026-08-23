@@ -12,6 +12,11 @@ const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
   mixedUse: "מעורב מגורים ותעסוקה",
 };
 
+// המודל מייצג רק את מסלול ההריסה, לא מסלול חיזוק (אין בו סעיפי חיזוק הנדסי)
+const DEAL_TYPE_SUBTITLE: Partial<Record<ProjectInputs["dealType"], string>> = {
+  tama38: "הריסה ובנייה מחדש",
+};
+
 const CATEGORY_LABEL: Record<string, string> = {
   residential: "מגורים",
   commercial: "מסחר",
@@ -63,6 +68,9 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
           <div className="text-xs font-medium text-[#14502F] bg-white border border-[#BFE0CC] rounded-full px-2.5 py-0.5 mt-1 inline-block">
             {DEAL_TYPE_LABEL[inputs.dealType]}
           </div>
+          {DEAL_TYPE_SUBTITLE[inputs.dealType] && (
+            <div className="text-[10px] text-gray-400 mt-1">{DEAL_TYPE_SUBTITLE[inputs.dealType]}</div>
+          )}
         </div>
       </div>
 
