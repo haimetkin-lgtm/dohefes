@@ -16,8 +16,8 @@ const C = {
 
 export default function Banner() {
   return (
-    <div className="overflow-x-auto">
-      <svg width="880" height="200" viewBox="0 0 880 200" className="mx-auto min-w-[640px]">
+    <div>
+      <svg viewBox="0 0 880 200" className="w-full h-auto">
         <line x1="20" y1="170" x2="860" y2="170" stroke={C.line} strokeWidth="1.5" />
 
         {/* בניין בבנייה */}
