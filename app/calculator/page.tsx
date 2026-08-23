@@ -38,14 +38,6 @@ function emptyUnit(): UnitType {
   return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
 }
 
-function nis(n: number): string {
-  return Math.round(n).toLocaleString("he-IL") + " ₪";
-}
-
-function fmt(n: number, digits = 0): string {
-  return n.toLocaleString("he-IL", { maximumFractionDigits: digits, minimumFractionDigits: digits });
-}
-
 export default function CalculatorPage() {
   const [projectName, setProjectName] = useState("");
   const [dealType, setDealType] = useState<DealType>("basic");
@@ -601,92 +593,39 @@ export default function CalculatorPage() {
         )}
       </section>
 
-      {/* תוצאות */}
-      <section className="bg-[#EAF3EC] border border-[#BFE0CC] rounded-xl p-5 mb-4">
-        <div className="font-bold text-[#14502F] mb-3">תוצאות</div>
+      {result.warnings.length > 0 && (
+        <ul className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 space-y-0.5">
+          {result.warnings.map((w) => (
+            <li key={w}>⚠ {w}</li>
+          ))}
+        </ul>
+      )}
+    </main>
 
-        {result.warnings.length > 0 && (
-          <ul className="text-xs text-amber-700 mb-3 space-y-0.5">
-            {result.warnings.map((w) => (
-              <li key={w}>⚠ {w}</li>
-            ))}
-          </ul>
-        )}
+    <div className="max-w-3xl mx-auto px-4 pb-10">
+      <div className="print:hidden text-sm font-bold text-[#123640] mb-2">הדוח שלכם</div>
+      <ReportView inputs={inputs} result={result} />
 
-        <div className="grid sm:grid-cols-2 gap-4 text-sm mb-4">
-          <div>
-            <div className="text-gray-500 text-xs mb-1">שטחים</div>
-            <div>שטח עיקרי: {fmt(result.areas.totalMainAreaSqm)} מ&quot;ר</div>
-            <div>שטח לשיווק (כולל ממ&quot;ד ומרפסות): {fmt(result.areas.totalMarketableAreaSqm)} מ&quot;ר</div>
-            <div>יחידות דיור: {result.areas.unitCount}</div>
-          </div>
-          <div>
-            <div className="text-gray-500 text-xs mb-1">הכנסות</div>
-            <div>סה&quot;כ הכנסה כולל מע&quot;מ: {nis(result.revenue.totalRevenueInclVatNis)}</div>
-            <div>הכנסת היזם (לא כולל מע&quot;מ): {nis(result.revenue.developerRevenueExclVatNis)}</div>
-            <div>מחיר ממוצע למ&quot;ר: {nis(result.revenue.averagePricePerSqmNis)}</div>
-          </div>
-        </div>
+      <div className="print:hidden flex flex-col sm:flex-row gap-2 mt-4">
+        <button
+          onClick={() => downloadWorkbook(inputs, result)}
+          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+        >
+          הורדת קובץ Excel
+        </button>
+        <button
+          onClick={() => window.print()}
+          className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+        >
+          הדפסה / שמירה כ-PDF
+        </button>
+      </div>
 
-        <div className="text-sm mb-4">
-          <div className="text-gray-500 text-xs mb-1">עלויות</div>
-          <div className="grid sm:grid-cols-2 gap-x-6">
-            <div>קרקע: {nis(result.costs.landNis)}</div>
-            <div>עקיפות: {nis(result.costs.indirectNis)}</div>
-            <div>עמלות מימון: {nis(result.costs.commissionsNis)}</div>
-            <div>בנייה ישירה: {nis(result.costs.directConstructionNis)}</div>
-            <div>מימון: {nis(result.costs.financingNis)}</div>
-            {result.costs.organizerFeeNis > 0 && <div>מתוכן, שכר מארגן: {nis(result.costs.organizerFeeNis)}</div>}
-            <div className="font-medium">סה&quot;כ: {nis(result.costs.totalInclFinancingNis)}</div>
-          </div>
-        </div>
-
-        <div className="border-t border-[#BFE0CC] pt-3 flex items-center justify-between mb-4">
-          <div>
-            <div className="text-xs text-gray-500">
-              {dealType === "purchaseGroup" ? "חיסכון לחברי הקבוצה" : "רווח שוטף"}
-            </div>
-            <div className="font-bold text-lg text-[#14502F]">{nis(result.profitability.currentProfitNis)}</div>
-          </div>
-          <div className="text-left">
-            <div className="text-xs text-gray-500">
-              {dealType === "purchaseGroup" ? "אחוז חיסכון מול שווי שוק" : "רווח לעלות"}
-            </div>
-            <div
-              className={`font-bold text-2xl ${result.profitability.profitToCostRatio >= 0 ? "text-[#14502F]" : "text-red-600"}`}
-            >
-              {fmt(result.profitability.profitToCostRatio * 100, 1)}%
-            </div>
-          </div>
-        </div>
-        {dealType === "purchaseGroup" && (
-          <p className="text-xs text-gray-500 -mt-2 mb-4">
-            החיסכון מחושב מול שווי היחידות לפי מחירי השוק שהזנתם בטבלת התמהיל, לעומת עלות הקמת
-            הפרויקט בפועל.
-          </p>
-        )}
-
-        <div className="flex flex-col sm:flex-row gap-2 border-t border-[#BFE0CC] pt-4">
-          <button
-            onClick={() => downloadWorkbook(inputs, result)}
-            className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-          >
-            הורדת קובץ Excel
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-          >
-            הדפסה / שמירה כ-PDF
-          </button>
-        </div>
-      </section>
-
-      <div className="mb-4">
+      <div className="print:hidden mt-4">
         <ConsultationCTA />
       </div>
 
-      <p className="text-xs text-gray-400 text-center">
+      <p className="print:hidden text-xs text-gray-400 text-center mt-4">
         עמלות המימון ועלות המימון מחושבות כאן בקירוב מפושט (לא סימולציית תזרים רבעונית מלאה). כלי
         חישוב עזר בלבד, ר&apos;{" "}
         <a href="/dohefes/terms/" className="underline">
@@ -694,8 +633,7 @@ export default function CalculatorPage() {
         </a>
         .
       </p>
-    </main>
-    <ReportView inputs={inputs} result={result} />
+    </div>
     </>
   );
 }

@@ -29,6 +29,9 @@ export default function Home() {
         <p className="text-gray-600 max-w-xl mx-auto leading-relaxed">
           מזינים שטחים, תמהיל דירות או סוגי נכסים ומקבלים דוח אפס - כדאיות כלכלית.
         </p>
+        <a href="/dohefes/sample/" className="inline-block mt-3 text-sm font-medium text-[#1D6F42] hover:underline">
+          צפה בדוגמת דוח ←
+        </a>
       </section>
 
       <section className="grid sm:grid-cols-2 gap-4 mb-10">

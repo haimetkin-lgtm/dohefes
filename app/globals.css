@@ -20,3 +20,12 @@ body {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+@media print {
+  body {
+    background: white;
+  }
+  #report-view {
+    max-width: 100% !important;
+  }
+}
