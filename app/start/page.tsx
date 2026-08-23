@@ -28,6 +28,21 @@ const DEAL_TYPES: { id: DealType; title: string; description: string }[] = [
     title: "קומבינציה בעין",
     description: "בעל הקרקע מקבל חלק מהדירות החדשות, במקום תשלום במזומן.",
   },
+  {
+    id: "kombinatsiaTemurot",
+    title: "קומבינצית תמורות",
+    description: "כמו קומבינציה בעין, עם מנגנון ערבות נפרד לבעלי הקרקע.",
+  },
+  {
+    id: "purchaseGroup",
+    title: "קבוצת רכישה",
+    description: "קבוצת רוכשים בונה עבור עצמה, במקום לרכוש מיזם.",
+  },
+  {
+    id: "mixedUse",
+    title: "מעורב מגורים ותעסוקה",
+    description: "פרויקט עם מגורים לצד מסחר ו/או משרדים.",
+  },
 ];
 
 export default function StartPage() {

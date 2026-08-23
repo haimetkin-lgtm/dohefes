@@ -6,6 +6,9 @@ const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
   tama38: 'תמ"א 38',
   pinuyBinui: "פינוי בינוי",
   kombinatsia: "קומבינציה בעין",
+  kombinatsiaTemurot: "קומבינצית תמורות",
+  purchaseGroup: "קבוצת רכישה",
+  mixedUse: "מעורב מגורים ותעסוקה",
 };
 
 function round(n: number): number {

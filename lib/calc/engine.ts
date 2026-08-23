@@ -1,8 +1,17 @@
-import type { ProjectInputs, AreaSummary, RevenueSummary, CostBreakdown, ProfitabilitySummary, ProjectResult } from "./types";
+import type {
+  ProjectInputs,
+  AreaSummary,
+  RevenueSummary,
+  CostBreakdown,
+  ProfitabilitySummary,
+  ProjectResult,
+  UnitCategory,
+  DealType,
+} from "./types";
 
 // מנוע החישוב המשותף. מבוסס על שרשרת הליבה שתועדה בשישה מפרטי הנוסחאות
 // (Dropbox/2026/קלוד קוד - מיזמים/דוחות אפס/מפרט נוסחאות/), ומאמת שהיא זהה
-// בין תמ"א 38 וקומבינציה בעין למעט שלוש נקודות: תמורת הקרקע, בסיס מס הרכישה,
+// בין כל סוגי העסקה למעט שלוש נקודות: תמורת הקרקע, בסיס מס הרכישה,
 // וחלק היזם בהכנסות. הנוסחאות המדויקות (עלויות עקיפות, עמלות, בנייה ישירה) מתועדות
 // שם בפירוט מלא, כולל דוגמאות מספריות מהאקסל המקורי לאימות.
 //
@@ -13,10 +22,15 @@ import type { ProjectInputs, AreaSummary, RevenueSummary, CostBreakdown, Profita
 
 const VAT_FACTOR = 1.17;
 
-// tama38/basic: קרקע נרכשת/משולמת במזומן, קלט ישיר. kombinatsia/pinuyBinui: קרקע "משולמת"
-// באחוז חלוקה מהשטח הבנוי (לבעלי הקרקע/דיירים הקיימים), בלי תשלום כספי נפרד.
-export function isCashLandDeal(dealType: ProjectInputs["dealType"]): boolean {
-  return dealType === "tama38" || dealType === "basic";
+// tama38/basic/purchaseGroup: קרקע נרכשת/משולמת במזומן, קלט ישיר.
+// kombinatsia/pinuyBinui/kombinatsiaTemurot/mixedUse: קרקע "משולמת" באחוז חלוקה מהשטח הבנוי
+// (לבעלי הקרקע/דיירים הקיימים), בלי תשלום כספי נפרד.
+export function isCashLandDeal(dealType: DealType): boolean {
+  return dealType === "tama38" || dealType === "basic" || dealType === "purchaseGroup";
+}
+
+function unitCategory(category: UnitCategory | undefined): UnitCategory {
+  return category ?? "residential";
 }
 
 export function computeAreas(inputs: ProjectInputs): AreaSummary {
@@ -27,12 +41,23 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
   let totalRoofBalconySqm = 0;
   let unitCount = 0;
 
+  const areaByCategory: AreaSummary["areaByCategory"] = {
+    residential: { mainAreaSqm: 0, otherAreaSqm: 0 },
+    commercial: { mainAreaSqm: 0, otherAreaSqm: 0 },
+    office: { mainAreaSqm: 0, otherAreaSqm: 0 },
+  };
+
   for (const u of units) {
-    totalMainAreaSqm += u.count * u.areaSqm;
+    const cat = unitCategory(u.category);
+    const mainArea = u.count * u.areaSqm;
+    const otherArea = u.count * (u.mamadSqm + u.balconySqm + u.roofBalconySqm);
+    totalMainAreaSqm += mainArea;
     totalMamadSqm += u.count * u.mamadSqm;
     totalBalconySqm += u.count * u.balconySqm;
     totalRoofBalconySqm += u.count * u.roofBalconySqm;
     unitCount += u.count;
+    areaByCategory[cat].mainAreaSqm += mainArea;
+    areaByCategory[cat].otherAreaSqm += otherArea;
   }
 
   const totalMarketableAreaSqm =
@@ -40,19 +65,29 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     totalMamadSqm +
     (totalBalconySqm + totalRoofBalconySqm) * costs.balconyWeight;
 
-  return { totalMainAreaSqm, totalMamadSqm, totalBalconySqm, totalRoofBalconySqm, totalMarketableAreaSqm, unitCount };
+  return {
+    totalMainAreaSqm,
+    totalMamadSqm,
+    totalBalconySqm,
+    totalRoofBalconySqm,
+    totalMarketableAreaSqm,
+    unitCount,
+    areaByCategory,
+  };
 }
 
 export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): RevenueSummary {
   let totalRevenueInclVatNis = 0;
-  for (const u of units_(inputs)) {
-    totalRevenueInclVatNis += u.count * u.priceNis;
-  }
-  const totalRevenueExclVatNis = totalRevenueInclVatNis / VAT_FACTOR;
+  let totalRevenueExclVatNis = 0;
 
-  const developerShare = isCashLandDeal(inputs.dealType)
-    ? 1
-    : 1 - inputs.land.combinationOwnerShare;
+  for (const u of inputs.units) {
+    const inclVat = u.count * u.priceNis;
+    totalRevenueInclVatNis += inclVat;
+    // מגורים: המחיר שהוזן כולל מע"מ, מחולק ב-1.17. מסחר/משרדים: המחיר כבר נטו ממע"מ (04-מעורב-מגורים-ותעסוקה.md)
+    totalRevenueExclVatNis += unitCategory(u.category) === "residential" ? inclVat / VAT_FACTOR : inclVat;
+  }
+
+  const developerShare = isCashLandDeal(inputs.dealType) ? 1 : 1 - inputs.land.combinationOwnerShare;
   const developerRevenueExclVatNis = totalRevenueExclVatNis * developerShare;
 
   const averagePricePerSqmNis =
@@ -61,31 +96,36 @@ export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): Reven
   return { totalRevenueInclVatNis, totalRevenueExclVatNis, developerRevenueExclVatNis, averagePricePerSqmNis };
 }
 
-function units_(inputs: ProjectInputs) {
-  return inputs.units;
-}
-
 export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue: RevenueSummary): CostBreakdown {
   const { costs, land, dealType } = inputs;
 
-  // A. קרקע. תמ"א 38/בסיסי: תשלום במזומן. קומבינציה/פינוי בינוי: תמיד 0, התמורה גלומה
-  // בפער בין עלות בניית 100% מהבניין להכרה בהכנסה מחלק היזם בלבד (ר' מפרט 05-קומבינציה-בעין.md).
+  // A. קרקע.
   const landNis = isCashLandDeal(dealType) ? land.landPurchaseNis + land.bettermentLevyNis : 0;
 
-  // D. בנייה ישירה, תמיד על 100% מהבניין, ללא קשר לחלוקת קומבינציה.
-  const balconyCostPerSqm = costs.mainConstructionCostPerSqm * costs.balconyConstructionCostRatio;
+  // D. בנייה ישירה, תמיד על 100% מהבניין, ללא קשר לחלוקת קומבינציה. לכל קטגוריה עלות מ"ר משלה
+  // (mixedUse בלבד, שאר סוגי העסקה משתמשים כולם ב-residential ולכן בעלות המגורים הרגילה).
+  const costPerSqmByCategory: Record<UnitCategory, number> = {
+    residential: costs.mainConstructionCostPerSqm,
+    commercial: costs.commercialConstructionCostPerSqm || costs.mainConstructionCostPerSqm,
+    office: costs.officeConstructionCostPerSqm || costs.mainConstructionCostPerSqm,
+  };
+  let categorizedConstructionNis = 0;
+  (Object.keys(areas.areaByCategory) as UnitCategory[]).forEach((cat) => {
+    const cost = costPerSqmByCategory[cat];
+    const balconyCostPerSqm = cost * costs.balconyConstructionCostRatio;
+    categorizedConstructionNis +=
+      areas.areaByCategory[cat].mainAreaSqm * cost + areas.areaByCategory[cat].otherAreaSqm * balconyCostPerSqm;
+    // הערה: otherAreaSqm כולל גם ממ"ד (לרוב רלוונטי רק למגורים, אבל אין נזק אם 0 בקטגוריות אחרות)
+  });
+
   const directConstructionNis =
-    areas.totalMainAreaSqm * costs.mainConstructionCostPerSqm +
+    categorizedConstructionNis +
     costs.undergroundAreaSqm * costs.undergroundConstructionCostPerSqm +
-    (areas.totalBalconySqm + areas.totalRoofBalconySqm) * balconyCostPerSqm +
     (costs.netPlotAreaSqm / 2) * costs.developmentCostPerSqm +
     costs.demolitionFlatNis;
 
-  // B. עלויות עקיפות. בסיס הכנסות = חלק היזם בלבד (developerRevenueExclVatNis),
-  // תואם לשני המודלים כי ב-תמ"א 38 developerRevenueExclVatNis = 100% ההכנסה ממילא.
-  const purchaseTaxBasis = isCashLandDeal(dealType)
-    ? land.landPurchaseNis
-    : land.combinationLandValueForTaxNis;
+  // B. עלויות עקיפות. בסיס הכנסות = חלק היזם בלבד (developerRevenueExclVatNis).
+  const purchaseTaxBasis = isCashLandDeal(dealType) ? land.landPurchaseNis : land.combinationLandValueForTaxNis;
   const brokerageNis = landNis > 0 ? landNis * costs.brokerageRate : 0;
   const purchaseTaxNis = purchaseTaxBasis * costs.purchaseTaxRate;
   const electricNis = areas.unitCount * costs.electricConnectionPerUnitNis;
@@ -95,6 +135,8 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const legalRefundNis = areas.unitCount * costs.legalRefundPerUnitNis;
   const overheadNis = directConstructionNis * costs.overheadRate;
   const contingencyNis = directConstructionNis * costs.contingencyRate;
+  // שכר מארגן, רלוונטי רק לקבוצת רכישה (0 בשאר סוגי העסקה)
+  const organizerFeeNis = dealType === "purchaseGroup" ? costs.organizerFeeNis : 0;
 
   const indirectNis =
     costs.municipalFeesNis +
@@ -108,7 +150,8 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     legalRefundNis +
     costs.financialSupervisionFlatNis +
     overheadNis +
-    contingencyNis;
+    contingencyNis +
+    organizerFeeNis;
 
   // C. עמלות מימון, מפושט. במקור מחושבות מתוך סימולציית תזרים רבעונית מלאה
   // (ר' 01-תמא-38.md סעיף 5). כאן: אחוז מהכנסה/ממסגרת, כפול 0.5 כקירוב לבסיס
@@ -122,12 +165,9 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
 
   const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis;
 
-  // F. מימון, מפושט: ריבית פשוטה על יתרת חוב ממוצעת (הנחת פריסה ליניארית),
-  // במקום סימולציית ריבית רבעונית מצטברת על יתרה בפועל.
-  const debtPortionNis = creditFacilityNis;
-  const avgOutstandingBalanceNis = debtPortionNis / 2;
-  const financingNis =
-    avgOutstandingBalanceNis * costs.annualInterestRate * (costs.constructionMonths / 12);
+  // F. מימון, מפושט: ריבית פשוטה על יתרת חוב ממוצעת (הנחת פריסה ליניארית).
+  const avgOutstandingBalanceNis = creditFacilityNis / 2;
+  const financingNis = avgOutstandingBalanceNis * costs.annualInterestRate * (costs.constructionMonths / 12);
 
   const totalExclFinancingNis = landNis + indirectNis + commissionsNis + directConstructionNis;
   const totalInclFinancingNis = totalExclFinancingNis + financingNis;
@@ -140,6 +180,7 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     financingNis,
     totalExclFinancingNis,
     totalInclFinancingNis,
+    organizerFeeNis,
   };
 }
 

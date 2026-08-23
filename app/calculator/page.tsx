@@ -19,9 +19,20 @@ const DEAL_TYPE_LABELS: Record<DealType, string> = {
   tama38: 'תמ"א 38',
   pinuyBinui: "פינוי בינוי",
   kombinatsia: "קומבינציה בעין",
+  kombinatsiaTemurot: "קומבינצית תמורות",
+  purchaseGroup: "קבוצת רכישה",
+  mixedUse: "מעורב מגורים ותעסוקה",
 };
 
-const DEAL_TYPE_ORDER: DealType[] = ["basic", "tama38", "pinuyBinui", "kombinatsia"];
+const DEAL_TYPE_ORDER: DealType[] = [
+  "basic",
+  "tama38",
+  "pinuyBinui",
+  "kombinatsia",
+  "kombinatsiaTemurot",
+  "purchaseGroup",
+  "mixedUse",
+];
 
 function emptyUnit(): UnitType {
   return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
@@ -53,6 +64,8 @@ export default function CalculatorPage() {
   const chamberRow = CHAMBER_COSTS.find((r) => r.region === region)!;
 
   const [mainCost, setMainCost] = useState(chamberRow[height]);
+  const [commercialCost, setCommercialCost] = useState(0);
+  const [officeCost, setOfficeCost] = useState(0);
   const [undergroundCost, setUndergroundCost] = useState(chamberRow.underground);
   const [undergroundArea, setUndergroundArea] = useState(0);
   const [netPlotArea, setNetPlotArea] = useState(0);
@@ -68,6 +81,7 @@ export default function CalculatorPage() {
   const [presaleRate, setPresaleRate] = useState(0.15);
   const [interestRate, setInterestRate] = useState(0.04);
   const [constructionMonths, setConstructionMonths] = useState(30);
+  const [organizerFee, setOrganizerFee] = useState(0);
 
   const [purchaseTaxRate, setPurchaseTaxRate] = useState(0.06);
   const [engineeringSupervisionRate, setEngineeringSupervisionRate] = useState(0.025);
@@ -91,6 +105,8 @@ export default function CalculatorPage() {
       costs: {
         balconyWeight: 0.5,
         mainConstructionCostPerSqm: mainCost,
+        commercialConstructionCostPerSqm: commercialCost,
+        officeConstructionCostPerSqm: officeCost,
         undergroundConstructionCostPerSqm: undergroundCost,
         balconyConstructionCostRatio: 0.5,
         developmentCostPerSqm: 500,
@@ -116,6 +132,7 @@ export default function CalculatorPage() {
         permitMonths: 12,
         equityNis: equity,
         presaleRate,
+        organizerFeeNis: organizerFee,
       },
       land: {
         landPurchaseNis: landPurchase,
@@ -125,9 +142,9 @@ export default function CalculatorPage() {
       },
     }),
     [
-      projectName, dealType, units, mainCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
+      projectName, dealType, units, mainCost, commercialCost, officeCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
       purchaseTaxRate, engineeringSupervisionRate, marketingRate, legalRate, overheadRate, contingencyRate,
-      interestRate, constructionMonths, equity, presaleRate, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
+      interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
     ],
   );
 
@@ -229,6 +246,28 @@ export default function CalculatorPage() {
               className="border border-gray-300 rounded-lg px-3 py-2"
             />
           </label>
+          {dealType === "mixedUse" && (
+            <>
+              <label className="flex flex-col gap-1">
+                <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר מסחר (₪), ריק = כמו מגורים</span>
+                <input
+                  type="number"
+                  value={commercialCost}
+                  onChange={(e) => setCommercialCost(Number(e.target.value))}
+                  className="border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר משרדים (₪), ריק = כמו מגורים</span>
+                <input
+                  type="number"
+                  value={officeCost}
+                  onChange={(e) => setOfficeCost(Number(e.target.value))}
+                  className="border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </label>
+            </>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר תת קרקעי (₪)</span>
             <input
@@ -307,7 +346,9 @@ export default function CalculatorPage() {
           <div className="grid sm:grid-cols-2 gap-2 text-sm">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">
-                {dealType === "pinuyBinui" ? "אחוז החלוקה לדיירים הקיימים" : "אחוז הקומבינציה לבעל הקרקע"}
+                {dealType === "pinuyBinui" || dealType === "mixedUse"
+                  ? "אחוז החלוקה לדיירים/בעלים הקיימים"
+                  : "אחוז הקומבינציה לבעל הקרקע"}
               </span>
               <input
                 type="number"
@@ -319,7 +360,9 @@ export default function CalculatorPage() {
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">
-                אומדן שווי קרקע לצורך מס רכישה, חלק היזם בלבד (₪)
+                {dealType === "kombinatsiaTemurot"
+                  ? "אומדן שווי הקרקע המלא לצורך מס רכישה (₪)"
+                  : "אומדן שווי קרקע לצורך מס רכישה, חלק היזם בלבד (₪)"}
               </span>
               <input
                 type="number"
@@ -348,12 +391,15 @@ export default function CalculatorPage() {
             <thead>
               <tr className="text-gray-500 text-right">
                 <th className="py-1 pl-2">טיפוס</th>
+                {dealType === "mixedUse" && <th className="py-1 pl-2">קטגוריה</th>}
                 <th className="py-1 pl-2">כמות</th>
                 <th className="py-1 pl-2">שטח עיקרי</th>
                 <th className="py-1 pl-2">ממ&quot;ד</th>
                 <th className="py-1 pl-2">מרפסת</th>
                 <th className="py-1 pl-2">מרפסת גג</th>
-                <th className="py-1 pl-2">מחיר ליחידה כולל מע&quot;מ</th>
+                <th className="py-1 pl-2">
+                  {dealType === "mixedUse" ? "מחיר ליחידה (מגורים כולל מע\"מ, מסחר/משרדים נטו)" : "מחיר ליחידה כולל מע\"מ"}
+                </th>
                 <th></th>
               </tr>
             </thead>
@@ -369,6 +415,20 @@ export default function CalculatorPage() {
                       className="w-28 border border-gray-200 rounded px-2 py-1"
                     />
                   </td>
+                  {dealType === "mixedUse" && (
+                    <td className="py-1 pl-2">
+                      <select
+                        value={u.category ?? "residential"}
+                        onChange={(e) => updateUnit(i, { category: e.target.value as UnitType["category"] })}
+                        aria-label={`קטגוריה, שורה ${i + 1}`}
+                        className="border border-gray-200 rounded px-1 py-1"
+                      >
+                        <option value="residential">מגורים</option>
+                        <option value="commercial">מסחר</option>
+                        <option value="office">משרדים</option>
+                      </select>
+                    </td>
+                  )}
                   {(
                     [
                       ["count", "כמות"],
@@ -449,6 +509,23 @@ export default function CalculatorPage() {
           </label>
         </div>
       </section>
+
+      {dealType === "purchaseGroup" && (
+        <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
+          <div className="font-bold text-[#123640] mb-2 text-sm">שכר המארגן</div>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-gray-500 text-xs">
+              עמלת ארגון הקבוצה, סכום קבוע (₪), נוסף לעלויות הקבוצה ומוצג גם כרווח המארגן בנפרד
+            </span>
+            <input
+              type="number"
+              value={organizerFee}
+              onChange={(e) => setOrganizerFee(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2 max-w-xs"
+            />
+          </label>
+        </section>
+      )}
 
       {/* מיסים ועלויות עקיפות, מתקדם */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
@@ -559,17 +636,22 @@ export default function CalculatorPage() {
             <div>עמלות מימון: {nis(result.costs.commissionsNis)}</div>
             <div>בנייה ישירה: {nis(result.costs.directConstructionNis)}</div>
             <div>מימון: {nis(result.costs.financingNis)}</div>
+            {result.costs.organizerFeeNis > 0 && <div>מתוכן, שכר מארגן: {nis(result.costs.organizerFeeNis)}</div>}
             <div className="font-medium">סה&quot;כ: {nis(result.costs.totalInclFinancingNis)}</div>
           </div>
         </div>
 
         <div className="border-t border-[#BFE0CC] pt-3 flex items-center justify-between mb-4">
           <div>
-            <div className="text-xs text-gray-500">רווח שוטף</div>
+            <div className="text-xs text-gray-500">
+              {dealType === "purchaseGroup" ? "חיסכון לחברי הקבוצה" : "רווח שוטף"}
+            </div>
             <div className="font-bold text-lg text-[#14502F]">{nis(result.profitability.currentProfitNis)}</div>
           </div>
           <div className="text-left">
-            <div className="text-xs text-gray-500">רווח לעלות</div>
+            <div className="text-xs text-gray-500">
+              {dealType === "purchaseGroup" ? "אחוז חיסכון מול שווי שוק" : "רווח לעלות"}
+            </div>
             <div
               className={`font-bold text-2xl ${result.profitability.profitToCostRatio >= 0 ? "text-[#14502F]" : "text-red-600"}`}
             >
@@ -577,6 +659,12 @@ export default function CalculatorPage() {
             </div>
           </div>
         </div>
+        {dealType === "purchaseGroup" && (
+          <p className="text-xs text-gray-500 -mt-2 mb-4">
+            החיסכון מחושב מול שווי היחידות לפי מחירי השוק שהזנתם בטבלת התמהיל, לעומת עלות הקמת
+            הפרויקט בפועל.
+          </p>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-2 border-t border-[#BFE0CC] pt-4">
           <button

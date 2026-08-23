@@ -1,10 +1,24 @@
 // טיפוסי הליבה של מנוע החישוב.
 // מבוסס על מפרט הנוסחאות ב-Dropbox/2026/קלוד קוד - מיזמים/דוחות אפס/מפרט נוסחאות/
-// ארבעה מסלולים בשלב זה: כולם חולקים את אותה שרשרת ליבה (שטחים -> עלויות -> הכנסות -> מימון
-// -> רווחיות), ונבדלים באופן חישוב תמורת הקרקע וההכנסות. שני זוגות תאומים מבחינת הנוסחה:
-// tama38/basic (קרקע במזומן, קלט ישיר) ו-kombinatsia/pinuyBinui (קרקע באחוז חלוקה, ר' engine.ts).
+// שבעה מסלולים: כולם חולקים את אותה שרשרת ליבה (שטחים -> עלויות -> הכנסות -> מימון -> רווחיות).
+// שלוש קבוצות מבחינת הנוסחה (ר' engine.ts):
+//  - tama38/basic: קרקע במזומן, קלט ישיר.
+//  - kombinatsia/pinuyBinui/kombinatsiaTemurot: קרקע באחוז חלוקה (הבדל היחיד ביניהם: בקומבינצית
+//    תמורות שדה "שווי הקרקע לצורך מס רכישה" מייצג את מלוא שווי הקרקע, לא רק חלק היזם, ר' 06-קומבינצית-תמורות.md).
+//  - purchaseGroup: כמו tama38/basic, אבל הפלט מתפרש כ"חיסכון לחברי הקבוצה" ולא "רווח יזם",
+//    ומתווספת שכבת שכר מארגן נפרדת. mixedUse: כמו kombinatsia, אבל עם יחידות משלוש קטגוריות
+//    (מגורים/מסחר/משרדים) שכל אחת נבדלת בטיפול במע"מ ובעלות בנייה, ר' UnitType.category.
 
-export type DealType = "tama38" | "basic" | "kombinatsia" | "pinuyBinui";
+export type DealType =
+  | "tama38"
+  | "basic"
+  | "kombinatsia"
+  | "pinuyBinui"
+  | "kombinatsiaTemurot"
+  | "purchaseGroup"
+  | "mixedUse";
+
+export type UnitCategory = "residential" | "commercial" | "office";
 
 export interface UnitType {
   /** שם חופשי, למשל "דירת 4 חדרים" */
@@ -19,15 +33,24 @@ export interface UnitType {
   balconySqm: number;
   /** מרפסת גג ליחידה, מ"ר (בדרך כלל 0 מלבד פנטהאוזים) */
   roofBalconySqm: number;
-  /** מחיר ליחידה, כולל מע"מ, ₪. המשתמש מזין ישירות (מודול 03: הכנסות מוזנות ידנית) */
+  /**
+   * מחיר ליחידה, ₪. המשתמש מזין ישירות (מודול 03: הכנסות מוזנות ידנית).
+   * מגורים: כולל מע"מ (מחולק ב-1.17). מסחר/משרדים: נטו ממע"מ, ללא חלוקה (ר' 04-מעורב-מגורים-ותעסוקה.md).
+   */
   priceNis: number;
+  /** קטגוריה, לצורך טיפול במע"מ ועלות בנייה נפרדת. ברירת מחדל residential אם לא מוגדר. */
+  category?: UnitCategory;
 }
 
 export interface CostInputs {
   /** מקדם משקל למרפסות בחישוב שטח לשיווק (ברירת מחדל 0.5, כמו בכל תחשיבי המקור) */
   balconyWeight: number;
-  /** עלות בנייה למ"ר, שטח עיקרי. ברירת מחדל מאומדן הלשכה (מודול 02) */
+  /** עלות בנייה למ"ר, שטח עיקרי מגורים. ברירת מחדל מאומדן הלשכה (מודול 02) */
   mainConstructionCostPerSqm: number;
+  /** עלות בנייה למ"ר מסחר, רלוונטי רק ל-mixedUse. אם 0, נופל חזרה למחיר המגורים */
+  commercialConstructionCostPerSqm: number;
+  /** עלות בנייה למ"ר משרדים, רלוונטי רק ל-mixedUse. אם 0, נופל חזרה למחיר המגורים */
+  officeConstructionCostPerSqm: number;
   /** עלות בנייה למ"ר תת קרקעי/מרתף. ברירת מחדל מאומדן הלשכה */
   undergroundConstructionCostPerSqm: number;
   /** יחס עלות מרפסות מעלות השטח העיקרי (טווח הלשכה: 30%-50%, ברירת מחדל 50% כמו במקור) */
@@ -67,6 +90,9 @@ export interface CostInputs {
   permitMonths: number; // משך התקופה עד היתר, חודשים
   equityNis: number; // הון עצמי מושקע
   presaleRate: number; // אחוז מכירה מוקדמת (פרי-סייל)
+
+  /** שכר המארגן בקבוצת רכישה, סכום קבוע, ₪. נוסף לעלויות העקיפות, מוצג גם בנפרד. 0 בשאר סוגי העסקה */
+  organizerFeeNis: number;
 }
 
 export interface LandInputs {
@@ -97,6 +123,8 @@ export interface AreaSummary {
   /** שטח לשיווק = עיקרי + ממ"ד + (מרפסות * מקדם משקל) */
   totalMarketableAreaSqm: number;
   unitCount: number;
+  /** פילוח שטח עיקרי + מרפסות/ממ"ד לפי קטגוריה, לחישוב עלות בנייה נפרדת ב-mixedUse */
+  areaByCategory: Record<UnitCategory, { mainAreaSqm: number; otherAreaSqm: number }>;
 }
 
 export interface RevenueSummary {
@@ -117,6 +145,8 @@ export interface CostBreakdown {
   financingNis: number;
   totalExclFinancingNis: number;
   totalInclFinancingNis: number;
+  /** שכר המארגן בקבוצת רכישה, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
+  organizerFeeNis: number;
 }
 
 export interface ProfitabilitySummary {

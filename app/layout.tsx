@@ -83,7 +83,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             . המחירון יתעדכן מעת לעת בהתאם ובכפוף לעדכוני לשכת שמאי המקרקעין.
           </p>
           <p>
-            © כל הזכויות שמורות לחיים אטקין ו/או לבית שמאי ·{" "}
+            © כל הזכויות שמורות לחיים אטקין ו/או לבית שמאי<sup>®</sup> ·{" "}
             <a href="mailto:haimetkin@gmail.com" className="underline hover:text-gray-600">
               haimetkin@gmail.com
             </a>{" "}

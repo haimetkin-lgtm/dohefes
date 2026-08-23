@@ -22,7 +22,9 @@ export default function Home() {
           <Banner />
         </div>
         <h1 className="text-2xl md:text-3xl font-bold text-[#14502F] leading-snug mb-3">
-          כדאיות כלכלית והיתכנות לפרויקט נדל&quot;ן – דוחות אפס
+          כדאיות כלכלית והיתכנות לפרויקט נדל&quot;ן
+          <br />
+          דוחות אפס
         </h1>
         <p className="text-gray-600 max-w-xl mx-auto leading-relaxed">
           מזינים שטחים, תמהיל דירות או סוגי נכסים ומקבלים דוח אפס - כדאיות כלכלית.
@@ -49,8 +51,7 @@ export default function Home() {
               </span>
               <span className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg leading-relaxed">
                 יש לנו סוכן חכם שקורא את התיאור והקבצים שהעלית ותופר מהם שלד דוח אפס מותאם לפרויקט
-                שלך: שטחים, תמהיל ונתונים פיזיים. את הערכים הכספיים (מחירי מכירה וכו&apos;) אתה
-                משלים בעצמך בטופס שמתקבל.
+                שלך.
               </span>
             </span>
           </div>
