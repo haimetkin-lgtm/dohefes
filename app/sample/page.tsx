@@ -3,6 +3,8 @@
 import { computeProject } from "@/lib/calc/engine";
 import type { ProjectInputs } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
+import Banner from "@/app/components/Banner";
+import { downloadWorkbook } from "@/lib/report/exportExcel";
 
 const SAMPLE_INPUTS: ProjectInputs = {
   dealType: "tama38",
@@ -60,6 +62,9 @@ export default function SamplePage() {
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
+      <div className="print:hidden mb-6">
+        <Banner />
+      </div>
       <div className="print:hidden mb-5 text-center">
         <h1 className="text-lg font-bold text-[#14502F] mb-1">דוגמת דוח אפס</h1>
         <p className="text-sm text-gray-500">
@@ -68,6 +73,21 @@ export default function SamplePage() {
       </div>
 
       <ReportView inputs={SAMPLE_INPUTS} result={result} />
+
+      <div className="print:hidden flex flex-col sm:flex-row gap-2 mt-4">
+        <button
+          onClick={() => downloadWorkbook(SAMPLE_INPUTS, result)}
+          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+        >
+          הורדת קובץ Excel
+        </button>
+        <button
+          onClick={() => window.print()}
+          className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+        >
+          הדפסה / שמירה כ-PDF
+        </button>
+      </div>
 
       <div className="print:hidden mt-6 text-center">
         <a
