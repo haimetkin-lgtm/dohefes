@@ -18,7 +18,12 @@ export type DealType =
   | "purchaseGroup"
   | "mixedUse";
 
-export type UnitCategory = "residential" | "commercial" | "office";
+/**
+ * residential=מגורים "רגיל" (בפינוי בינוי: דירות תמורה לדיירים קיימים), residentialPremium=מגורים
+ * ברמת גימור/מחיר גבוהים יותר (בפינוי בינוי: דירות למכירה). שתיהן מגורים לצורך מע"מ, שונות רק
+ * בעלות הבנייה למ"ר. commercial/office כרגיל.
+ */
+export type UnitCategory = "residential" | "residentialPremium" | "commercial" | "office";
 
 export interface UnitType {
   /** שם חופשי, למשל "דירת 4 חדרים" */
@@ -47,6 +52,8 @@ export interface CostInputs {
   balconyWeight: number;
   /** עלות בנייה למ"ר, שטח עיקרי מגורים. ברירת מחדל מאומדן הלשכה (מודול 02) */
   mainConstructionCostPerSqm: number;
+  /** עלות בנייה למ"ר מגורים פרימיום (residentialPremium). אם 0, נופל חזרה למחיר המגורים הרגיל */
+  premiumConstructionCostPerSqm: number;
   /** עלות בנייה למ"ר מסחר, רלוונטי רק ל-mixedUse. אם 0, נופל חזרה למחיר המגורים */
   commercialConstructionCostPerSqm: number;
   /** עלות בנייה למ"ר משרדים, רלוונטי רק ל-mixedUse. אם 0, נופל חזרה למחיר המגורים */
@@ -64,8 +71,8 @@ export interface CostInputs {
   /** הריסה ופינוי, סכום קבוע, ₪ (רלוונטי בעיקר לתמ"א 38, 0 בבנייה חדשה) */
   demolitionFlatNis: number;
 
-  /** אגרות והיטלים עירוניים, סכום כולל שהמשתמש מזין (מודול 02: תלוי רשות מקומית) */
-  municipalFeesNis: number;
+  /** אגרות והיטלים עירוניים, מפורט לפי סעיף (ר' MunicipalFeeInputs) */
+  municipalFees: MunicipalFeeInputs;
 
   // דמי שכירות לתקופת הבנייה לדיירים הקיימים (רלוונטי בעיקר לפינוי בינוי/תמ"א 38 עם דיירים
   // שמתפנים). מספר היחידות ומשך התקופה הם נתונים פיזיים שהסוכן החכם יכול להעריך מהתיאור/תוכניות,
@@ -110,10 +117,32 @@ export interface CostInputs {
   organizerFeeNis: number;
 }
 
+/**
+ * אגרות והיטלי בנייה עירוניים, מפורט. מבוסס על מבנה גיליון "אגרות והיטלים" בקבצי המקור
+ * (ר' 01/02-מפרט נוסחאות): שלוש אגרות שטוחות + שלוש קטגוריות "כביש/תיעול/מדרכות" לפי בסיס שטח.
+ * פישוט מכוון: המקור מפצל חלק מהסעיפים גם לפי נפח (מ"ק, תלוי גובה קומה), לא רק שטח - המודל הזה
+ * לא עוקב אחרי גובה בניין בנפרד, ולכן כל הסעיפים כאן מבוססי שטח (מ"ר) בלבד. הסכום הכולל מוכפל
+ * ב-1.05 (מקדם קבוע שמופיע בכל קובצי המקור, ר' engine.ts).
+ */
+export interface MunicipalFeeInputs {
+  /** אגרות בנייה, ₪ למ"ר שטח בנוי ברוטו */
+  buildingFeeRatePerSqm: number;
+  /** דמי הקמה מים, ₪ למ"ר שטח בנוי ברוטו */
+  waterConnectionRatePerSqm: number;
+  /** דמי הקמה ביוב, ₪ למ"ר שטח בנוי ברוטו */
+  sewageConnectionRatePerSqm: number;
+  /** כביש/תיעול/מדרכות לפי שטח המגרש, ₪ למ"ר */
+  roadDrainagePlotRatePerSqm: number;
+  /** כביש/תיעול/מדרכות לפי שטח הבנוי, ₪ למ"ר */
+  roadDrainageBuildingRatePerSqm: number;
+  /** כביש/תיעול/מדרכות לפי שטח המרתף/חניה, ₪ למ"ר */
+  roadDrainageUndergroundRatePerSqm: number;
+}
+
 export interface LandInputs {
   /** תמ"א 38: רכישת קרקע במזומן, ₪. לא רלוונטי לקומבינציה */
   landPurchaseNis: number;
-  /** תמ"א 38: היטל השבחה בגין הקלות, ₪ */
+  /** היטל השבחה, ₪. רלוונטי בכל סוג עסקה (גם קרקע באחוזים), לא רק רכישה במזומן */
   bettermentLevyNis: number;
 
   /** קומבינציה: אחוז השטח שחוזר לבעל הקרקע כתמורה בעין (למשל 0.4) */
@@ -152,6 +181,17 @@ export interface RevenueSummary {
   averagePricePerSqmNis: number;
 }
 
+/** שורת פירוט עלות בנייה לקטגוריה אחת, לצורך תצוגה בדוח ("פירוט עלויות בנייה") */
+export interface ConstructionCostRow {
+  category: UnitCategory;
+  /** שטח עיקרי (הדירות/היחידות עצמן), מ"ר */
+  mainAreaSqm: number;
+  mainCostNis: number;
+  /** ממ"ד + מרפסת + מרפסת גג יחד, מ"ר */
+  otherAreaSqm: number;
+  otherCostNis: number;
+}
+
 export interface CostBreakdown {
   landNis: number;
   indirectNis: number;
@@ -164,6 +204,10 @@ export interface CostBreakdown {
   organizerFeeNis: number;
   /** דמי שכירות לדיירים הקיימים, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
   relocationRentNis: number;
+  /** אגרות והיטלים עירוניים, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
+  municipalFeesNis: number;
+  /** פירוט עלות הבנייה הישירה לפי קטגוריה, כבר כלול ב-directConstructionNis במלואו */
+  constructionBreakdown: ConstructionCostRow[];
 }
 
 export interface ProfitabilitySummary {

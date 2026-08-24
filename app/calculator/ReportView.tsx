@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import Logo from "@/app/components/Logo";
 import ConsultationCTA from "@/app/components/ConsultationCTA";
@@ -19,9 +20,20 @@ const DEAL_TYPE_SUBTITLE: Partial<Record<ProjectInputs["dealType"], string>> = {
 
 const CATEGORY_LABEL: Record<string, string> = {
   residential: "מגורים",
+  residentialPremium: "מגורים פרימיום",
   commercial: "מסחר",
   office: "משרדים",
 };
+
+// תווית שורת פירוט הבנייה לקטגוריה, תלוית-הקשר: כשיש גם residential וגם residentialPremium
+// באותו פרויקט (פינוי בינוי טיפוסי), residential מתויג "תמורה" ו-residentialPremium "פרימיום".
+// אחרת (רק residential, כמו תמ"א 38/בסיסי רגיל) נשארת התווית הרגילה "מגורים".
+function constructionCategoryLabel(category: string, hasBothResidentialTiers: boolean): string {
+  if (hasBothResidentialTiers && category === "residential") return "דירות תמורה";
+  if (hasBothResidentialTiers && category === "residentialPremium") return "דירות פרימיום";
+  if (category === "residential") return "דירות (מגורים)";
+  return CATEGORY_LABEL[category] ?? category;
+}
 
 function nis(n: number): string {
   return Math.round(n).toLocaleString("he-IL") + " ₪";
@@ -54,6 +66,9 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   // מבוסס על הנתונים בפועל ולא על סוג העסקה, כל סוג עסקה שהקרקע בו משולמת באחוז חלוקה
   // יכול לכלול יחידות ממספר קטגוריות (למשל פינוי בינוי עם מסחר בקומת קרקע)
   const isMixed = new Set(inputs.units.map((u) => u.category ?? "residential")).size > 1;
+  const hasBothResidentialTiers =
+    inputs.units.some((u) => (u.category ?? "residential") === "residential") &&
+    inputs.units.some((u) => u.category === "residentialPremium");
   const dateStr = new Date().toLocaleDateString("he-IL");
 
   return (
@@ -113,6 +128,73 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                     <td className="py-1.5 px-2">{nis(u.priceNis)}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* פירוט עלויות בנייה ותשלומים נלווים */}
+        <div className="mb-7">
+          <SectionTitle>פירוט עלויות בנייה ותשלומים נלווים</SectionTitle>
+          <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <table className="w-full text-xs border-collapse min-w-[420px]">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500">
+                  <th className="text-right py-2 px-2">סעיף</th>
+                  <th className="text-right py-2 px-2">שטח</th>
+                  <th className="text-right py-2 px-2">סה&quot;כ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.costs.constructionBreakdown.map((row) => {
+                  const label = constructionCategoryLabel(row.category, hasBothResidentialTiers);
+                  return (
+                    <Fragment key={row.category}>
+                      <tr className="border-t border-gray-100 tabular-nums">
+                        <td className="py-1.5 px-2">עלויות בנייה למ&quot;ר {label}</td>
+                        <td className="py-1.5 px-2">{fmt(row.mainAreaSqm)} מ&quot;ר</td>
+                        <td className="py-1.5 px-2">{nis(row.mainCostNis)}</td>
+                      </tr>
+                      {row.otherAreaSqm > 0 && (
+                        <tr className="border-t border-gray-100 tabular-nums">
+                          <td className="py-1.5 px-2">עלויות בנייה למ&quot;ר מרפסות {label}</td>
+                          <td className="py-1.5 px-2">{fmt(row.otherAreaSqm)} מ&quot;ר</td>
+                          <td className="py-1.5 px-2">{nis(row.otherCostNis)}</td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+                {inputs.costs.demolitionFlatNis > 0 && (
+                  <tr className="border-t border-gray-100 tabular-nums">
+                    <td className="py-1.5 px-2">עלויות הריסה ופינוי</td>
+                    <td className="py-1.5 px-2 text-gray-300">—</td>
+                    <td className="py-1.5 px-2">{nis(inputs.costs.demolitionFlatNis)}</td>
+                  </tr>
+                )}
+                {inputs.land.bettermentLevyNis > 0 && (
+                  <tr className="border-t border-gray-100 tabular-nums">
+                    <td className="py-1.5 px-2">היטל השבחה</td>
+                    <td className="py-1.5 px-2 text-gray-300">—</td>
+                    <td className="py-1.5 px-2">{nis(inputs.land.bettermentLevyNis)}</td>
+                  </tr>
+                )}
+                {result.costs.municipalFeesNis > 0 && (
+                  <tr className="border-t border-gray-100 tabular-nums">
+                    <td className="py-1.5 px-2">אגרות והיטלים עירוניים</td>
+                    <td className="py-1.5 px-2 text-gray-300">—</td>
+                    <td className="py-1.5 px-2">{nis(result.costs.municipalFeesNis)}</td>
+                  </tr>
+                )}
+                {result.costs.relocationRentNis > 0 && (
+                  <tr className="border-t border-gray-100 tabular-nums">
+                    <td className="py-1.5 px-2">דמי שכירות לדיירים קיימים</td>
+                    <td className="py-1.5 px-2 text-gray-300">
+                      {inputs.costs.relocationUnitsCount} יח&apos; × {inputs.costs.relocationMonths} חוד&apos;
+                    </td>
+                    <td className="py-1.5 px-2">{nis(result.costs.relocationRentNis)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

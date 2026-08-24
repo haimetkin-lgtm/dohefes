@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { computeProject, isCashLandDeal } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
-import type { CostInputs, DealType, LandInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
+import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import ReportView from "./ReportView";
@@ -40,11 +40,21 @@ function emptyUnit(): UnitType {
   return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
 }
 
+const DEFAULT_MUNICIPAL_FEES: MunicipalFeeInputs = {
+  buildingFeeRatePerSqm: 0,
+  waterConnectionRatePerSqm: 0,
+  sewageConnectionRatePerSqm: 0,
+  roadDrainagePlotRatePerSqm: 0,
+  roadDrainageBuildingRatePerSqm: 0,
+  roadDrainageUndergroundRatePerSqm: 0,
+};
+
 // ברירות המחדל של דוח חדש וריק. משמשות גם כגיבוי כשטוענים דוח (?id=) שנוצר עם שדות
 // עלות/קרקע חלקיים בלבד, כמו שלד שבנה הסוכן החכם (רק dealType/projectName/units, בלי עלויות).
 const DEFAULT_COSTS: CostInputs = {
   balconyWeight: 0.5,
   mainConstructionCostPerSqm: 0,
+  premiumConstructionCostPerSqm: 0,
   commercialConstructionCostPerSqm: 0,
   officeConstructionCostPerSqm: 0,
   undergroundConstructionCostPerSqm: 0,
@@ -53,7 +63,7 @@ const DEFAULT_COSTS: CostInputs = {
   undergroundAreaSqm: 0,
   netPlotAreaSqm: 0,
   demolitionFlatNis: 0,
-  municipalFeesNis: 0,
+  municipalFees: DEFAULT_MUNICIPAL_FEES,
   brokerageRate: 0.01,
   purchaseTaxRate: 0.06,
   electricConnectionPerUnitNis: 4500,
@@ -103,13 +113,19 @@ export default function CalculatorPage() {
   const chamberRow = CHAMBER_COSTS.find((r) => r.region === region)!;
 
   const [mainCost, setMainCost] = useState(chamberRow[height]);
+  const [premiumCost, setPremiumCost] = useState(0);
   const [commercialCost, setCommercialCost] = useState(0);
   const [officeCost, setOfficeCost] = useState(0);
   const [undergroundCost, setUndergroundCost] = useState(chamberRow.underground);
   const [undergroundArea, setUndergroundArea] = useState(0);
   const [netPlotArea, setNetPlotArea] = useState(0);
   const [demolition, setDemolition] = useState(0);
-  const [municipalFees, setMunicipalFees] = useState(0);
+  const [buildingFeeRate, setBuildingFeeRate] = useState(0);
+  const [waterConnectionRate, setWaterConnectionRate] = useState(0);
+  const [sewageConnectionRate, setSewageConnectionRate] = useState(0);
+  const [roadDrainagePlotRate, setRoadDrainagePlotRate] = useState(0);
+  const [roadDrainageBuildingRate, setRoadDrainageBuildingRate] = useState(0);
+  const [roadDrainageUndergroundRate, setRoadDrainageUndergroundRate] = useState(0);
   const [relocationUnitsCount, setRelocationUnitsCount] = useState(0);
   const [relocationMonths, setRelocationMonths] = useState(0);
   const [relocationRentPerUnit, setRelocationRentPerUnit] = useState(0);
@@ -150,19 +166,29 @@ export default function CalculatorPage() {
   function applyLoadedInputs(loaded: ProjectInputs) {
     // מיזוג עם ברירות המחדל, לא השמה ישירה: דוח שנבנה על ידי הסוכן החכם שומר רק
     // dealType/projectName/units (ר' ai_notes ב-dohefes_custom_orders), בלי עלויות/קרקע כלל.
-    const costs = { ...DEFAULT_COSTS, ...(loaded.costs || {}) };
+    const costs = {
+      ...DEFAULT_COSTS,
+      ...(loaded.costs || {}),
+      municipalFees: { ...DEFAULT_MUNICIPAL_FEES, ...(loaded.costs?.municipalFees || {}) },
+    };
     const land = { ...DEFAULT_LAND, ...(loaded.land || {}) };
     setProjectName(loaded.projectName);
     setDealType(loaded.dealType);
     setUnits(loaded.units?.length > 0 ? loaded.units : [emptyUnit()]);
     setMainCost(costs.mainConstructionCostPerSqm);
+    setPremiumCost(costs.premiumConstructionCostPerSqm);
     setCommercialCost(costs.commercialConstructionCostPerSqm);
     setOfficeCost(costs.officeConstructionCostPerSqm);
     setUndergroundCost(costs.undergroundConstructionCostPerSqm);
     setUndergroundArea(costs.undergroundAreaSqm);
     setNetPlotArea(costs.netPlotAreaSqm);
     setDemolition(costs.demolitionFlatNis);
-    setMunicipalFees(costs.municipalFeesNis);
+    setBuildingFeeRate(costs.municipalFees.buildingFeeRatePerSqm);
+    setWaterConnectionRate(costs.municipalFees.waterConnectionRatePerSqm);
+    setSewageConnectionRate(costs.municipalFees.sewageConnectionRatePerSqm);
+    setRoadDrainagePlotRate(costs.municipalFees.roadDrainagePlotRatePerSqm);
+    setRoadDrainageBuildingRate(costs.municipalFees.roadDrainageBuildingRatePerSqm);
+    setRoadDrainageUndergroundRate(costs.municipalFees.roadDrainageUndergroundRatePerSqm);
     setRelocationUnitsCount(costs.relocationUnitsCount);
     setRelocationMonths(costs.relocationMonths);
     setRelocationRentPerUnit(costs.relocationRentPerUnitMonthlyNis);
@@ -193,6 +219,7 @@ export default function CalculatorPage() {
       costs: {
         balconyWeight: 0.5,
         mainConstructionCostPerSqm: mainCost,
+        premiumConstructionCostPerSqm: premiumCost,
         commercialConstructionCostPerSqm: commercialCost,
         officeConstructionCostPerSqm: officeCost,
         undergroundConstructionCostPerSqm: undergroundCost,
@@ -201,7 +228,14 @@ export default function CalculatorPage() {
         undergroundAreaSqm: undergroundArea,
         netPlotAreaSqm: netPlotArea,
         demolitionFlatNis: demolition,
-        municipalFeesNis: municipalFees,
+        municipalFees: {
+          buildingFeeRatePerSqm: buildingFeeRate,
+          waterConnectionRatePerSqm: waterConnectionRate,
+          sewageConnectionRatePerSqm: sewageConnectionRate,
+          roadDrainagePlotRatePerSqm: roadDrainagePlotRate,
+          roadDrainageBuildingRatePerSqm: roadDrainageBuildingRate,
+          roadDrainageUndergroundRatePerSqm: roadDrainageUndergroundRate,
+        },
         relocationUnitsCount,
         relocationMonths,
         relocationRentPerUnitMonthlyNis: relocationRentPerUnit,
@@ -235,7 +269,8 @@ export default function CalculatorPage() {
       },
     }),
     [
-      projectName, dealType, units, mainCost, commercialCost, officeCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
+      projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, undergroundCost, undergroundArea, netPlotArea, demolition,
+      buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
@@ -452,6 +487,15 @@ export default function CalculatorPage() {
           {supportsMixedCategories && (
             <>
               <label className="flex flex-col gap-1">
+                <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר מגורים פרימיום (₪), ריק = כמו מגורים רגיל</span>
+                <input
+                  type="number"
+                  value={premiumCost}
+                  onChange={(e) => setPremiumCost(Number(e.target.value))}
+                  className="border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
                 <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר מסחר (₪), ריק = כמו מגורים</span>
                 <input
                   type="number"
@@ -507,17 +551,68 @@ export default function CalculatorPage() {
               className="border border-gray-300 rounded-lg px-3 py-2"
             />
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-gray-500 text-xs">
-              אגרות והיטלים עירוניים, סכום כולל (₪) <span className="text-gray-400">תלוי רשות מקומית</span>
-            </span>
-            <input
-              type="number"
-              value={municipalFees}
-              onChange={(e) => setMunicipalFees(Number(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2"
-            />
-          </label>
+        </div>
+
+        <div className="mt-3">
+          <div className="text-xs font-medium text-gray-600 mb-2">
+            אגרות והיטלים עירוניים, ₪ למ&quot;ר <span className="text-gray-400">תלוי רשות מקומית, ריק = 0</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">אגרות בנייה, לשטח בנוי</span>
+              <input
+                type="number"
+                value={buildingFeeRate}
+                onChange={(e) => setBuildingFeeRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">דמי הקמה מים, לשטח בנוי</span>
+              <input
+                type="number"
+                value={waterConnectionRate}
+                onChange={(e) => setWaterConnectionRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">דמי הקמה ביוב, לשטח בנוי</span>
+              <input
+                type="number"
+                value={sewageConnectionRate}
+                onChange={(e) => setSewageConnectionRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">כביש/תיעול/מדרכות, לשטח מגרש</span>
+              <input
+                type="number"
+                value={roadDrainagePlotRate}
+                onChange={(e) => setRoadDrainagePlotRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">כביש/תיעול/מדרכות, לשטח בנוי</span>
+              <input
+                type="number"
+                value={roadDrainageBuildingRate}
+                onChange={(e) => setRoadDrainageBuildingRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">כביש/תיעול/מדרכות, לשטח מרתף</span>
+              <input
+                type="number"
+                value={roadDrainageUndergroundRate}
+                onChange={(e) => setRoadDrainageUndergroundRate(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+          </div>
         </div>
 
         <div className="mt-3">
@@ -614,6 +709,15 @@ export default function CalculatorPage() {
                 className="border border-gray-300 rounded-lg px-3 py-2"
               />
             </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">היטל השבחה (₪)</span>
+              <input
+                type="number"
+                value={bettermentLevy}
+                onChange={(e) => setBettermentLevy(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
           </div>
         )}
       </section>
@@ -667,6 +771,7 @@ export default function CalculatorPage() {
                         className="border border-gray-200 rounded px-1 py-1"
                       >
                         <option value="residential">מגורים</option>
+                        <option value="residentialPremium">מגורים פרימיום</option>
                         <option value="commercial">מסחר</option>
                         <option value="office">משרדים</option>
                       </select>

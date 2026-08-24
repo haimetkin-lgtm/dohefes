@@ -30,14 +30,19 @@ interface SkeletonUnit {
 // בלי שווי קרקע. השדות האלה מגיעים מהלקוח בהמשך, במחשבון.
 const SKELETON_UNITS: SkeletonUnit[] = [
   { name: "דירת 3 חדרים, תמורה לדיירים קיימים", category: "residential", count: 28, areaSqm: 78, mamadSqm: 5, balconySqm: 10, roofBalconySqm: 0 },
-  { name: "דירת 4 חדרים פרימיום", category: "residential", count: 140, areaSqm: 105, mamadSqm: 6, balconySqm: 12, roofBalconySqm: 0 },
-  { name: "פנטהאוז דופלקס יוקרה", category: "residential", count: 8, areaSqm: 160, mamadSqm: 8, balconySqm: 20, roofBalconySqm: 60 },
+  { name: "דירת 4 חדרים פרימיום", category: "residentialPremium", count: 140, areaSqm: 105, mamadSqm: 6, balconySqm: 12, roofBalconySqm: 0 },
+  { name: "פנטהאוז דופלקס יוקרה", category: "residentialPremium", count: 8, areaSqm: 160, mamadSqm: 8, balconySqm: 20, roofBalconySqm: 60 },
   { name: "חנות מסחר, קומת קרקע", category: "commercial", count: 12, areaSqm: 60, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0 },
   { name: "משרד, קומות תעסוקה", category: "office", count: 20, areaSqm: 90, mamadSqm: 0, balconySqm: 6, roofBalconySqm: 0 },
   { name: "מסעדת גג יוקרתית", category: "commercial", count: 1, areaSqm: 450, mamadSqm: 0, balconySqm: 120, roofBalconySqm: 0 },
 ];
 
-const CATEGORY_LABEL: Record<UnitCategory, string> = { residential: "מגורים", commercial: "מסחר", office: "משרדים" };
+const CATEGORY_LABEL: Record<UnitCategory, string> = {
+  residential: "מגורים (תמורה)",
+  residentialPremium: "מגורים (פרימיום)",
+  commercial: "מסחר",
+  office: "משרדים",
+};
 
 // אותם שטחים ותמהיל בדיוק כמו השלד, רק שעכשיו כל הערכים הכספיים כבר מולאו: מחיר ליחידה,
 // עלויות בנייה, קרקע, מימון, ודמי השכירות בפועל לדיירים הקיימים. זה מה שהלקוח משלים, לא הסוכן.
@@ -48,16 +53,17 @@ const FINAL_INPUTS: ProjectInputs = {
     ...u,
     priceNis: {
       "דירת 3 חדרים, תמורה לדיירים קיימים": 3100000,
-      "דירת 4 חדרים פרימיום": 4200000,
-      "פנטהאוז דופלקס יוקרה": 8900000,
+      "דירת 4 חדרים פרימיום": 4500000,
+      "פנטהאוז דופלקס יוקרה": 9500000,
       "חנות מסחר, קומת קרקע": 1400000,
       "משרד, קומות תעסוקה": 1650000,
-      "מסעדת גג יוקרתית": 9500000,
+      "מסעדת גג יוקרתית": 10500000,
     }[u.name]!,
   })),
   costs: {
     balconyWeight: 0.5,
     mainConstructionCostPerSqm: 9500,
+    premiumConstructionCostPerSqm: 10500,
     commercialConstructionCostPerSqm: 6200,
     officeConstructionCostPerSqm: 7100,
     undergroundConstructionCostPerSqm: 4300,
@@ -66,7 +72,14 @@ const FINAL_INPUTS: ProjectInputs = {
     undergroundAreaSqm: 8500,
     netPlotAreaSqm: 4200,
     demolitionFlatNis: 2800000,
-    municipalFeesNis: 4200000,
+    municipalFees: {
+      buildingFeeRatePerSqm: 120,
+      waterConnectionRatePerSqm: 50,
+      sewageConnectionRatePerSqm: 40,
+      roadDrainagePlotRatePerSqm: 90,
+      roadDrainageBuildingRatePerSqm: 110,
+      roadDrainageUndergroundRatePerSqm: 60,
+    },
     relocationUnitsCount: 28,
     relocationMonths: 36,
     relocationRentPerUnitMonthlyNis: 7500,

@@ -19,6 +19,7 @@ const SAMPLE_INPUTS: ProjectInputs = {
   costs: {
     balconyWeight: 0.5,
     mainConstructionCostPerSqm: 7500,
+    premiumConstructionCostPerSqm: 0,
     commercialConstructionCostPerSqm: 0,
     officeConstructionCostPerSqm: 0,
     undergroundConstructionCostPerSqm: 4100,
@@ -27,7 +28,14 @@ const SAMPLE_INPUTS: ProjectInputs = {
     undergroundAreaSqm: 1450,
     netPlotAreaSqm: 950,
     demolitionFlatNis: 320000,
-    municipalFeesNis: 1650000,
+    municipalFees: {
+      buildingFeeRatePerSqm: 200,
+      waterConnectionRatePerSqm: 80,
+      sewageConnectionRatePerSqm: 60,
+      roadDrainagePlotRatePerSqm: 150,
+      roadDrainageBuildingRatePerSqm: 180,
+      roadDrainageUndergroundRatePerSqm: 90,
+    },
     relocationUnitsCount: 0,
     relocationMonths: 0,
     relocationRentPerUnitMonthlyNis: 0,
