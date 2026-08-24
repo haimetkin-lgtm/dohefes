@@ -40,7 +40,7 @@ export default function Home() {
           <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי, 980 ₪</div>
           <p className="text-sm text-gray-600 mb-3">
             שטחים, תמהיל דירות, עלויות והכנסות. התשלום כולל את דוח האפס וגם את כל דוחות המעקב
-            לאותו פרויקט, ללא תשלום נוסף.
+            לאותו פרויקט, ללא תשלום נוסף. כולל טבלאות דירוג למיזמי פינוי בינוי.
           </p>
           <a href="/dohefes/start/" className="text-sm font-medium text-[#1D6F42] hover:underline">
             פתיחת מחולל דוחות אפס ←
