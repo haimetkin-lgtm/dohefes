@@ -116,7 +116,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-8 mb-7">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 mb-7">
           <div>
             <SectionTitle>שטחים</SectionTitle>
             <table className="w-full text-xs">

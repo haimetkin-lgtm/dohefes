@@ -35,7 +35,7 @@ export default function Home() {
         </a>
       </section>
 
-      <section className="grid sm:grid-cols-2 gap-4 mb-10">
+      <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
         <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
           <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי, 980 ₪</div>
           <p className="text-sm text-gray-600 mb-3">

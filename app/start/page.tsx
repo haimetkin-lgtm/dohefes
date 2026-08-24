@@ -73,7 +73,7 @@ export default function StartPage() {
         הפרויקט, ורק אחר כך עוברים לתשלום.
       </p>
 
-      <div className="grid sm:grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
         {DEAL_TYPES.map((dt) => (
           <button
             key={dt.id}

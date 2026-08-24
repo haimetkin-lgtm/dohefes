@@ -215,7 +215,7 @@ export default function CalculatorPage() {
           וכלליות) ועלויות מימון. סעיפים אלה יש להזין בנפרד, בסקשן &quot;מיסים ועלויות עקיפות&quot;
           למטה.
         </p>
-        <div className="grid sm:grid-cols-2 gap-2 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
           <select
             value={region}
             onChange={(e) => {
@@ -246,7 +246,7 @@ export default function CalculatorPage() {
             ))}
           </select>
         </div>
-        <div className="grid sm:grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <label className="flex flex-col gap-1">
             <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר עיקרי (₪)</span>
             <input
@@ -332,7 +332,7 @@ export default function CalculatorPage() {
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
         <div className="font-bold text-[#123640] mb-2 text-sm">קרקע</div>
         {isCashLandDeal(dealType) ? (
-          <div className="grid sm:grid-cols-2 gap-2 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">רכישת קרקע (₪)</span>
               <input
@@ -353,7 +353,7 @@ export default function CalculatorPage() {
             </label>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 gap-2 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">
                 {dealType === "pinuyBinui" || dealType === "mixedUse"
@@ -396,7 +396,7 @@ export default function CalculatorPage() {
             + הוספת טיפוס דירה
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-w-full">
           <table className="w-full text-xs min-w-[640px]">
             <thead>
               <tr className="text-gray-500 text-right">
@@ -478,7 +478,7 @@ export default function CalculatorPage() {
       {/* מימון */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
         <div className="font-bold text-[#123640] mb-2 text-sm">מימון</div>
-        <div className="grid sm:grid-cols-2 gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
           <label className="flex flex-col gap-1">
             <span className="text-gray-500 text-xs">הון עצמי מושקע (₪)</span>
             <input
@@ -546,7 +546,7 @@ export default function CalculatorPage() {
           {showAdvanced ? "▲" : "▼"} מיסים ועלויות עקיפות, ברירות מחדל ניתנות לעריכה
         </button>
         {showAdvanced && (
-          <div className="grid sm:grid-cols-2 gap-2 text-sm mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm mt-3">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">מס רכישה</span>
               <input
