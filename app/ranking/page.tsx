@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { downloadRankingWorkbook } from "@/lib/report/exportRankingExcel";
 
 interface Criterion {
   id: string;
@@ -207,10 +208,25 @@ export default function RankingPage() {
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
       <h1 className="text-xl font-bold text-[#14502F] mb-1">כלי דירוג ובחירת יחידות</h1>
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm text-gray-500 mb-4">
         לשימוש בפרויקטי פינוי בינוי: דירוג הדירות הישנות של הדיירים הקיימים, וחישוב פער ערך מול
         הדירה החדשה שכל דייר בפועל בחר.
       </p>
+
+      <div className="print:hidden flex flex-col sm:flex-row gap-2 mb-6">
+        <button
+          onClick={() => downloadRankingWorkbook(criteria, oldUnits, newUnits, choices)}
+          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+        >
+          הורדת קובץ Excel
+        </button>
+        <button
+          onClick={() => window.print()}
+          className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+        >
+          הדפסה / שמירה כ-PDF
+        </button>
+      </div>
 
       <section className="bg-[#EAF3EC] border border-[#BFE0CC] rounded-xl p-5 mb-8 text-sm text-gray-700 leading-relaxed">
         <div className="font-bold text-[#14502F] mb-2">שיטת העבודה הנהוגה</div>
