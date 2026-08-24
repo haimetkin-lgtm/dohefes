@@ -92,12 +92,14 @@ export default function StartPage() {
         ))}
       </div>
 
-      <a
-        href="/dohefes/ranking/"
-        className="block text-sm font-medium text-[#1D6F42] hover:underline mb-6"
-      >
-        פרויקט פינוי בינוי? כלי דירוג יחידות לחישוב הפרש ערך בין דירות ←
-      </a>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mb-6">
+        <a href="/dohefes/ranking-sample/" className="text-sm font-medium text-[#1D6F42] hover:underline">
+          פרויקט פינוי בינוי? צפו בדוגמת טבלת דירוג ←
+        </a>
+        <a href="/dohefes/ranking/" className="text-sm font-medium text-[#1D6F42] hover:underline">
+          או ישר לכלי הדירוג לפרויקט שלכם ←
+        </a>
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
         <div className="font-bold text-[#123640] mb-2 text-sm">כלול במחיר</div>
