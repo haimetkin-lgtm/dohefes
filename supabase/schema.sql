@@ -28,7 +28,11 @@ create table if not exists dohefes_custom_orders (
   price_nis numeric not null default 1800,
   paid boolean not null default false,
   status text not null default 'pending_payment'
-    check (status in ('pending_payment', 'submitted', 'processing', 'ready', 'sent'))
+    check (status in ('pending_payment', 'submitted', 'processing', 'ready', 'sent')),
+  -- שני העמודות הבאות נכתבות אך ורק על ידי הסוכן החכם (insure-vda/src/lib/dohefes/skeleton.ts),
+  -- דרך מפתח שירות שעוקף RLS, אין להן מדיניות RLS ייעודית
+  report_id uuid references dohefes_reports(id),
+  ai_notes jsonb
 );
 
 -- RLS
@@ -50,3 +54,7 @@ create policy "anyone can read a dohefes custom order by id" on dohefes_custom_o
 -- אחסון קבצים למסלול בהתאמה אישית — bucket נפרד "dohefes-uploads" (ליצור דרך ה-Dashboard/Storage, לא כאן)
 create policy "anyone can upload dohefes files" on storage.objects
   for insert with check (bucket_id = 'dohefes-uploads');
+
+-- מיגרציה: הוספת report_id/ai_notes לטבלה קיימת (הרץ פעם אחת ב-SQL Editor של סופרבייס)
+alter table dohefes_custom_orders add column if not exists report_id uuid references dohefes_reports(id);
+alter table dohefes_custom_orders add column if not exists ai_notes jsonb;

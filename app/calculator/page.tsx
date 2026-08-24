@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { computeProject, isCashLandDeal } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
-import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
+import type { CostInputs, DealType, LandInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import ReportView from "./ReportView";
@@ -39,6 +39,50 @@ const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
 function emptyUnit(): UnitType {
   return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
 }
+
+// ברירות המחדל של דוח חדש וריק. משמשות גם כגיבוי כשטוענים דוח (?id=) שנוצר עם שדות
+// עלות/קרקע חלקיים בלבד, כמו שלד שבנה הסוכן החכם (רק dealType/projectName/units, בלי עלויות).
+const DEFAULT_COSTS: CostInputs = {
+  balconyWeight: 0.5,
+  mainConstructionCostPerSqm: 0,
+  commercialConstructionCostPerSqm: 0,
+  officeConstructionCostPerSqm: 0,
+  undergroundConstructionCostPerSqm: 0,
+  balconyConstructionCostRatio: 0.5,
+  developmentCostPerSqm: 500,
+  undergroundAreaSqm: 0,
+  netPlotAreaSqm: 0,
+  demolitionFlatNis: 0,
+  municipalFeesNis: 0,
+  brokerageRate: 0.01,
+  purchaseTaxRate: 0.06,
+  electricConnectionPerUnitNis: 4500,
+  planningFlatNis: 30000,
+  planningConsultantsRate: 0.025,
+  engineeringInspectionFlatNis: 0,
+  marketingRate: 0.025,
+  legalRate: 0.01,
+  legalRefundPerUnitNis: -5000,
+  financialSupervisionFlatNis: 250000,
+  overheadRate: 0.025,
+  managementFeeRate: 0.06,
+  contingencyRate: 0.05,
+  guaranteeCommissionRate: 0.0085,
+  unusedCreditCommissionRate: 0.0035,
+  annualInterestRate: 0.04,
+  constructionMonths: 30,
+  permitMonths: 12,
+  equityNis: 0,
+  presaleRate: 0.15,
+  organizerFeeNis: 0,
+};
+
+const DEFAULT_LAND: LandInputs = {
+  landPurchaseNis: 0,
+  bettermentLevyNis: 0,
+  combinationOwnerShare: 0.4,
+  combinationLandValueForTaxNis: 0,
+};
 
 export default function CalculatorPage() {
   const [projectName, setProjectName] = useState("");
@@ -94,34 +138,38 @@ export default function CalculatorPage() {
   }
 
   function applyLoadedInputs(loaded: ProjectInputs) {
+    // מיזוג עם ברירות המחדל, לא השמה ישירה: דוח שנבנה על ידי הסוכן החכם שומר רק
+    // dealType/projectName/units (ר' ai_notes ב-dohefes_custom_orders), בלי עלויות/קרקע כלל.
+    const costs = { ...DEFAULT_COSTS, ...(loaded.costs || {}) };
+    const land = { ...DEFAULT_LAND, ...(loaded.land || {}) };
     setProjectName(loaded.projectName);
     setDealType(loaded.dealType);
-    setUnits(loaded.units.length > 0 ? loaded.units : [emptyUnit()]);
-    setMainCost(loaded.costs.mainConstructionCostPerSqm);
-    setCommercialCost(loaded.costs.commercialConstructionCostPerSqm);
-    setOfficeCost(loaded.costs.officeConstructionCostPerSqm);
-    setUndergroundCost(loaded.costs.undergroundConstructionCostPerSqm);
-    setUndergroundArea(loaded.costs.undergroundAreaSqm);
-    setNetPlotArea(loaded.costs.netPlotAreaSqm);
-    setDemolition(loaded.costs.demolitionFlatNis);
-    setMunicipalFees(loaded.costs.municipalFeesNis);
-    setPurchaseTaxRate(loaded.costs.purchaseTaxRate);
-    setPlanningConsultantsRate(loaded.costs.planningConsultantsRate);
-    setEngineeringInspectionFlat(loaded.costs.engineeringInspectionFlatNis);
-    setMarketingRate(loaded.costs.marketingRate);
-    setLegalRate(loaded.costs.legalRate);
-    setOverheadRate(loaded.costs.overheadRate);
-    setManagementFeeRate(loaded.costs.managementFeeRate);
-    setContingencyRate(loaded.costs.contingencyRate);
-    setInterestRate(loaded.costs.annualInterestRate);
-    setConstructionMonths(loaded.costs.constructionMonths);
-    setEquity(loaded.costs.equityNis);
-    setPresaleRate(loaded.costs.presaleRate);
-    setOrganizerFee(loaded.costs.organizerFeeNis);
-    setLandPurchase(loaded.land.landPurchaseNis);
-    setBettermentLevy(loaded.land.bettermentLevyNis);
-    setCombinationShare(loaded.land.combinationOwnerShare);
-    setCombinationLandValue(loaded.land.combinationLandValueForTaxNis);
+    setUnits(loaded.units?.length > 0 ? loaded.units : [emptyUnit()]);
+    setMainCost(costs.mainConstructionCostPerSqm);
+    setCommercialCost(costs.commercialConstructionCostPerSqm);
+    setOfficeCost(costs.officeConstructionCostPerSqm);
+    setUndergroundCost(costs.undergroundConstructionCostPerSqm);
+    setUndergroundArea(costs.undergroundAreaSqm);
+    setNetPlotArea(costs.netPlotAreaSqm);
+    setDemolition(costs.demolitionFlatNis);
+    setMunicipalFees(costs.municipalFeesNis);
+    setPurchaseTaxRate(costs.purchaseTaxRate);
+    setPlanningConsultantsRate(costs.planningConsultantsRate);
+    setEngineeringInspectionFlat(costs.engineeringInspectionFlatNis);
+    setMarketingRate(costs.marketingRate);
+    setLegalRate(costs.legalRate);
+    setOverheadRate(costs.overheadRate);
+    setManagementFeeRate(costs.managementFeeRate);
+    setContingencyRate(costs.contingencyRate);
+    setInterestRate(costs.annualInterestRate);
+    setConstructionMonths(costs.constructionMonths);
+    setEquity(costs.equityNis);
+    setPresaleRate(costs.presaleRate);
+    setOrganizerFee(costs.organizerFeeNis);
+    setLandPurchase(land.landPurchaseNis);
+    setBettermentLevy(land.bettermentLevyNis);
+    setCombinationShare(land.combinationOwnerShare);
+    setCombinationLandValue(land.combinationLandValueForTaxNis);
   }
 
   const inputs: ProjectInputs = useMemo(
@@ -267,6 +315,11 @@ export default function CalculatorPage() {
           <a href={`${SITE_URL}/calculator/?id=${reportId}`} className="text-[#1D6F42] underline break-all">
             {`${SITE_URL}/calculator/?id=${reportId}`}
           </a>
+          {mainCost === 0 && undergroundCost === 0 && (
+            <p className="mt-1 text-[#8a2f22]">
+              זהו שלד ראשוני שבנה הסוכן החכם על סמך הפרטים שנמסרו: סוג העסקה ופילוח היחידות. עלויות הבנייה, מחירי המכירה ונתוני הקרקע עדיין לא הוזנו, יש להשלים אותם למטה כדי לקבל תוצאה אמיתית.
+            </p>
+          )}
         </div>
       ) : (
         <>
