@@ -152,7 +152,7 @@ export default function CalculatorPage() {
   return (
     <>
     <main className="max-w-3xl mx-auto px-4 py-8 print:hidden">
-      <h1 className="text-xl font-bold text-[#14502F] mb-1">מחשבון דוח אפס</h1>
+      <h1 className="text-xl font-bold text-[#14502F] mb-1">מחולל דוח אפס</h1>
       <p className="text-sm text-gray-500 mb-1">
         גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. חיבור לתשלום ולשמירת פרויקטים בשלב הבא.
       </p>

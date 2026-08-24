@@ -55,7 +55,7 @@ export default function StartPage() {
       return;
     }
     if (!CARDCOM_LINK) {
-      setError("התשלום המקוון עדיין לא מוגדר. אפשר לפתוח את המחשבון ישירות בינתיים, או לפנות בוואטסאפ.");
+      setError("התשלום המקוון עדיין לא מוגדר. אפשר לפתוח את מחולל דוחות האפס ישירות בינתיים, או לפנות בוואטסאפ.");
       return;
     }
     const url = new URL(CARDCOM_LINK);

@@ -42,7 +42,7 @@ export default function Home() {
             לאותו פרויקט, ללא תשלום נוסף.
           </p>
           <a href="/dohefes/start/" className="text-sm font-medium text-[#1D6F42] hover:underline">
-            פתיחת מחשבון ←
+            פתיחת מחולל דוחות אפס ←
           </a>
         </div>
         <div className="bg-white border border-[#D8AD62] rounded-xl p-5 shadow-sm">

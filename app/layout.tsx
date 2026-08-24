@@ -23,6 +23,7 @@ const KEYWORDS = [
   "דוח אפס לליווי בנקאי",
   "עלות בנייה למ\"ר לשכת שמאי המקרקעין",
   "שמאי מקרקעין דוח אפס",
+  "מחולל דוחות אפס",
 ];
 
 export const metadata: Metadata = {
@@ -70,7 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </a>
             <nav className="flex items-center gap-4 text-xs text-gray-500">
               <a href="/dohefes/calculator/" className="hover:text-gray-800 transition-colors">
-                מחשבון
+                מחולל דוחות אפס
               </a>
               <a href="mailto:haimetkin@gmail.com" className="hover:text-gray-800 transition-colors">
                 צור קשר
