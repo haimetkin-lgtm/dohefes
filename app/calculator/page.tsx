@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { computeProject, isCashLandDeal } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { DealType, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
+import { supabase, supabaseConfigured } from "@/lib/supabase";
 import ReportView from "./ReportView";
 
 const HEIGHT_LABELS: Record<BuildingHeight, string> = {
@@ -33,6 +34,8 @@ const DEAL_TYPE_ORDER: DealType[] = [
   "mixedUse",
 ];
 
+const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
+
 function emptyUnit(): UnitType {
   return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
 }
@@ -43,12 +46,6 @@ export default function CalculatorPage() {
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
 
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("dealType");
-    if (fromUrl && DEAL_TYPE_ORDER.includes(fromUrl as DealType)) {
-      setDealType(fromUrl as DealType);
-    }
-  }, []);
   const [units, setUnits] = useState<UnitType[]>([emptyUnit()]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -83,11 +80,48 @@ export default function CalculatorPage() {
   const [managementFeeRate, setManagementFeeRate] = useState(0.06);
   const [contingencyRate, setContingencyRate] = useState(0.05);
 
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [urlParsed, setUrlParsed] = useState(false);
+  const [paidPending, setPaidPending] = useState(false);
+  const insertedRef = useRef(false);
+
   function applyRegionDefaults(nextRegion: string, nextHeight: BuildingHeight) {
     const row = CHAMBER_COSTS.find((r) => r.region === nextRegion);
     if (!row) return;
     setMainCost(row[nextHeight]);
     setUndergroundCost(row.underground);
+  }
+
+  function applyLoadedInputs(loaded: ProjectInputs) {
+    setProjectName(loaded.projectName);
+    setDealType(loaded.dealType);
+    setUnits(loaded.units.length > 0 ? loaded.units : [emptyUnit()]);
+    setMainCost(loaded.costs.mainConstructionCostPerSqm);
+    setCommercialCost(loaded.costs.commercialConstructionCostPerSqm);
+    setOfficeCost(loaded.costs.officeConstructionCostPerSqm);
+    setUndergroundCost(loaded.costs.undergroundConstructionCostPerSqm);
+    setUndergroundArea(loaded.costs.undergroundAreaSqm);
+    setNetPlotArea(loaded.costs.netPlotAreaSqm);
+    setDemolition(loaded.costs.demolitionFlatNis);
+    setMunicipalFees(loaded.costs.municipalFeesNis);
+    setPurchaseTaxRate(loaded.costs.purchaseTaxRate);
+    setPlanningConsultantsRate(loaded.costs.planningConsultantsRate);
+    setEngineeringInspectionFlat(loaded.costs.engineeringInspectionFlatNis);
+    setMarketingRate(loaded.costs.marketingRate);
+    setLegalRate(loaded.costs.legalRate);
+    setOverheadRate(loaded.costs.overheadRate);
+    setManagementFeeRate(loaded.costs.managementFeeRate);
+    setContingencyRate(loaded.costs.contingencyRate);
+    setInterestRate(loaded.costs.annualInterestRate);
+    setConstructionMonths(loaded.costs.constructionMonths);
+    setEquity(loaded.costs.equityNis);
+    setPresaleRate(loaded.costs.presaleRate);
+    setOrganizerFee(loaded.costs.organizerFeeNis);
+    setLandPurchase(loaded.land.landPurchaseNis);
+    setBettermentLevy(loaded.land.bettermentLevyNis);
+    setCombinationShare(loaded.land.combinationOwnerShare);
+    setCombinationLandValue(loaded.land.combinationLandValueForTaxNis);
   }
 
   const inputs: ProjectInputs = useMemo(
@@ -145,6 +179,77 @@ export default function CalculatorPage() {
 
   const result = useMemo(() => computeProject(inputs), [inputs]);
 
+  // פענוח פרמטרי URL בטעינה: ?id=<uuid> (דוח קיים, לטעון) או ?dealType=X&paid=true (דוח חדש אחרי תשלום)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dealTypeParam = params.get("dealType");
+    if (dealTypeParam && DEAL_TYPE_ORDER.includes(dealTypeParam as DealType)) {
+      setDealType(dealTypeParam as DealType);
+    }
+    const existingId = params.get("id");
+    if (existingId && supabaseConfigured) {
+      setLoadingReport(true);
+      supabase
+        .from("dohefes_reports")
+        .select("inputs")
+        .eq("id", existingId)
+        .single()
+        .then(({ data }) => {
+          if (data?.inputs) applyLoadedInputs(data.inputs as ProjectInputs);
+          setReportId(existingId);
+          setLoadingReport(false);
+          setUrlParsed(true);
+        });
+      return;
+    }
+    if (params.get("paid") === "true") setPaidPending(true);
+    setUrlParsed(true);
+  }, []);
+
+  // יצירת רשומת דוח + קישור קבוע, פעם אחת, מיד אחרי הגעה עם paid=true (בלי לחכות שהמשתמש ימלא נתונים)
+  useEffect(() => {
+    if (!urlParsed || !paidPending || reportId || insertedRef.current || !supabaseConfigured) return;
+    insertedRef.current = true;
+    supabase
+      .from("dohefes_reports")
+      .insert({
+        project_name: inputs.projectName || null,
+        deal_type: inputs.dealType,
+        inputs,
+        results: result,
+        payment_status: "paid",
+      })
+      .select("id")
+      .single()
+      .then(({ data }) => {
+        if (data?.id) {
+          setReportId(data.id);
+          const url = new URL(window.location.href);
+          url.searchParams.delete("paid");
+          url.searchParams.set("id", data.id);
+          window.history.replaceState({}, "", url.toString());
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlParsed, paidPending, reportId]);
+
+  // שמירה רציפה (debounced) של הדוח בכל שינוי, ברגע שיש קישור קבוע
+  useEffect(() => {
+    if (!reportId || !supabaseConfigured) return;
+    const timer = setTimeout(() => {
+      supabase
+        .from("dohefes_reports")
+        .update({
+          project_name: inputs.projectName || null,
+          deal_type: inputs.dealType,
+          inputs,
+          results: result,
+        })
+        .eq("id", reportId);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [reportId, inputs, result]);
+
   function updateUnit(index: number, patch: Partial<UnitType>) {
     setUnits((prev) => prev.map((u, i) => (i === index ? { ...u, ...patch } : u)));
   }
@@ -153,13 +258,30 @@ export default function CalculatorPage() {
     <>
     <main className="max-w-3xl mx-auto px-4 py-8 print:hidden">
       <h1 className="text-xl font-bold text-[#14502F] mb-1">מחולל דוח אפס</h1>
-      <p className="text-sm text-gray-500 mb-1">
-        גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. חיבור לתשלום ולשמירת פרויקטים בשלב הבא.
-      </p>
-      <p className="text-xs text-gray-400 mb-6">
-        עלויות הבנייה נטענות כברירת מחדל מאומדן לשכת שמאי המקרקעין, {CHAMBER_COST_DATE}. אפשר לשנות
-        כל ערך.
-      </p>
+      {loadingReport ? (
+        <p className="text-sm text-gray-500 mb-6">טוען את הדוח שלך...</p>
+      ) : reportId ? (
+        <div className="bg-[#EAF3EC] border border-[#BFE0CC] rounded-lg px-3 py-2 mb-6 text-xs text-gray-700">
+          הדוח נשמר אוטומטית עם כל שינוי. הקישור הקבוע שלו:{" "}
+          <a href={`${SITE_URL}/calculator/?id=${reportId}`} className="text-[#1D6F42] underline break-all">
+            {`${SITE_URL}/calculator/?id=${reportId}`}
+          </a>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-gray-500 mb-1">
+            גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. לשמירת הדוח וקבלת קישור קבוע, יש לרכוש דרך{" "}
+            <a href="/dohefes/start/" className="text-[#1D6F42] underline">
+              עמוד ההזמנה
+            </a>
+            .
+          </p>
+          <p className="text-xs text-gray-400 mb-6">
+            עלויות הבנייה נטענות כברירת מחדל מאומדן לשכת שמאי המקרקעין, {CHAMBER_COST_DATE}. אפשר
+            לשנות כל ערך.
+          </p>
+        </>
+      )}
 
       {/* שם הפרויקט */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">

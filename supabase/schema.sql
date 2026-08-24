@@ -39,6 +39,8 @@ create policy "anyone can create a dohefes report" on dohefes_reports
   for insert with check (true);
 create policy "anyone can read a dohefes report by id" on dohefes_reports
   for select using (true);
+create policy "anyone can update a dohefes report by id" on dohefes_reports
+  for update using (true) with check (true);
 
 create policy "anyone can create a dohefes custom order" on dohefes_custom_orders
   for insert with check (true);
