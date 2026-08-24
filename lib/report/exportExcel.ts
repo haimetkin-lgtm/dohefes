@@ -27,6 +27,7 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["תאריך הפקה", new Date().toLocaleDateString("he-IL")],
     [],
     ["כלי חישוב עזר בלבד. כל נתון שהוזן הוא באחריות המזין. אינו מהווה חוות דעת שמאית ואינו תחליף לבדיקת שמאי מקרקעין מוסמך."],
+    ["ההכנסות והעלויות בדוח, לרבות ברווח לעלות, כולן לא כוללות מע\"מ (מתקזז ליזם רשום כדין ואינו משפיע על הרווח הכלכלי)."],
   ];
   const wsOverview = XLSX.utils.aoa_to_sheet(overviewRows);
   wsOverview["!cols"] = [{ wch: 24 }, { wch: 40 }];
@@ -57,7 +58,7 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["הכנסת היזם, לא כולל מע\"מ (₪)", round(result.revenue.developerRevenueExclVatNis)],
     ["מחיר ממוצע למ\"ר (₪)", round(result.revenue.averagePricePerSqmNis)],
     [],
-    ["עלויות"],
+    ["עלויות (לא כולל מע\"מ)"],
     ["קרקע (₪)", round(result.costs.landNis)],
     ["עקיפות (₪)", round(result.costs.indirectNis)],
     ["עמלות מימון (₪)", round(result.costs.commissionsNis)],

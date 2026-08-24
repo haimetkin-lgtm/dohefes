@@ -236,7 +236,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
         </div>
 
         <div className="mb-7">
-          <SectionTitle>עלויות</SectionTitle>
+          <SectionTitle>עלויות (לא כולל מע&quot;מ)</SectionTitle>
           <table className="w-full text-xs">
             <tbody>
               <Row label="קרקע" value={nis(result.costs.landNis)} />
@@ -278,8 +278,10 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
 
       <p className="text-[10px] text-gray-500 leading-relaxed border-t border-gray-100 px-8 py-4 bg-gray-50">
         כלי חישוב עזר בלבד. כל נתון שהוזן הוא באחריות המזין. אינו מהווה חוות דעת שמאית ואינו תחליף
-        לבדיקת שמאי מקרקעין מוסמך. עמלות המימון ועלות המימון חושבו בקירוב מפושט. השימוש על אחריות
-        המשתמש בלבד, ראה תנאי השימוש והגבלת האחריות באתר. © חיים אטקין, בית שמאי<sup>®</sup>.
+        לבדיקת שמאי מקרקעין מוסמך. עמלות המימון ועלות המימון חושבו בקירוב מפושט. ההכנסות והעלויות
+        בדוח, לרבות ברווח לעלות, כולן לא כוללות מע&quot;מ: עבור יזם רשום כדין, מע&quot;מ שנגבה מלקוחות
+        משולם למדינה ומע&quot;מ ששולם לספקים מתקזז מולו, ולכן אינו משפיע על הרווח הכלכלי. השימוש על
+        אחריות המשתמש בלבד, ראה תנאי השימוש והגבלת האחריות באתר. © חיים אטקין, בית שמאי<sup>®</sup>.
       </p>
     </div>
   );
