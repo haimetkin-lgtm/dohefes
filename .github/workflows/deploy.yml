@@ -33,6 +33,8 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_CARDCOM_LINK_BASIC: ${{ secrets.NEXT_PUBLIC_CARDCOM_LINK_BASIC }}
+          NEXT_PUBLIC_CARDCOM_LINK_CUSTOM: ${{ secrets.NEXT_PUBLIC_CARDCOM_LINK_CUSTOM }}
         run: npm run build
 
       - uses: actions/configure-pages@v4
