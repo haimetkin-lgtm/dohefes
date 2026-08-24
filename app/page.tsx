@@ -13,10 +13,48 @@ const SERVICE_JSON_LD = {
   ],
 };
 
+const FAQ_ITEMS = [
+  {
+    q: "מי יכול להשתמש בכלי?",
+    a: "כל מי שצריך להעריך כדאיות כלכלית של פרויקט התחדשות עירונית: שמאי מקרקעין, בנקים מלווים, יזמים, עורכי דין, מהנדסים, קבלנים, וגם דיירים שרוצים להבין את הפרויקט לפני שהם חותמים.",
+  },
+  {
+    q: "האם דוח אפס מהכלי מספיק להגשה לבנק בלי בדיקה נוספת?",
+    a: 'לא. הכלי הוא כלי חישוב עזר, וכל דוח טעון בקרה, בדיקה ואישור של שמאי מקרקעין בעל רישיון לפני שהוא מוגש לבנק.',
+  },
+  {
+    q: "כמה עולה?",
+    a: "דוח אפס עצמאי עולה 980 ₪ לפרויקט, כולל את כל דוחות המעקב לאותו פרויקט ללא תשלום נוסף. דוח בהתאמה אישית, שבו סוכן חכם בונה עבורכם את שלד הדוח מתוך תיאור וקבצים, עולה 1,800 ₪.",
+  },
+  {
+    q: "מה ההבדל בין המסלול העצמאי להתאמה האישית?",
+    a: "במסלול העצמאי אתם ממלאים בעצמכם את כל נתוני הפרויקט: שטחים, תמהיל דירות, עלויות והכנסות. במסלול בהתאמה אישית מתארים את הפרויקט במלל חופשי ומעלים קבצים שיש ברשותכם, וסוכן חכם קורא אותם ובונה עבורכם את שלד הדוח, ואתם ממלאים בו רק את הערכים הכספיים.",
+  },
+  {
+    q: "אילו סוגי עסקה נתמכים?",
+    a: 'שבעה סוגי עסקה: דוח אפס בסיסי, תמ"א 38 (הריסה ובנייה מחדש), פינוי בינוי, קומבינציה בעין, קומבינצית תמורות, קבוצת רכישה, ומעורב מגורים ותעסוקה.',
+  },
+  {
+    q: "האם המידע שמוזן שמור ופרטי?",
+    a: "כן. כל דוח מקבל קישור ייחודי ופרטי, ורק מי שמחזיק בקישור יכול לצפות בו. אין הרשמה או התחברות, הקישור עצמו הוא ה'מפתח' לדוח שלכם.",
+  },
+];
+
+const FAQ_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ_ITEMS.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
 export default function Home() {
   return (
     <main className="max-w-2xl mx-auto px-4 py-10">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SERVICE_JSON_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }} />
 
       <section className="text-center mb-10">
         <div className="mb-6">
@@ -29,6 +67,10 @@ export default function Home() {
         </h1>
         <p className="text-gray-600 max-w-xl mx-auto leading-relaxed">
           מזינים שטחים, תמהיל דירות או סוגי נכסים ומקבלים דוח אפס - כדאיות כלכלית.
+        </p>
+        <p className="text-sm text-gray-500 max-w-xl mx-auto leading-relaxed mt-2">
+          לשמאי מקרקעין, בנקים מלווים, יזמים, עורכי דין, מהנדסים, קבלנים, ודיירים שרוצים להבין את
+          הפרויקט לפני שהם חותמים.
         </p>
         <a href="/dohefes/sample/" className="inline-block mt-3 text-sm font-medium text-[#1D6F42] hover:underline">
           צפה בדוגמת דוח ←
@@ -72,6 +114,18 @@ export default function Home() {
           </a>
           .
         </p>
+      </section>
+
+      <section className="mb-4">
+        <h2 className="font-bold text-[#14502F] text-lg mb-4">שאלות נפוצות</h2>
+        <div className="space-y-5">
+          {FAQ_ITEMS.map((item) => (
+            <div key={item.q}>
+              <div className="font-bold text-[#123640] text-sm mb-1">{item.q}</div>
+              <p className="text-sm text-gray-600 leading-relaxed">{item.a}</p>
+            </div>
+          ))}
+        </div>
       </section>
     </main>
   );
