@@ -195,6 +195,15 @@ export default function CalculatorPage() {
             </button>
           ))}
         </div>
+        {dealType === "pinuyBinui" && (
+          <a
+            href="/dohefes/ranking/"
+            target="_blank"
+            className="inline-block text-xs font-medium text-[#1D6F42] hover:underline mt-3"
+          >
+            כלי דירוג יחידות, לחישוב הפרש ערך בין דירות בבניין החדש ←
+          </a>
+        )}
       </section>
 
       {/* אזור ועלויות בנייה */}
