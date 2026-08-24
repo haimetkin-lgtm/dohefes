@@ -34,9 +34,12 @@ export default function ConsultationCTA() {
       <div className="flex flex-col sm:flex-row gap-2">
         <button
           onClick={handlePay}
-          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white px-4 py-2.5 rounded-lg transition-colors"
         >
-          שיחת ייעוץ על הדוח עם חיים אטקין, {CONSULTATION_PRICE_NIS.toLocaleString("he-IL")} ₪
+          <span className="block text-sm font-medium">שיחת ייעוץ על הדוח עם חיים אטקין</span>
+          <span className="block text-xs font-normal mt-0.5">
+            (עלות שיחת הייעוץ הינה {CONSULTATION_PRICE_NIS.toLocaleString("he-IL")} ₪) - מעבר לרכישה ותשלום
+          </span>
         </button>
         <button
           onClick={handleWhatsappConfirm}
