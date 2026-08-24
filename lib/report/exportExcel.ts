@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { isCashLandDeal } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 
 const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
@@ -59,7 +60,7 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["מחיר ממוצע למ\"ר (₪)", round(result.revenue.averagePricePerSqmNis)],
     [],
     ["עלויות (לא כולל מע\"מ)"],
-    ["קרקע (₪)", round(result.costs.landNis)],
+    [isCashLandDeal(inputs.dealType) ? "קרקע (₪)" : "היטל השבחה (₪)", round(result.costs.landNis)],
     ["עקיפות (₪)", round(result.costs.indirectNis)],
     ["עמלות מימון (₪)", round(result.costs.commissionsNis)],
     ["בנייה ישירה (₪)", round(result.costs.directConstructionNis)],

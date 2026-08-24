@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { landMechanism } from "@/lib/calc/engine";
+import { isCashLandDeal, landMechanism } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import Logo from "@/app/components/Logo";
 import ConsultationCTA from "@/app/components/ConsultationCTA";
@@ -239,7 +239,10 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
           <SectionTitle>עלויות (לא כולל מע&quot;מ)</SectionTitle>
           <table className="w-full text-xs">
             <tbody>
-              <Row label="קרקע" value={nis(result.costs.landNis)} />
+              <Row
+                label={isCashLandDeal(inputs.dealType) ? "קרקע" : "היטל השבחה"}
+                value={nis(result.costs.landNis)}
+              />
               <Row label="עקיפות" value={nis(result.costs.indirectNis)} />
               {isGroup && result.costs.organizerFeeNis > 0 && (
                 <Row label="מתוכן, שכר מארגן" value={nis(result.costs.organizerFeeNis)} />
