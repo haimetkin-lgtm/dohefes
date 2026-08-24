@@ -150,6 +150,9 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
               {isGroup && result.costs.organizerFeeNis > 0 && (
                 <Row label="מתוכן, שכר מארגן" value={nis(result.costs.organizerFeeNis)} />
               )}
+              {result.costs.relocationRentNis > 0 && (
+                <Row label="מתוכן, דמי שכירות לדיירים קיימים" value={nis(result.costs.relocationRentNis)} />
+              )}
               <Row label="עמלות מימון" value={nis(result.costs.commissionsNis)} />
               <Row label="בנייה ישירה" value={nis(result.costs.directConstructionNis)} />
               <Row label="מימון" value={nis(result.costs.financingNis)} />

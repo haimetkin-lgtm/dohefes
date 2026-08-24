@@ -139,6 +139,8 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const contingencyNis = directConstructionNis * costs.contingencyRate;
   // שכר מארגן, רלוונטי רק לקבוצת רכישה (0 בשאר סוגי העסקה)
   const organizerFeeNis = dealType === "purchaseGroup" ? costs.organizerFeeNis : 0;
+  // דמי שכירות לדיירים קיימים לתקופת הבנייה, 0 אם אין דיירים קיימים שמתפנים
+  const relocationRentNis = costs.relocationUnitsCount * costs.relocationMonths * costs.relocationRentPerUnitMonthlyNis;
 
   const indirectNis =
     costs.municipalFeesNis +
@@ -155,7 +157,8 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     overheadNis +
     managementFeeNis +
     contingencyNis +
-    organizerFeeNis;
+    organizerFeeNis +
+    relocationRentNis;
 
   // C. עמלות מימון, מפושט. במקור מחושבות מתוך סימולציית תזרים רבעונית מלאה
   // (ר' 01-תמא-38.md סעיף 5). כאן: אחוז מהכנסה/ממסגרת, כפול 0.5 כקירוב לבסיס
@@ -185,6 +188,7 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     totalExclFinancingNis,
     totalInclFinancingNis,
     organizerFeeNis,
+    relocationRentNis,
   };
 }
 
@@ -207,6 +211,9 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   }
   if (isCashLandDeal(inputs.dealType) && inputs.land.landPurchaseNis <= 0) {
     warnings.push("לא הוזנה עלות רכישת קרקע.");
+  }
+  if (inputs.dealType === "pinuyBinui" && inputs.costs.relocationUnitsCount <= 0) {
+    warnings.push('לא הוזן מספר יחידות קיימות לדמי שכירות לתקופת הבנייה, כמעט תמיד רלוונטי בפינוי בינוי.');
   }
 
   const areas = computeAreas(inputs);

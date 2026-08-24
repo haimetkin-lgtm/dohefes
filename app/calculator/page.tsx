@@ -75,6 +75,9 @@ const DEFAULT_COSTS: CostInputs = {
   equityNis: 0,
   presaleRate: 0.15,
   organizerFeeNis: 0,
+  relocationUnitsCount: 0,
+  relocationMonths: 0,
+  relocationRentPerUnitMonthlyNis: 0,
 };
 
 const DEFAULT_LAND: LandInputs = {
@@ -107,6 +110,9 @@ export default function CalculatorPage() {
   const [netPlotArea, setNetPlotArea] = useState(0);
   const [demolition, setDemolition] = useState(0);
   const [municipalFees, setMunicipalFees] = useState(0);
+  const [relocationUnitsCount, setRelocationUnitsCount] = useState(0);
+  const [relocationMonths, setRelocationMonths] = useState(0);
+  const [relocationRentPerUnit, setRelocationRentPerUnit] = useState(0);
 
   const [landPurchase, setLandPurchase] = useState(0);
   const [bettermentLevy, setBettermentLevy] = useState(0);
@@ -157,6 +163,9 @@ export default function CalculatorPage() {
     setNetPlotArea(costs.netPlotAreaSqm);
     setDemolition(costs.demolitionFlatNis);
     setMunicipalFees(costs.municipalFeesNis);
+    setRelocationUnitsCount(costs.relocationUnitsCount);
+    setRelocationMonths(costs.relocationMonths);
+    setRelocationRentPerUnit(costs.relocationRentPerUnitMonthlyNis);
     setPurchaseTaxRate(costs.purchaseTaxRate);
     setPlanningConsultantsRate(costs.planningConsultantsRate);
     setEngineeringInspectionFlat(costs.engineeringInspectionFlatNis);
@@ -193,6 +202,9 @@ export default function CalculatorPage() {
         netPlotAreaSqm: netPlotArea,
         demolitionFlatNis: demolition,
         municipalFeesNis: municipalFees,
+        relocationUnitsCount,
+        relocationMonths,
+        relocationRentPerUnitMonthlyNis: relocationRentPerUnit,
         brokerageRate: 0.01,
         purchaseTaxRate,
         electricConnectionPerUnitNis: 4500,
@@ -224,6 +236,7 @@ export default function CalculatorPage() {
     }),
     [
       projectName, dealType, units, mainCost, commercialCost, officeCost, undergroundCost, undergroundArea, netPlotArea, demolition, municipalFees,
+      relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
     ],
@@ -505,6 +518,46 @@ export default function CalculatorPage() {
               className="border border-gray-300 rounded-lg px-3 py-2"
             />
           </label>
+        </div>
+
+        <div className="mt-3">
+          <div className="text-xs font-medium text-gray-600 mb-2">
+            דמי שכירות לדיירים קיימים לתקופת הבנייה <span className="text-gray-400">כמעט תמיד רלוונטי בפינוי בינוי</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">מספר יחידות קיימות</span>
+              <input
+                type="number"
+                value={relocationUnitsCount}
+                onChange={(e) => setRelocationUnitsCount(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">משך התשלום (חודשים)</span>
+              <input
+                type="number"
+                value={relocationMonths}
+                onChange={(e) => setRelocationMonths(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">דמי שכירות חודשיים ליחידה (₪)</span>
+              <input
+                type="number"
+                value={relocationRentPerUnit}
+                onChange={(e) => setRelocationRentPerUnit(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+          </div>
+          {relocationUnitsCount > 0 && relocationMonths > 0 && relocationRentPerUnit > 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              סה&quot;כ: {(relocationUnitsCount * relocationMonths * relocationRentPerUnit).toLocaleString("he-IL")} ₪
+            </p>
+          )}
         </div>
       </section>
 

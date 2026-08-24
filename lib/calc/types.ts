@@ -67,6 +67,16 @@ export interface CostInputs {
   /** אגרות והיטלים עירוניים, סכום כולל שהמשתמש מזין (מודול 02: תלוי רשות מקומית) */
   municipalFeesNis: number;
 
+  // דמי שכירות לתקופת הבנייה לדיירים הקיימים (רלוונטי בעיקר לפינוי בינוי/תמ"א 38 עם דיירים
+  // שמתפנים). מספר היחידות ומשך התקופה הם נתונים פיזיים שהסוכן החכם יכול להעריך מהתיאור/תוכניות,
+  // הסכום החודשי ליחידה הוא ערך כספי שהמשתמש תמיד מזין בעצמו.
+  /** מספר יחידות קיימות הזכאיות לדמי שכירות. 0 אם אין דיירים קיימים שמתפנים */
+  relocationUnitsCount: number;
+  /** משך תשלום דמי השכירות, חודשים */
+  relocationMonths: number;
+  /** דמי שכירות חודשיים ליחידה, ₪ */
+  relocationRentPerUnitMonthlyNis: number;
+
   // עלויות עקיפות, אחוזים/סכומים ניתנים לעריכה. ברירות מחדל מתוך תחשיבי המקור.
   brokerageRate: number; // תיווך, % מעלות/תמורת הקרקע
   purchaseTaxRate: number; // מס רכישה, % (ברירת מחדל 6%)
@@ -152,6 +162,8 @@ export interface CostBreakdown {
   totalInclFinancingNis: number;
   /** שכר המארגן בקבוצת רכישה, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
   organizerFeeNis: number;
+  /** דמי שכירות לדיירים הקיימים, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
+  relocationRentNis: number;
 }
 
 export interface ProfitabilitySummary {

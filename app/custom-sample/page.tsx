@@ -1,27 +1,60 @@
 "use client";
 
 import { computeProject } from "@/lib/calc/engine";
-import type { ProjectInputs } from "@/lib/calc/types";
+import type { ProjectInputs, UnitCategory } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
 import Banner from "@/app/components/Banner";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { CUSTOM_PRICE_NIS } from "@/lib/supabase";
 
-// דוגמה למסלול "בהתאמה אישית": פרויקט פינוי בינוי מורכב עם שילוב שימושים,
-// בדיוק כדי להראות שהמנוע מתמודד גם עם פרויקט הרבה יותר מסובך מדוח בסיסי:
-// כמה סוגי דירות (כולל פנטהאוזים יוקרתיים), מסחר בקומת קרקע, קומות משרדים,
-// ומסעדת גג. הנתונים בדויים לחלוטין, לצורך המחשה בלבד.
-const SAMPLE_INPUTS: ProjectInputs = {
+// דוגמה למסלול "בהתאמה אישית", בשני חלקים:
+// 1. מה שהלקוח כותב, ומה שהסוכן החכם בונה מזה: שלד עם שטחים ותמהיל בלבד, בלי סכומים.
+// 2. דוגמה לתוצאה הסופית, אחרי שהלקוח (לא הסוכן) השלים בעצמו את כל הנתונים הכספיים.
+// נתונים בדויים לחלוטין, לצורך המחשה בלבד.
+
+const CUSTOMER_STORY = `חלקה של 2 דונם עליה בנויים בנייני מגורים ותיקים בני למעלה מ-70 שנה. כל בניין בן 4 קומות מעל קומת עמודים מפולשת, בכל קומה 4 דירות, סה"כ 16 דירות בכל בניין, ללא מעלית.
+
+הפרויקט הוא פרויקט פינוי בינוי, עם 2 מגדלים בני 25 קומות, עם 2 קומות מרתף משותפות לשני הבניינים לטובת מקומות חניה ומחסנים.`;
+
+interface SkeletonUnit {
+  name: string;
+  category: UnitCategory;
+  count: number;
+  areaSqm: number;
+  mamadSqm: number;
+  balconySqm: number;
+  roofBalconySqm: number;
+}
+
+// זה בדיוק מה שהסוכן החכם מחלץ, ורק זה: נתונים פיזיים. בלי מחיר ליחידה, בלי עלות בנייה,
+// בלי שווי קרקע. השדות האלה מגיעים מהלקוח בהמשך, במחשבון.
+const SKELETON_UNITS: SkeletonUnit[] = [
+  { name: "דירת 3 חדרים, תמורה לדיירים קיימים", category: "residential", count: 28, areaSqm: 78, mamadSqm: 5, balconySqm: 10, roofBalconySqm: 0 },
+  { name: "דירת 4 חדרים פרימיום", category: "residential", count: 140, areaSqm: 105, mamadSqm: 6, balconySqm: 12, roofBalconySqm: 0 },
+  { name: "פנטהאוז דופלקס יוקרה", category: "residential", count: 8, areaSqm: 160, mamadSqm: 8, balconySqm: 20, roofBalconySqm: 60 },
+  { name: "חנות מסחר, קומת קרקע", category: "commercial", count: 12, areaSqm: 60, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0 },
+  { name: "משרד, קומות תעסוקה", category: "office", count: 20, areaSqm: 90, mamadSqm: 0, balconySqm: 6, roofBalconySqm: 0 },
+  { name: "מסעדת גג יוקרתית", category: "commercial", count: 1, areaSqm: 450, mamadSqm: 0, balconySqm: 120, roofBalconySqm: 0 },
+];
+
+const CATEGORY_LABEL: Record<UnitCategory, string> = { residential: "מגורים", commercial: "מסחר", office: "משרדים" };
+
+// אותם שטחים ותמהיל בדיוק כמו השלד, רק שעכשיו כל הערכים הכספיים כבר מולאו: מחיר ליחידה,
+// עלויות בנייה, קרקע, מימון, ודמי השכירות בפועל לדיירים הקיימים. זה מה שהלקוח משלים, לא הסוכן.
+const FINAL_INPUTS: ProjectInputs = {
   dealType: "pinuyBinui",
   projectName: "מתחם 'אקורד הפארק', דוגמה בלבד",
-  units: [
-    { name: "דירת 3 חדרים, תמורה לדיירים קיימים", count: 60, areaSqm: 78, mamadSqm: 5, balconySqm: 10, roofBalconySqm: 0, priceNis: 3100000, category: "residential" },
-    { name: "דירת 4 חדרים פרימיום", count: 50, areaSqm: 105, mamadSqm: 6, balconySqm: 12, roofBalconySqm: 0, priceNis: 4200000, category: "residential" },
-    { name: "פנטהאוז דופלקס יוקרה", count: 8, areaSqm: 160, mamadSqm: 8, balconySqm: 20, roofBalconySqm: 60, priceNis: 8900000, category: "residential" },
-    { name: "חנות מסחר, קומת קרקע", count: 12, areaSqm: 60, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 1400000, category: "commercial" },
-    { name: "משרד, קומות תעסוקה", count: 20, areaSqm: 90, mamadSqm: 0, balconySqm: 6, roofBalconySqm: 0, priceNis: 1650000, category: "office" },
-    { name: "מסעדת גג יוקרתית", count: 1, areaSqm: 450, mamadSqm: 0, balconySqm: 120, roofBalconySqm: 0, priceNis: 9500000, category: "commercial" },
-  ],
+  units: SKELETON_UNITS.map((u) => ({
+    ...u,
+    priceNis: {
+      "דירת 3 חדרים, תמורה לדיירים קיימים": 3100000,
+      "דירת 4 חדרים פרימיום": 4200000,
+      "פנטהאוז דופלקס יוקרה": 8900000,
+      "חנות מסחר, קומת קרקע": 1400000,
+      "משרד, קומות תעסוקה": 1650000,
+      "מסעדת גג יוקרתית": 9500000,
+    }[u.name]!,
+  })),
   costs: {
     balconyWeight: 0.5,
     mainConstructionCostPerSqm: 9500,
@@ -34,6 +67,9 @@ const SAMPLE_INPUTS: ProjectInputs = {
     netPlotAreaSqm: 4200,
     demolitionFlatNis: 2800000,
     municipalFeesNis: 4200000,
+    relocationUnitsCount: 28,
+    relocationMonths: 36,
+    relocationRentPerUnitMonthlyNis: 7500,
     brokerageRate: 0.01,
     purchaseTaxRate: 0.06,
     electricConnectionPerUnitNis: 4500,
@@ -65,28 +101,104 @@ const SAMPLE_INPUTS: ProjectInputs = {
 };
 
 export default function CustomSamplePage() {
-  const result = computeProject(SAMPLE_INPUTS);
+  const result = computeProject(FINAL_INPUTS);
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
       <div className="print:hidden mb-6">
         <Banner />
       </div>
-      <div className="print:hidden mb-5 text-center">
-        <h1 className="text-lg font-bold text-[#14502F] mb-1">דוגמת דוח אפס, מסלול בהתאמה אישית</h1>
+      <div className="print:hidden mb-6 text-center">
+        <h1 className="text-lg font-bold text-[#14502F] mb-1">דוגמת תוצר, מסלול בהתאמה אישית</h1>
         <p className="text-sm text-gray-500 max-w-xl mx-auto">
-          נתונים בדויים לחלוטין, לצורך המחשה בלבד. פרויקט פינוי בינוי מורכב, עם שילוב שימושים: דירות תמורה
-          לדיירים קיימים, דירות פרימיום ופנטהאוזים בסטנדרט בנייה גבוה, מסחר בקומת קרקע, קומות משרדים,
-          ומסעדת גג. בדיוק סוג הפרויקט שמתאים למסלול הזה, שבו הסוכן החכם בונה עבורכם שלד כזה מתוך תיאור
-          חופשי ותוכניות, ואתם משלימים את הנתונים הכספיים.
+          נתונים בדויים לחלוטין, לצורך המחשה בלבד. כך זה עובד: אתם כותבים חופשי, הסוכן החכם בונה שלד
+          (שטחים ותמהיל בלבד, בלי סכומים), ואתם משלימים את הנתונים הכספיים כדי לקבל את הדוח המלא.
         </p>
       </div>
 
-      <ReportView inputs={SAMPLE_INPUTS} result={result} />
+      {/* חלק 1: מה שהלקוח כותב */}
+      <section className="print:hidden bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-5">
+        <div className="text-xs font-bold text-gray-500 mb-2">1. מה שהלקוח כותב, תיאור חופשי</div>
+        <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{CUSTOMER_STORY}</p>
+      </section>
+
+      {/* חלק 2: השלד שבונה הסוכן החכם */}
+      <section className="print:hidden bg-[#FAFAF5] border border-[#E3DCC5] rounded-xl p-5 mb-8">
+        <div className="text-xs font-bold text-gray-500 mb-1">2. השלד שהסוכן החכם בונה מהתיאור</div>
+        <p className="text-xs text-gray-500 mb-4">
+          רק נתונים פיזיים: סוג עסקה, שטחים ותמהיל יחידות, ומספר יחידות/משך לדמי שכירות לדיירים
+          הקיימים. שום סכום כספי לא נקבע כאן, זה תמיד הלקוח.
+        </p>
+
+        <div className="flex flex-wrap gap-2 mb-4">
+          <span className="text-xs font-medium bg-white border border-[#BFE0CC] text-[#14502F] rounded-full px-3 py-1">
+            סוג עסקה: פינוי בינוי
+          </span>
+          <span className="text-xs font-medium bg-white border border-gray-200 text-gray-600 rounded-full px-3 py-1">
+            2 בניינים קיימים, 16 יח&quot;ד כל אחד, ללא מעלית
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs min-w-[560px]">
+            <thead>
+              <tr className="text-gray-500 text-right border-b border-gray-200">
+                <th className="py-1.5 pl-2">טיפוס</th>
+                <th className="py-1.5 pl-2">קטגוריה</th>
+                <th className="py-1.5 pl-2">כמות</th>
+                <th className="py-1.5 pl-2">שטח עיקרי</th>
+                <th className="py-1.5 pl-2">ממ&quot;ד</th>
+                <th className="py-1.5 pl-2">מרפסת</th>
+                <th className="py-1.5 pl-2">מרפסת גג</th>
+                <th className="py-1.5 pl-2 text-gray-300">מחיר ליחידה</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SKELETON_UNITS.map((u, i) => (
+                <tr key={i} className="border-b border-gray-100">
+                  <td className="py-1.5 pl-2">{u.name}</td>
+                  <td className="py-1.5 pl-2">{CATEGORY_LABEL[u.category]}</td>
+                  <td className="py-1.5 pl-2">{u.count}</td>
+                  <td className="py-1.5 pl-2">{u.areaSqm}</td>
+                  <td className="py-1.5 pl-2">{u.mamadSqm}</td>
+                  <td className="py-1.5 pl-2">{u.balconySqm}</td>
+                  <td className="py-1.5 pl-2">{u.roofBalconySqm}</td>
+                  <td className="py-1.5 pl-2 text-gray-300">להשלמה</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2">
+          דמי שכירות לדיירים קיימים: <strong>28 יחידות</strong> × <strong>36 חודשים</strong> ×{" "}
+          <span className="text-gray-300">₪ לחודש ליחידה, להשלמה</span>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-xs font-bold text-gray-500 mb-1.5">יתר הסעיפים, ממתינים למילוי הלקוח</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs text-gray-400">
+            {["עלויות בנייה למ\"ר", "קרקע וחלוקה לדיירים", "מימון והון עצמי", "מיסים ועלויות עקיפות", "מחיר ליחידה", "אגרות והיטלים"].map((s) => (
+              <div key={s} className="border border-dashed border-gray-300 rounded-lg px-2 py-1.5">
+                {s}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="print:hidden text-center mb-6">
+        <div className="inline-block text-xs font-bold text-gray-400 tracking-wide">↓ ולהלן, לשם ההמחשה בלבד ↓</div>
+        <h2 className="text-base font-bold text-[#14502F] mt-1">
+          3. התוצאה הסופית, אחרי שהלקוח (לא הסוכן) השלים בעצמו את כל הנתונים הכספיים
+        </h2>
+      </div>
+
+      <ReportView inputs={FINAL_INPUTS} result={result} />
 
       <div className="print:hidden flex flex-col sm:flex-row gap-2 mt-4">
         <button
-          onClick={() => downloadWorkbook(SAMPLE_INPUTS, result)}
+          onClick={() => downloadWorkbook(FINAL_INPUTS, result)}
           className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
         >
           הורדת קובץ Excel
