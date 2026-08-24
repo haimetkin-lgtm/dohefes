@@ -5,6 +5,7 @@ import type { ProjectInputs } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
 import Banner from "@/app/components/Banner";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
+import { BASIC_PRICE_NIS } from "@/lib/supabase";
 
 const SAMPLE_INPUTS: ProjectInputs = {
   dealType: "tama38",
@@ -94,7 +95,7 @@ export default function SamplePage() {
           href="/dohefes/start/"
           className="inline-block bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold px-6 py-3 rounded-lg transition-colors"
         >
-          בניית דוח אפס לפרויקט שלי ←
+          מעבר לרכישה ותשלום - {BASIC_PRICE_NIS.toLocaleString("he-IL")} ₪
         </a>
       </div>
     </main>

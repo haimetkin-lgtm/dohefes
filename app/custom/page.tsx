@@ -50,7 +50,7 @@ export default function CustomPage() {
         onClick={handlePay}
         className="w-full bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold py-3 rounded-lg transition-colors"
       >
-        מעבר לתשלום, {CUSTOM_PRICE_NIS.toLocaleString("he-IL")} ₪
+        מעבר לרכישה ותשלום - {CUSTOM_PRICE_NIS.toLocaleString("he-IL")} ₪
       </button>
 
       <p className="text-xs text-gray-400 text-center mt-4">

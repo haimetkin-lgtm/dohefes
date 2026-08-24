@@ -75,31 +75,46 @@ export default function StartPage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
         {DEAL_TYPES.map((dt) => (
-          <button
+          <div
             key={dt.id}
+            role="button"
+            tabIndex={0}
             onClick={() => {
               setSelected(dt.id);
               setError(null);
             }}
-            className={`text-right border rounded-xl p-4 transition-colors ${
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                setSelected(dt.id);
+                setError(null);
+              }
+            }}
+            className={`text-right border rounded-xl p-4 transition-colors cursor-pointer ${
               selected === dt.id ? "border-[#1D6F42] bg-[#EAF3EC]" : "border-gray-200 bg-white hover:border-gray-300"
             }`}
           >
             <div className="font-bold text-[#14502F] text-sm mb-1">{dt.title}</div>
             <div className="text-xs text-gray-500 leading-relaxed">{dt.description}</div>
             {dt.note && <div className="text-xs text-[#1D6F42] leading-relaxed mt-1">{dt.note}</div>}
-          </button>
+            {dt.id === "pinuyBinui" && (
+              <a
+                href="/dohefes/ranking-sample/"
+                onClick={(e) => e.stopPropagation()}
+                className="block text-xs font-medium text-[#1D6F42] underline mt-1"
+              >
+                דוח דירוג דירות לדוגמה ←
+              </a>
+            )}
+          </div>
         ))}
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mb-6">
-        <a href="/dohefes/ranking-sample/" className="text-sm font-medium text-[#1D6F42] hover:underline">
-          פרויקט פינוי בינוי? צפו בדוגמת טבלת דירוג ←
-        </a>
-        <a href="/dohefes/ranking/" className="text-sm font-medium text-[#1D6F42] hover:underline">
-          או ישר לכלי הדירוג לפרויקט שלכם ←
-        </a>
-      </div>
+      <a
+        href="/dohefes/ranking/"
+        className="block text-sm font-medium text-[#1D6F42] hover:underline mb-6"
+      >
+        כלי דירוג יחידות לפרויקט פינוי בינוי ←
+      </a>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm mb-6">
         <div className="font-bold text-[#123640] mb-2 text-sm">כלול במחיר</div>
@@ -117,7 +132,7 @@ export default function StartPage() {
         disabled={!selected}
         className="w-full bg-[#1D6F42] hover:bg-[#14502F] disabled:opacity-40 disabled:cursor-default text-white font-bold py-3 rounded-lg transition-colors"
       >
-        מעבר לתשלום, {BASIC_PRICE_NIS.toLocaleString("he-IL")} ₪
+        מעבר לרכישה ותשלום - {BASIC_PRICE_NIS.toLocaleString("he-IL")} ₪
       </button>
 
       <p className="text-xs text-gray-400 text-center mt-4">
