@@ -44,6 +44,10 @@ export default function CustomPage() {
         </ol>
       </div>
 
+      <a href="/dohefes/custom-sample/" className="block text-center text-sm text-[#1D6F42] underline mb-6">
+        דוח אפס לדוגמה למסלול הזה, פרויקט פינוי בינוי מורכב עם מסחר ומשרדים ←
+      </a>
+
       {error && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">{error}</p>}
 
       <button

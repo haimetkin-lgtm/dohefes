@@ -51,7 +51,9 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export default function ReportView({ inputs, result }: { inputs: ProjectInputs; result: ProjectResult }) {
   const isGroup = inputs.dealType === "purchaseGroup";
-  const isMixed = inputs.dealType === "mixedUse";
+  // מבוסס על הנתונים בפועל ולא על סוג העסקה, כל סוג עסקה שהקרקע בו משולמת באחוז חלוקה
+  // יכול לכלול יחידות ממספר קטגוריות (למשל פינוי בינוי עם מסחר בקומת קרקע)
+  const isMixed = new Set(inputs.units.map((u) => u.category ?? "residential")).size > 1;
   const dateStr = new Date().toLocaleDateString("he-IL");
 
   return (

@@ -87,6 +87,10 @@ const DEFAULT_LAND: LandInputs = {
 export default function CalculatorPage() {
   const [projectName, setProjectName] = useState("");
   const [dealType, setDealType] = useState<DealType>("basic");
+  // מנוע החישוב (engine.ts) מטפל בפילוח קטגוריות (מגורים/מסחר/משרדים) בכל סוג עסקה שהקרקע
+  // בו משולמת באחוז חלוקה, לא רק מעורב שימושים. פינוי בינוי עם מסחר בקומת קרקע נפוץ בפועל.
+  const supportsMixedCategories =
+    dealType === "mixedUse" || dealType === "pinuyBinui" || dealType === "kombinatsia" || dealType === "kombinatsiaTemurot";
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
 
@@ -432,7 +436,7 @@ export default function CalculatorPage() {
               className="border border-gray-300 rounded-lg px-3 py-2"
             />
           </label>
-          {dealType === "mixedUse" && (
+          {supportsMixedCategories && (
             <>
               <label className="flex flex-col gap-1">
                 <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר מסחר (₪), ריק = כמו מגורים</span>
@@ -577,14 +581,14 @@ export default function CalculatorPage() {
             <thead>
               <tr className="text-gray-500 text-right">
                 <th className="py-1 pl-2">טיפוס</th>
-                {dealType === "mixedUse" && <th className="py-1 pl-2">קטגוריה</th>}
+                {supportsMixedCategories && <th className="py-1 pl-2">קטגוריה</th>}
                 <th className="py-1 pl-2">כמות</th>
                 <th className="py-1 pl-2">שטח עיקרי</th>
                 <th className="py-1 pl-2">ממ&quot;ד</th>
                 <th className="py-1 pl-2">מרפסת</th>
                 <th className="py-1 pl-2">מרפסת גג</th>
                 <th className="py-1 pl-2">
-                  {dealType === "mixedUse" ? "מחיר ליחידה (מגורים כולל מע\"מ, מסחר/משרדים נטו)" : "מחיר ליחידה כולל מע\"מ"}
+                  {supportsMixedCategories ? "מחיר ליחידה (מגורים כולל מע\"מ, מסחר/משרדים נטו)" : "מחיר ליחידה כולל מע\"מ"}
                 </th>
                 <th></th>
               </tr>
@@ -601,7 +605,7 @@ export default function CalculatorPage() {
                       className="w-28 border border-gray-200 rounded px-2 py-1"
                     />
                   </td>
-                  {dealType === "mixedUse" && (
+                  {supportsMixedCategories && (
                     <td className="py-1 pl-2">
                       <select
                         value={u.category ?? "residential"}
