@@ -37,7 +37,7 @@ export default function Home() {
 
       <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
         <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-          <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי, 980 ₪</div>
+          <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי</div>
           <p className="text-sm text-gray-600 mb-3">
             שטחים, תמהיל דירות, עלויות והכנסות. התשלום כולל את דוח האפס וגם את כל דוחות המעקב
             לאותו פרויקט, ללא תשלום נוסף. כולל טבלאות דירוג למיזמי פינוי בינוי.
@@ -48,7 +48,7 @@ export default function Home() {
         </div>
         <div className="bg-white border border-[#D8AD62] rounded-xl p-5 shadow-sm">
           <div className="relative font-bold text-[#14502F] mb-1 flex items-center gap-1.5">
-            דוח אפס בהתאמה אישית, 1,800 ₪
+            דוח אפס בהתאמה אישית
             <InfoTooltip text="יש לנו סוכן חכם שקורא את התיאור והקבצים שהעלית ותופר מהם שלד דוח אפס מותאם לפרויקט שלך." />
           </div>
           <p className="text-sm text-gray-600 mb-3">
