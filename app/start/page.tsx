@@ -7,7 +7,7 @@ import type { DealType } from "@/lib/calc/types";
 const CARDCOM_LINK = process.env.NEXT_PUBLIC_CARDCOM_LINK_BASIC;
 const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
 
-const DEAL_TYPES: { id: DealType; title: string; description: string }[] = [
+const DEAL_TYPES: { id: DealType; title: string; description: string; note?: string }[] = [
   {
     id: "basic",
     title: "דוח אפס בסיסי",
@@ -22,6 +22,7 @@ const DEAL_TYPES: { id: DealType; title: string; description: string }[] = [
     id: "pinuyBinui",
     title: "פינוי בינוי",
     description: "פינוי מבנים קיימים ובנייה מחדש, הדיירים הקיימים מקבלים דירות חדשות.",
+    note: "כולל טבלאות לדירוג דירות עם אפשרות לקביעת הפרמטרים לדירוג על ידי המשתמש.",
   },
   {
     id: "kombinatsia",
@@ -86,6 +87,7 @@ export default function StartPage() {
           >
             <div className="font-bold text-[#14502F] text-sm mb-1">{dt.title}</div>
             <div className="text-xs text-gray-500 leading-relaxed">{dt.description}</div>
+            {dt.note && <div className="text-xs text-[#1D6F42] leading-relaxed mt-1">{dt.note}</div>}
           </button>
         ))}
       </div>

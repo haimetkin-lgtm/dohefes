@@ -1,4 +1,5 @@
 import Banner from "./components/Banner";
+import InfoTooltip from "./components/InfoTooltip";
 
 const SERVICE_JSON_LD = {
   "@context": "https://schema.org",
@@ -46,17 +47,9 @@ export default function Home() {
           </a>
         </div>
         <div className="bg-white border border-[#D8AD62] rounded-xl p-5 shadow-sm">
-          <div className="font-bold text-[#14502F] mb-1 flex items-center gap-1.5">
+          <div className="relative font-bold text-[#14502F] mb-1 flex items-center gap-1.5">
             דוח אפס בהתאמה אישית, 1,800 ₪
-            <span className="relative group inline-flex">
-              <span className="w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center cursor-help leading-none">
-                ?
-              </span>
-              <span className="hidden group-hover:block absolute bottom-full right-0 mb-1.5 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 pointer-events-none z-10 shadow-lg leading-relaxed">
-                יש לנו סוכן חכם שקורא את התיאור והקבצים שהעלית ותופר מהם שלד דוח אפס מותאם לפרויקט
-                שלך.
-              </span>
-            </span>
+            <InfoTooltip text="יש לנו סוכן חכם שקורא את התיאור והקבצים שהעלית ותופר מהם שלד דוח אפס מותאם לפרויקט שלך." />
           </div>
           <p className="text-sm text-gray-600 mb-3">
             מתארים את הפרויקט במלל חופשי ובהרחבה, מעלים קבצים שיש ברשותכם (פרוגרמה, Word, Excel,
