@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { landMechanism } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import Logo from "@/app/components/Logo";
 import ConsultationCTA from "@/app/components/ConsultationCTA";
@@ -69,6 +70,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   const hasBothResidentialTiers =
     inputs.units.some((u) => (u.category ?? "residential") === "residential") &&
     inputs.units.some((u) => u.category === "residentialPremium");
+  const usesUnitCompensation = landMechanism(inputs.dealType) === "unitCompensation";
   const dateStr = new Date().toLocaleDateString("he-IL");
 
   return (
@@ -107,6 +109,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="text-right py-2 px-2">טיפוס</th>
                   {isMixed && <th className="text-right py-2 px-2">קטגוריה</th>}
+                  {usesUnitCompensation && <th className="text-right py-2 px-2">תמורה</th>}
                   <th className="text-right py-2 px-2">כמות</th>
                   <th className="text-right py-2 px-2">שטח עיקרי</th>
                   <th className="text-right py-2 px-2">ממ&quot;ד</th>
@@ -120,6 +123,9 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                   <tr key={i} className="border-t border-gray-100 tabular-nums">
                     <td className="py-1.5 px-2">{u.name || "ללא שם"}</td>
                     {isMixed && <td className="py-1.5 px-2">{CATEGORY_LABEL[u.category ?? "residential"]}</td>}
+                    {usesUnitCompensation && (
+                      <td className="py-1.5 px-2">{u.isCompensationUnit ? "כן" : "—"}</td>
+                    )}
                     <td className="py-1.5 px-2">{u.count}</td>
                     <td className="py-1.5 px-2">{fmt(u.areaSqm)}</td>
                     <td className="py-1.5 px-2">{fmt(u.mamadSqm)}</td>
@@ -220,6 +226,12 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                 <Row label="מחיר ממוצע למ&quot;ר" value={nis(result.revenue.averagePricePerSqmNis)} />
               </tbody>
             </table>
+            {usesUnitCompensation && (
+              <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                הכנסת היזם אינה כוללת את יחידות התמורה (מסומנות בטבלה למעלה), הן ניתנות לדיירים
+                הקיימים ואינן חלק ממכירות היזם.
+              </p>
+            )}
           </div>
         </div>
 

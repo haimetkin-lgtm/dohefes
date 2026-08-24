@@ -24,11 +24,30 @@ import type {
 
 const VAT_FACTOR = 1.17;
 
-// tama38/basic/purchaseGroup: קרקע נרכשת/משולמת במזומן, קלט ישיר.
-// kombinatsia/pinuyBinui/kombinatsiaTemurot/mixedUse: קרקע "משולמת" באחוז חלוקה מהשטח הבנוי
-// (לבעלי הקרקע/דיירים הקיימים), בלי תשלום כספי נפרד.
+// basic/purchaseGroup: קרקע נרכשת/משולמת במזומן, קלט ישיר (היזם רוכש/כבר בעלים).
+// שאר סוגי העסקה: קרקע "משולמת" בעין, בלי תשלום כספי נפרד, בשתי שיטות שונות (ר' landMechanism):
+// tama38/pinuyBinui מחזירים דירות תמורה ספציפיות לדיירים הקיימים (מסומן בטבלת התמהיל), בעוד
+// kombinatsia/kombinatsiaTemurot/mixedUse מחלקים אחוז אחיד מכל שטחי הפרויקט לבעל הקרקע.
 export function isCashLandDeal(dealType: DealType): boolean {
-  return dealType === "tama38" || dealType === "basic" || dealType === "purchaseGroup";
+  return dealType === "basic" || dealType === "purchaseGroup";
+}
+
+export type LandMechanism = "cash" | "unitCompensation" | "percentageSplit";
+
+/**
+ * שלוש שיטות "תשלום" עבור הקרקע/הזכויות, קובעות איך מחושבת הכנסת היזם:
+ * - cash: היזם רוכש את הקרקע/הזכויות במזומן, כל היחידות שלו, 100% מההכנסה שלו.
+ * - unitCompensation: דיירים קיימים מקבלים יחידות תמורה ספציפיות בחינם (מסומנות
+ *   ב-UnitType.isCompensationUnit), הכנסת היזם = הכנסה מכל היחידות האחרות בלבד. תמ"א 38 הריסה
+ *   ובנייה מחדש ופינוי בינוי, שבהם דייר ספציפי מקבל דירה ספציפית תמורת דירתו הישנה, לא אחוז מהפרויקט.
+ * - percentageSplit: בעל הקרקע מקבל אחוז אחיד (combinationOwnerShare) מכל שטחי הפרויקט (מגורים+
+ *   מסחר+משרדים יחד), הכנסת היזם = סה"כ ההכנסה × (1-האחוז). קומבינציה/קומבינצית תמורות/מעורב
+ *   שימושים, לפי 05-קומבינציה-בעין.md: "כל שלושת הרכיבים מפוצלים לפי אותו יחס".
+ */
+export function landMechanism(dealType: DealType): LandMechanism {
+  if (isCashLandDeal(dealType)) return "cash";
+  if (dealType === "tama38" || dealType === "pinuyBinui") return "unitCompensation";
+  return "percentageSplit";
 }
 
 function unitCategory(category: UnitCategory | undefined): UnitCategory {
@@ -82,6 +101,10 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
 export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): RevenueSummary {
   let totalRevenueInclVatNis = 0;
   let totalRevenueExclVatNis = 0;
+  // unitCompensation בלבד: סכום ההכנסה מהיחידות שאינן יחידות תמורה, נצבר תוך כדי הלולאה
+  let nonCompensationRevenueExclVatNis = 0;
+
+  const mechanism = landMechanism(inputs.dealType);
 
   for (const u of inputs.units) {
     const inclVat = u.count * u.priceNis;
@@ -89,11 +112,21 @@ export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): Reven
     // מגורים (רגיל או פרימיום): המחיר שהוזן כולל מע"מ, מחולק ב-1.17. מסחר/משרדים: המחיר כבר נטו ממע"מ (04-מעורב-מגורים-ותעסוקה.md)
     const cat = unitCategory(u.category);
     const isResidential = cat === "residential" || cat === "residentialPremium";
-    totalRevenueExclVatNis += isResidential ? inclVat / VAT_FACTOR : inclVat;
+    const exclVat = isResidential ? inclVat / VAT_FACTOR : inclVat;
+    totalRevenueExclVatNis += exclVat;
+    if (mechanism === "unitCompensation" && !u.isCompensationUnit) {
+      nonCompensationRevenueExclVatNis += exclVat;
+    }
   }
 
-  const developerShare = isCashLandDeal(inputs.dealType) ? 1 : 1 - inputs.land.combinationOwnerShare;
-  const developerRevenueExclVatNis = totalRevenueExclVatNis * developerShare;
+  // הכנסת היזם, לפי שיטת תשלום הקרקע/הזכויות (ר' landMechanism):
+  // cash=100%, unitCompensation=הכנסה מהיחידות שאינן תמורה בלבד, percentageSplit=אחוז אחיד מהכל.
+  const developerRevenueExclVatNis =
+    mechanism === "cash"
+      ? totalRevenueExclVatNis
+      : mechanism === "unitCompensation"
+        ? nonCompensationRevenueExclVatNis
+        : totalRevenueExclVatNis * (1 - inputs.land.combinationOwnerShare);
 
   const averagePricePerSqmNis =
     areas.totalMarketableAreaSqm > 0 ? totalRevenueInclVatNis / areas.totalMarketableAreaSqm : 0;
@@ -235,11 +268,15 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   if (inputs.units.length === 0) {
     warnings.push("לא הוזנו יחידות דיור.");
   }
-  if (!isCashLandDeal(inputs.dealType) && inputs.land.combinationOwnerShare <= 0) {
-    warnings.push("אחוז החלוקה לבעלי הקרקע/הדיירים הקיימים הוא 0 או לא הוזן, כדאי לבדוק.");
+  const mechanism = landMechanism(inputs.dealType);
+  if (mechanism === "percentageSplit" && inputs.land.combinationOwnerShare <= 0) {
+    warnings.push("אחוז החלוקה לבעל הקרקע הוא 0 או לא הוזן, כדאי לבדוק.");
   }
-  if (isCashLandDeal(inputs.dealType) && inputs.land.landPurchaseNis <= 0) {
+  if (mechanism === "cash" && inputs.land.landPurchaseNis <= 0) {
     warnings.push("לא הוזנה עלות רכישת קרקע.");
+  }
+  if (mechanism === "unitCompensation" && !inputs.units.some((u) => u.isCompensationUnit)) {
+    warnings.push('לא סומנה אף יחידת "תמורה" בטבלת התמהיל, כמעט תמיד יש דיירים קיימים שמקבלים דירת תמורה בסוג עסקה זה.');
   }
   if (inputs.dealType === "pinuyBinui" && inputs.costs.relocationUnitsCount <= 0) {
     warnings.push('לא הוזן מספר יחידות קיימות לדמי שכירות לתקופת הבנייה, כמעט תמיד רלוונטי בפינוי בינוי.');

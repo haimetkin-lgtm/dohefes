@@ -24,12 +24,13 @@ interface SkeletonUnit {
   mamadSqm: number;
   balconySqm: number;
   roofBalconySqm: number;
+  isCompensationUnit?: boolean;
 }
 
 // זה בדיוק מה שהסוכן החכם מחלץ, ורק זה: נתונים פיזיים. בלי מחיר ליחידה, בלי עלות בנייה,
 // בלי שווי קרקע. השדות האלה מגיעים מהלקוח בהמשך, במחשבון.
 const SKELETON_UNITS: SkeletonUnit[] = [
-  { name: "דירת 3 חדרים, תמורה לדיירים קיימים", category: "residential", count: 28, areaSqm: 78, mamadSqm: 5, balconySqm: 10, roofBalconySqm: 0 },
+  { name: "דירת 3 חדרים, תמורה לדיירים קיימים", category: "residential", count: 28, areaSqm: 78, mamadSqm: 5, balconySqm: 10, roofBalconySqm: 0, isCompensationUnit: true },
   { name: "דירת 4 חדרים פרימיום", category: "residentialPremium", count: 140, areaSqm: 105, mamadSqm: 6, balconySqm: 12, roofBalconySqm: 0 },
   { name: "פנטהאוז דופלקס יוקרה", category: "residentialPremium", count: 8, areaSqm: 160, mamadSqm: 8, balconySqm: 20, roofBalconySqm: 60 },
   { name: "חנות מסחר, קומת קרקע", category: "commercial", count: 12, areaSqm: 60, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0 },
@@ -62,11 +63,11 @@ const FINAL_INPUTS: ProjectInputs = {
   })),
   costs: {
     balconyWeight: 0.5,
-    mainConstructionCostPerSqm: 9500,
-    premiumConstructionCostPerSqm: 10500,
-    commercialConstructionCostPerSqm: 6200,
-    officeConstructionCostPerSqm: 7100,
-    undergroundConstructionCostPerSqm: 4300,
+    mainConstructionCostPerSqm: 13000,
+    premiumConstructionCostPerSqm: 15500,
+    commercialConstructionCostPerSqm: 9200,
+    officeConstructionCostPerSqm: 10200,
+    undergroundConstructionCostPerSqm: 5600,
     balconyConstructionCostRatio: 0.5,
     developmentCostPerSqm: 650,
     undergroundAreaSqm: 8500,
@@ -108,7 +109,7 @@ const FINAL_INPUTS: ProjectInputs = {
   land: {
     landPurchaseNis: 0,
     bettermentLevyNis: 0,
-    combinationOwnerShare: 0.42,
+    combinationOwnerShare: 0,
     combinationLandValueForTaxNis: 58000000,
   },
 };
@@ -158,6 +159,7 @@ export default function CustomSamplePage() {
               <tr className="text-gray-500 text-right border-b border-gray-200">
                 <th className="py-1.5 pl-2">טיפוס</th>
                 <th className="py-1.5 pl-2">קטגוריה</th>
+                <th className="py-1.5 pl-2">תמורה</th>
                 <th className="py-1.5 pl-2">כמות</th>
                 <th className="py-1.5 pl-2">שטח עיקרי</th>
                 <th className="py-1.5 pl-2">ממ&quot;ד</th>
@@ -171,6 +173,7 @@ export default function CustomSamplePage() {
                 <tr key={i} className="border-b border-gray-100">
                   <td className="py-1.5 pl-2">{u.name}</td>
                   <td className="py-1.5 pl-2">{CATEGORY_LABEL[u.category]}</td>
+                  <td className="py-1.5 pl-2">{u.isCompensationUnit ? "כן" : "—"}</td>
                   <td className="py-1.5 pl-2">{u.count}</td>
                   <td className="py-1.5 pl-2">{u.areaSqm}</td>
                   <td className="py-1.5 pl-2">{u.mamadSqm}</td>
@@ -191,7 +194,7 @@ export default function CustomSamplePage() {
         <div className="mt-4">
           <div className="text-xs font-bold text-gray-500 mb-1.5">יתר הסעיפים, ממתינים למילוי הלקוח</div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs text-gray-400">
-            {["עלויות בנייה למ\"ר", "קרקע וחלוקה לדיירים", "מימון והון עצמי", "מיסים ועלויות עקיפות", "מחיר ליחידה", "אגרות והיטלים"].map((s) => (
+            {["עלויות בנייה למ\"ר", "היטל השבחה", "מימון והון עצמי", "מיסים ועלויות עקיפות", "מחיר ליחידה", "אגרות והיטלים"].map((s) => (
               <div key={s} className="border border-dashed border-gray-300 rounded-lg px-2 py-1.5">
                 {s}
               </div>

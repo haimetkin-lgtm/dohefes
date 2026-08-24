@@ -34,11 +34,11 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
 
   // גיליון 2: תמהיל דירות
   const unitRows: (string | number)[][] = [
-    ["טיפוס", "כמות", "שטח עיקרי (מ\"ר)", "ממ\"ד (מ\"ר)", "מרפסת (מ\"ר)", "מרפסת גג (מ\"ר)", "מחיר ליחידה כולל מע\"מ (₪)"],
-    ...inputs.units.map((u) => [u.name, u.count, u.areaSqm, u.mamadSqm, u.balconySqm, u.roofBalconySqm, u.priceNis]),
+    ["טיפוס", "יחידת תמורה", "כמות", "שטח עיקרי (מ\"ר)", "ממ\"ד (מ\"ר)", "מרפסת (מ\"ר)", "מרפסת גג (מ\"ר)", "מחיר ליחידה כולל מע\"מ (₪)"],
+    ...inputs.units.map((u) => [u.name, u.isCompensationUnit ? "כן" : "", u.count, u.areaSqm, u.mamadSqm, u.balconySqm, u.roofBalconySqm, u.priceNis]),
   ];
   const wsUnits = XLSX.utils.aoa_to_sheet(unitRows);
-  wsUnits["!cols"] = [{ wch: 20 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 18 }];
+  wsUnits["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, wsUnits, "תמהיל דירות");
 
   // גיליון 3: תוצאות

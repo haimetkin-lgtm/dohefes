@@ -45,6 +45,12 @@ export interface UnitType {
   priceNis: number;
   /** קטגוריה, לצורך טיפול במע"מ ועלות בנייה נפרדת. ברירת מחדל residential אם לא מוגדר. */
   category?: UnitCategory;
+  /**
+   * יחידת תמורה: ניתנת בחינם לדייר קיים תמורת דירתו הישנה (תמ"א 38 הריסה ובנייה מחדש/פינוי בינוי
+   * בלבד, ר' engine.ts landMechanism). ההכנסה ממנה לא נספרת כהכנסת היזם, גם שהמחיר מוזן לצורך
+   * חישוב שווי הבניין הכולל. false/undefined = יחידה רגילה שהיזם מוכר.
+   */
+  isCompensationUnit?: boolean;
 }
 
 export interface CostInputs {

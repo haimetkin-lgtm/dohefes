@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { computeProject, isCashLandDeal } from "@/lib/calc/engine";
+import { computeProject, isCashLandDeal, landMechanism } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
@@ -37,7 +37,7 @@ const DEAL_TYPE_ORDER: DealType[] = [
 const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
 
 function emptyUnit(): UnitType {
-  return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0 };
+  return { name: "", count: 1, areaSqm: 0, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 0, isCompensationUnit: false };
 }
 
 const DEFAULT_MUNICIPAL_FEES: MunicipalFeeInputs = {
@@ -104,6 +104,7 @@ export default function CalculatorPage() {
   // בו משולמת באחוז חלוקה, לא רק מעורב שימושים. פינוי בינוי עם מסחר בקומת קרקע נפוץ בפועל.
   const supportsMixedCategories =
     dealType === "mixedUse" || dealType === "pinuyBinui" || dealType === "kombinatsia" || dealType === "kombinatsiaTemurot";
+  const usesUnitCompensation = landMechanism(dealType) === "unitCompensation";
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
 
@@ -680,13 +681,36 @@ export default function CalculatorPage() {
               />
             </label>
           </div>
+        ) : usesUnitCompensation ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">אומדן שווי קרקע לצורך מס רכישה, חלק היזם בלבד (₪)</span>
+              <input
+                type="number"
+                value={combinationLandValue}
+                onChange={(e) => setCombinationLandValue(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">היטל השבחה (₪)</span>
+              <input
+                type="number"
+                value={bettermentLevy}
+                onChange={(e) => setBettermentLevy(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+            <p className="text-xs text-gray-400 sm:col-span-2">
+              הדיירים הקיימים מקבלים דירות תמורה ספציפיות בחינם, לא אחוז מהפרויקט: סמנו אילו שורות
+              בטבלת התמהיל למטה הן דירות תמורה (עמודת &quot;תמורה&quot;).
+            </p>
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">
-                {dealType === "pinuyBinui" || dealType === "mixedUse"
-                  ? "אחוז החלוקה לדיירים/בעלים הקיימים"
-                  : "אחוז הקומבינציה לבעל הקרקע"}
+                {dealType === "mixedUse" ? "אחוז החלוקה לבעלים הקיימים" : "אחוז הקומבינציה לבעל הקרקע"}
               </span>
               <input
                 type="number"
@@ -739,6 +763,7 @@ export default function CalculatorPage() {
               <tr className="text-gray-500 text-right">
                 <th className="py-1 pl-2">טיפוס</th>
                 {supportsMixedCategories && <th className="py-1 pl-2">קטגוריה</th>}
+                {usesUnitCompensation && <th className="py-1 pl-2">תמורה</th>}
                 <th className="py-1 pl-2">כמות</th>
                 <th className="py-1 pl-2">שטח עיקרי</th>
                 <th className="py-1 pl-2">ממ&quot;ד</th>
@@ -775,6 +800,16 @@ export default function CalculatorPage() {
                         <option value="commercial">מסחר</option>
                         <option value="office">משרדים</option>
                       </select>
+                    </td>
+                  )}
+                  {usesUnitCompensation && (
+                    <td className="py-1 pl-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={u.isCompensationUnit ?? false}
+                        onChange={(e) => updateUnit(i, { isCompensationUnit: e.target.checked })}
+                        aria-label={`יחידת תמורה, שורה ${i + 1}`}
+                      />
                     </td>
                   )}
                   {(

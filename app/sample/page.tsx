@@ -11,7 +11,7 @@ const SAMPLE_INPUTS: ProjectInputs = {
   dealType: "tama38",
   projectName: 'רחוב ההגנה 24, רמת גן, דוגמה בלבד',
   units: [
-    { name: "3 חדרים", count: 6, areaSqm: 75, mamadSqm: 12, balconySqm: 12, roofBalconySqm: 0, priceNis: 2950000 },
+    { name: "3 חדרים, תמורה לדיירים קיימים", count: 6, areaSqm: 75, mamadSqm: 12, balconySqm: 12, roofBalconySqm: 0, priceNis: 2950000, isCompensationUnit: true },
     { name: "4 חדרים", count: 8, areaSqm: 95, mamadSqm: 12, balconySqm: 12, roofBalconySqm: 0, priceNis: 3550000 },
     { name: "5 חדרים", count: 4, areaSqm: 125, mamadSqm: 12, balconySqm: 14, roofBalconySqm: 0, priceNis: 4400000 },
     { name: "פנטהאוז", count: 2, areaSqm: 130, mamadSqm: 12, balconySqm: 14, roofBalconySqm: 40, priceNis: 5900000 },
@@ -36,9 +36,9 @@ const SAMPLE_INPUTS: ProjectInputs = {
       roadDrainageBuildingRatePerSqm: 180,
       roadDrainageUndergroundRatePerSqm: 90,
     },
-    relocationUnitsCount: 0,
-    relocationMonths: 0,
-    relocationRentPerUnitMonthlyNis: 0,
+    relocationUnitsCount: 6,
+    relocationMonths: 24,
+    relocationRentPerUnitMonthlyNis: 4500,
     brokerageRate: 0.01,
     purchaseTaxRate: 0.06,
     electricConnectionPerUnitNis: 4500,
@@ -62,10 +62,10 @@ const SAMPLE_INPUTS: ProjectInputs = {
     organizerFeeNis: 0,
   },
   land: {
-    landPurchaseNis: 13500000,
+    landPurchaseNis: 0,
     bettermentLevyNis: 180000,
     combinationOwnerShare: 0,
-    combinationLandValueForTaxNis: 0,
+    combinationLandValueForTaxNis: 8000000,
   },
 };
 
