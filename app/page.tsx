@@ -8,8 +8,8 @@ const SERVICE_JSON_LD = {
   provider: { "@type": "Person", name: "חיים אטקין", jobTitle: "שמאי מקרקעין" },
   areaServed: { "@type": "Country", name: "IL" },
   offers: [
-    { "@type": "Offer", priceCurrency: "ILS", price: "980", name: "דוח אפס עצמאי" },
-    { "@type": "Offer", priceCurrency: "ILS", price: "1800", name: "דוח אפס בהתאמה אישית" },
+    { "@type": "Offer", name: "דוח אפס עצמאי" },
+    { "@type": "Offer", name: "דוח אפס בהתאמה אישית" },
   ],
 };
 
