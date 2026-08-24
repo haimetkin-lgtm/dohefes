@@ -52,7 +52,7 @@ export default function Home() {
               <span className="w-4 h-4 rounded-full bg-gray-200 text-gray-500 text-xs flex items-center justify-center cursor-help leading-none">
                 ?
               </span>
-              <span className="absolute bottom-full right-0 mb-1.5 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg leading-relaxed">
+              <span className="hidden group-hover:block absolute bottom-full right-0 mb-1.5 w-64 bg-gray-800 text-white text-xs rounded-lg px-3 py-2 pointer-events-none z-10 shadow-lg leading-relaxed">
                 יש לנו סוכן חכם שקורא את התיאור והקבצים שהעלית ותופר מהם שלד דוח אפס מותאם לפרויקט
                 שלך.
               </span>
