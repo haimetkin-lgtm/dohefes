@@ -245,7 +245,8 @@ export default function CalculatorPage() {
           inputs,
           results: result,
         })
-        .eq("id", reportId);
+        .eq("id", reportId)
+        .then(() => {});
     }, 1500);
     return () => clearTimeout(timer);
   }, [reportId, inputs, result]);
