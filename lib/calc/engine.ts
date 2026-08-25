@@ -8,6 +8,9 @@ import type {
   ProfitabilitySummary,
   ProjectResult,
   UnitAllocationRow,
+  BreakEvenResult,
+  SensitivityMatrixCell,
+  FeasibilityMetrics,
   UnitCategory,
   DealType,
 } from "./types";
@@ -363,6 +366,146 @@ export function computeUnitAllocation(inputs: ProjectInputs, costs: CostBreakdow
   });
 }
 
+// --- מדדי היתכנות (דור 2): נקודת איזון, שווי קרקע שיורי, מטריצת רגישות ---
+// כל השלושה תלויים בהרצה חוזרת ומלאה של שרשרת areas->revenue->costs->profitability על עותק
+// מוזז של הקלט, ולא בנוסחה סגורה - כי עמלות המימון והמכירה מחושבות כאחוז מההכנסה/מהאשראי,
+// ולכן "עלות" ו"הכנסה" לא נעות בבידוד זו מזו. הפונקציה profitAt/ratioAt בכל אחד מהם היא
+// מונוטונית (רווח עולה עם המחיר, רווח יורד עם מחיר הקרקע), אבל לא בהכרח ליניארית לגמרי
+// (יש נקודת שבירה כשמסגרת האשראי הנדרשת יורדת ל-0), ולכן פתרון בחיפוש בינארי (bisection)
+// עמיד יותר מנוסחה אלגברית או משיטת ניוטון.
+
+const BISECTION_ITERATIONS = 60;
+const BISECTION_TOLERANCE_NIS = 1;
+
+/**
+ * חיפוש בינארי לשורש של fn בטווח [lo, hi]. דורש שינוי סימן בין הקצוות (fn(lo) ו-fn(hi) בסימנים
+ * הפוכים) - אם אין, אין שורש בר-מציאה בטווח הזה ומוחזר null (למשל: פרויקט לא-כדאי גם במחיר קרקע
+ * אפס, או פרויקט שלא מגיע לאיזון גם בפי 5 ממחירי הבסיס). עוצר אחרי BISECTION_ITERATIONS
+ * איטרציות לכל היותר (יציאה מוגבלת, לא לולאה אינסופית) או כשהפער בין lo/hi קטן מהסף.
+ */
+function bisectRoot(fn: (x: number) => number, lo: number, hi: number): number | null {
+  let fLo = fn(lo);
+  const fHi = fn(hi);
+  if (Math.abs(fLo) < BISECTION_TOLERANCE_NIS) return lo;
+  if (Math.abs(fHi) < BISECTION_TOLERANCE_NIS) return hi;
+  if ((fLo < 0) === (fHi < 0)) return null;
+
+  for (let i = 0; i < BISECTION_ITERATIONS && hi - lo > 1e-9; i++) {
+    const mid = (lo + hi) / 2;
+    const fMid = fn(mid);
+    if (Math.abs(fMid) < BISECTION_TOLERANCE_NIS) return mid;
+    if ((fMid < 0) === (fLo < 0)) {
+      lo = mid;
+      fLo = fMid;
+    } else {
+      hi = mid;
+    }
+  }
+  return (lo + hi) / 2;
+}
+
+/** מכפיל k על כל מחירי היחידות, בלי לגעת באובייקט המקורי - יחידות תמורה/מבנה קיים נשארות 0*k=0 */
+function scaleUnitPrices(units: ProjectInputs["units"], factor: number): ProjectInputs["units"] {
+  return units.map((u) => ({ ...u, priceNis: u.priceNis * factor }));
+}
+
+/** מכפיל factor על תעריפי הבנייה למ"ר בלבד (לא על עלויות פיתוח/הריסה, שאינן "תעריף בנייה") */
+function scaleConstructionRates(costs: ProjectInputs["costs"], factor: number): ProjectInputs["costs"] {
+  return {
+    ...costs,
+    mainConstructionCostPerSqm: costs.mainConstructionCostPerSqm * factor,
+    premiumConstructionCostPerSqm: costs.premiumConstructionCostPerSqm * factor,
+    commercialConstructionCostPerSqm: costs.commercialConstructionCostPerSqm * factor,
+    officeConstructionCostPerSqm: costs.officeConstructionCostPerSqm * factor,
+    publicBuildingConstructionCostPerSqm: costs.publicBuildingConstructionCostPerSqm * factor,
+    reinforcementCostPerSqm: costs.reinforcementCostPerSqm * factor,
+    undergroundConstructionCostPerSqm: costs.undergroundConstructionCostPerSqm * factor,
+  };
+}
+
+function profitAtPriceMultiplier(inputs: ProjectInputs, multiplier: number): number {
+  const scaled: ProjectInputs = { ...inputs, units: scaleUnitPrices(inputs.units, multiplier) };
+  const areas = computeAreas(scaled);
+  const revenue = computeRevenue(scaled, areas);
+  const costs = computeCosts(scaled, areas, revenue);
+  return computeProfitability(revenue, costs, scaled.costs).currentProfitNis;
+}
+
+/**
+ * נקודת איזון בהכנסות: החיפוש נע בטווח מכפיל 0 (כל המחירים 0, רווח תמיד שלילי - יש עלויות
+ * קבועות) עד 5 (פי 5 ממחירי הבסיס, גבול עליון סביר). אם גם בפי 5 הרווח עדיין שלילי, אין
+ * נקודת איזון בת-מציאה בטווח סביר ומוחזר null בכל השדות.
+ */
+export function computeBreakEven(inputs: ProjectInputs, baseRevenueNis: number): BreakEvenResult {
+  if (baseRevenueNis <= 0) {
+    return { priceMultiplier: null, averagePricePerSqmNis: null, marginOfSafetyRatio: null };
+  }
+  const multiplier = bisectRoot((k) => profitAtPriceMultiplier(inputs, k), 0, 5);
+  if (multiplier === null) {
+    return { priceMultiplier: null, averagePricePerSqmNis: null, marginOfSafetyRatio: null };
+  }
+  const scaled: ProjectInputs = { ...inputs, units: scaleUnitPrices(inputs.units, multiplier) };
+  const areas = computeAreas(scaled);
+  const revenue = computeRevenue(scaled, areas);
+  return {
+    priceMultiplier: multiplier,
+    averagePricePerSqmNis: revenue.averagePricePerSqmNis,
+    marginOfSafetyRatio: 1 - multiplier,
+  };
+}
+
+/**
+ * שווי קרקע שיורי (שיטת החילוץ): מחיר הקרקע המרבי שעדיין מאפשר לעמוד ביעד הרווח-לעלות המקובל
+ * לסוג העסקה (profitToCostBenchmark). רלוונטי רק בעסקאות מזומן - בעסקאות תמורה/אחוזים אין
+ * "מחיר קרקע" בודד לפתור עבורו (התמורה היא בעין, לא בכסף). טווח החיפוש: 0 עד פי 3 מהכנסת
+ * היזם הנוכחית, גבול עליון סביר. אם הפרויקט לא עומד ביעד גם במחיר קרקע 0 (כשל כלכלי בפני
+ * עצמו, לא קשור למחיר הקרקע), מוחזר null.
+ */
+export function computeResidualLandValue(inputs: ProjectInputs): number | null {
+  if (!isCashLandDeal(inputs.dealType)) return null;
+  const targetRatio = profitToCostBenchmark(inputs.dealType);
+  if (targetRatio === null) return null;
+
+  // הפונקציה חייבת להיות בסקאלת ₪ (לא יחס גולמי), כי bisectRoot עובד עם סף התכנסות אחיד
+  // (BISECTION_TOLERANCE_NIS) שנועד לכמויות בשקלים - יחס גולמי (למשל 0.05) תמיד קטן מהסף וגורם
+  // "התכנסות" מיידית ושגויה בלי חיפוש אמיתי. profit - target*totalCost = 0 בדיוק כש-profitToCostRatio=target.
+  const profitGapAtLandPrice = (landPriceNis: number): number => {
+    const scaled: ProjectInputs = { ...inputs, land: { ...inputs.land, landPurchaseNis: landPriceNis } };
+    const areas = computeAreas(scaled);
+    const revenue = computeRevenue(scaled, areas);
+    const costs = computeCosts(scaled, areas, revenue);
+    const profitability = computeProfitability(revenue, costs, scaled.costs);
+    return profitability.currentProfitNis - targetRatio * profitability.totalCostNis;
+  };
+
+  const areas = computeAreas(inputs);
+  const revenue = computeRevenue(inputs, areas);
+  const hi = Math.max(revenue.developerRevenueExclVatNis * 3, 1);
+  return bisectRoot(profitGapAtLandPrice, 0, hi);
+}
+
+const SENSITIVITY_FACTORS = [0.9, 0.95, 1, 1.05, 1.1];
+
+/** מטריצת רגישות 5x5: הכנסות (מחירי מכירה) × עלויות בנייה, כל תא מריץ את שרשרת המנוע במלואה */
+export function computeSensitivityMatrix(inputs: ProjectInputs): SensitivityMatrixCell[] {
+  const cells: SensitivityMatrixCell[] = [];
+  for (const revenueFactor of SENSITIVITY_FACTORS) {
+    for (const costFactor of SENSITIVITY_FACTORS) {
+      const scaled: ProjectInputs = {
+        ...inputs,
+        units: scaleUnitPrices(inputs.units, revenueFactor),
+        costs: scaleConstructionRates(inputs.costs, costFactor),
+      };
+      const areas = computeAreas(scaled);
+      const revenue = computeRevenue(scaled, areas);
+      const costs = computeCosts(scaled, areas, revenue);
+      const profitability = computeProfitability(revenue, costs, scaled.costs);
+      cells.push({ revenueFactor, costFactor, profitNis: profitability.currentProfitNis, profitToCostRatio: profitability.profitToCostRatio });
+    }
+  }
+  return cells;
+}
+
 export function computeProject(inputs: ProjectInputs): ProjectResult {
   const warnings: string[] = [];
 
@@ -389,5 +532,11 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   const profitability = computeProfitability(revenue, costs, inputs.costs);
   const unitAllocation = computeUnitAllocation(inputs, costs);
 
-  return { areas, revenue, costs, profitability, unitAllocation, warnings };
+  const feasibility: FeasibilityMetrics = {
+    breakEven: computeBreakEven(inputs, revenue.developerRevenueExclVatNis),
+    residualLandValueNis: computeResidualLandValue(inputs),
+    sensitivityMatrix: computeSensitivityMatrix(inputs),
+  };
+
+  return { areas, revenue, costs, profitability, unitAllocation, feasibility, warnings };
 }

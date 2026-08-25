@@ -75,6 +75,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   const usesUnitCompensation = landMechanism(inputs.dealType) === "unitCompensation";
   const hasReinforcement = inputs.units.some((u) => u.isExistingStructure);
   const benchmark = profitToCostBenchmark(inputs.dealType);
+  const hasFeasibilityMetrics = result.feasibility.breakEven.averagePricePerSqmNis !== null || isCashLandDeal(inputs.dealType);
   const dateStr = new Date().toLocaleDateString("he-IL");
   const dealTypeSubtitle =
     inputs.dealType === "tama38" ? (hasReinforcement ? "חיזוק ותוספת" : "הריסה ובנייה מחדש") : undefined;
@@ -302,7 +303,42 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
           )}
         </div>
 
-        {/* ניתוח רגישות */}
+        {/* מדדי היתכנות (דור 2): נקודת איזון, מרווח ביטחון, שווי קרקע שיורי - כולם מחושבים
+            במנוע (lib/calc/engine.ts) על ידי הרצה מלאה וחוזרת של שרשרת החישוב, לא קירוב תצוגתי.
+            מוסתר לגמרי כשאין מה להציג (שלד טרי בלי מחירים, ולא עסקת מזומן) */}
+        {hasFeasibilityMetrics && (
+        <div className="mb-7">
+          <SectionTitle>מדדי היתכנות</SectionTitle>
+          <p className="text-xs text-gray-500 mb-2">מדדי עזר לבחינת רגישות הפרויקט, לא שומה ולא תחליף לבדיקת שמאי.</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-xs text-gray-600">
+            {result.feasibility.breakEven.averagePricePerSqmNis !== null && (
+              <span>
+                מחיר ממוצע למ&quot;ר בנקודת האיזון:{" "}
+                <strong className="text-[#123640] tabular-nums">{nis(result.feasibility.breakEven.averagePricePerSqmNis)}</strong>
+              </span>
+            )}
+            {result.feasibility.breakEven.marginOfSafetyRatio !== null && (
+              <span>
+                מרווח ביטחון בהכנסות:{" "}
+                <strong className={`tabular-nums ${result.feasibility.breakEven.marginOfSafetyRatio >= 0 ? "text-[#123640]" : "text-red-600"}`}>
+                  {fmt(result.feasibility.breakEven.marginOfSafetyRatio * 100, 1)}%
+                </strong>
+              </span>
+            )}
+            {isCashLandDeal(inputs.dealType) && (
+              <span>
+                שווי קרקע שיורי (ליעד רווח-לעלות מקובל):{" "}
+                <strong className="text-[#123640] tabular-nums">
+                  {result.feasibility.residualLandValueNis !== null ? nis(result.feasibility.residualLandValueNis) : "לא מושג בטווח סביר"}
+                </strong>
+              </span>
+            )}
+          </div>
+        </div>
+        )}
+
+        {/* ניתוח רגישות: אותה טבלה שהוצגה עד היום (4 תרחישים), מחוברת עכשיו לתוצאות מנוע
+            החישוב (result.feasibility.sensitivityMatrix, 25 תאים) במקום חישוב מקורב ברכיב עצמו */}
         <div className="mb-7">
           <SectionTitle>ניתוח רגישות</SectionTitle>
           <div className="overflow-x-auto rounded-lg border border-gray-100">
@@ -317,19 +353,18 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
               <tbody>
                 {[
                   { label: "לפי התחזית", revenueFactor: 1, costFactor: 1 },
-                  { label: "עלויות +10%", revenueFactor: 1, costFactor: 1.1 },
+                  { label: "עלויות בנייה +10%", revenueFactor: 1, costFactor: 1.1 },
                   { label: "הכנסות -10%", revenueFactor: 0.9, costFactor: 1 },
-                  { label: "עלויות +10%, הכנסות -10%", revenueFactor: 0.9, costFactor: 1.1 },
+                  { label: "עלויות בנייה +10%, הכנסות -10%", revenueFactor: 0.9, costFactor: 1.1 },
                 ].map((scenario) => {
-                  const scenarioRevenueNis = result.profitability.revenueNis * scenario.revenueFactor;
-                  const scenarioCostNis = result.profitability.totalCostNis * scenario.costFactor;
-                  const scenarioProfitNis = scenarioRevenueNis - scenarioCostNis;
-                  const scenarioRatio = scenarioCostNis !== 0 ? scenarioProfitNis / scenarioCostNis : 0;
+                  const cell = result.feasibility.sensitivityMatrix.find(
+                    (c) => c.revenueFactor === scenario.revenueFactor && c.costFactor === scenario.costFactor
+                  )!;
                   return (
                     <tr key={scenario.label} className="border-t border-gray-100 tabular-nums">
                       <td className="py-1.5 px-2">{scenario.label}</td>
-                      <td className="py-1.5 px-2">{nis(scenarioProfitNis)}</td>
-                      <td className={`py-1.5 px-2 ${scenarioRatio >= 0 ? "" : "text-red-600"}`}>{fmt(scenarioRatio * 100, 1)}%</td>
+                      <td className="py-1.5 px-2">{nis(cell.profitNis)}</td>
+                      <td className={`py-1.5 px-2 ${cell.profitToCostRatio >= 0 ? "" : "text-red-600"}`}>{fmt(cell.profitToCostRatio * 100, 1)}%</td>
                     </tr>
                   );
                 })}
