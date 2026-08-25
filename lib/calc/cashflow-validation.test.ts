@@ -126,6 +126,34 @@ describe("validatePaymentSchedule", () => {
     expect(validatePaymentSchedule(validTranches(), 3.5, 24, "explicitSchedule").valid).toBe(false);
     expect(validatePaymentSchedule(validTranches(), 3, Infinity, "explicitSchedule").valid).toBe(false);
   });
+
+  it("דוחה relativeToSale.monthsAfterSale לא שלם (המנוע חודשי)", () => {
+    const tranches: PaymentTranche[] = [
+      { fraction: 1, timing: { kind: "relativeToSale", monthsAfterSale: 2.5 }, label: "חצי חודש" },
+    ];
+    expect(validatePaymentSchedule(tranches, 3, 24, "explicitSchedule").valid).toBe(false);
+  });
+
+  it("דוחה projectMonth.monthIndex לא שלם", () => {
+    const tranches: PaymentTranche[] = [
+      { fraction: 1, timing: { kind: "projectMonth", monthIndex: 10.5 }, label: "חצי חודש" },
+    ];
+    expect(validatePaymentSchedule(tranches, 3, 24, "explicitSchedule").valid).toBe(false);
+  });
+
+  it("דוחה evenSpread.fromMonthsAfterSale לא שלם", () => {
+    const tranches: PaymentTranche[] = [
+      { fraction: 1, timing: { kind: "evenSpread", fromMonthsAfterSale: 1.5, toMonthsAfterSale: 10 }, label: "חצי חודש" },
+    ];
+    expect(validatePaymentSchedule(tranches, 3, 24, "explicitSchedule").valid).toBe(false);
+  });
+
+  it("דוחה evenSpread.toMonthsAfterSale לא שלם", () => {
+    const tranches: PaymentTranche[] = [
+      { fraction: 1, timing: { kind: "evenSpread", fromMonthsAfterSale: 1, toMonthsAfterSale: 10.5 }, label: "חצי חודש" },
+    ];
+    expect(validatePaymentSchedule(tranches, 3, 24, "explicitSchedule").valid).toBe(false);
+  });
 });
 
 describe("validateCumulativePercentByMonth", () => {
@@ -179,7 +207,7 @@ describe("validateGuaranteeMechanism", () => {
     expect(validateGuaranteeMechanism(mechanism).valid).toBe(true);
   });
 
-  it("דוחה annualRateFraction גדול מ-1 (טעות אחוז-במקום-שבר, 0.85 במקום 0.0085)", () => {
+  it("דוחה שיעור לא סביר המעיד על טעות אחוז-במקום-שבר (0.85 במקום 0.0085)", () => {
     const mechanism: GuaranteeMechanism = { kind: "buyerSaleLaw", annualRateFraction: 0.85 };
     const result = validateGuaranteeMechanism(mechanism);
     expect(result.valid).toBe(false);

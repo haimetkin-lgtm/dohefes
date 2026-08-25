@@ -154,9 +154,12 @@ export interface CashFlowAssumptions {
 
 // --- תוצאה חודשית ---
 
-/** בשונה מ-CashFlowMonth.phase (יחיד) הקודם: חודש בפועל יכול להשתייך למספר שלבים בו-זמנית -
+/** מקור האמת היחיד לשלבי הפרויקט - הטיפוס נגזר מהמערך, בדיוק כמו CASH_FLOW_COST_ITEM_IDS למעלה.
+ *  בשונה מ-CashFlowMonth.phase (יחיד) הקודם: חודש בפועל יכול להשתייך למספר שלבים בו-זמנית -
  *  שיווק חופף לבנייה, שכירות לדיירים חופפת להיתר/ביצוע, ליווי בנקאי חוצה כמה שלבים */
-export type ProjectPhase = "permit" | "demolition" | "construction" | "marketing" | "handover";
+export const PROJECT_PHASES = ["permit", "demolition", "construction", "marketing", "handover"] as const;
+
+export type ProjectPhase = (typeof PROJECT_PHASES)[number];
 
 export interface CashFlowMonth {
   monthIndex: number;

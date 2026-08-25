@@ -1,12 +1,10 @@
 // ולידציה טהורה למבני התזרים (commit 1). אין כאן לוגיקת חישוב תזרים בפועל - רק בדיקות מבניות
 // על טיפוסים שכבר מולאו, לשימוש עתידי גם בתוך computeCashFlow (commit 4+) וגם כבדיקות vitest.
 
-import { CASH_FLOW_COST_ITEM_IDS } from "./cashflow-types";
+import { CASH_FLOW_COST_ITEM_IDS, PROJECT_PHASES } from "./cashflow-types";
 import type { CashFlowCostItemId, GuaranteeMechanism, PaymentTranche, ProjectPhase, SaleScheduleModel } from "./cashflow-types";
 
 const FRACTION_SUM_TOLERANCE = 1e-6;
-
-const PROJECT_PHASES: readonly ProjectPhase[] = ["permit", "demolition", "construction", "marketing", "handover"];
 
 export interface ValidationResult {
   valid: boolean;
@@ -91,6 +89,10 @@ export function validatePaymentSchedule(
           errors.push(`${ref}: monthsAfterSale אינו סופי`);
           break;
         }
+        if (!Number.isInteger(timing.monthsAfterSale)) {
+          errors.push(`${ref}: monthsAfterSale אינו מספר שלם (${timing.monthsAfterSale}) - המנוע חודשי`);
+          break;
+        }
         const resolvedMonth = saleMonth + timing.monthsAfterSale;
         if (resolvedMonth < 0) errors.push(`${ref}: monthsAfterSale גורם לחודש לפני 0 (${resolvedMonth})`);
         if (resolvedMonth > handoverMonth) errors.push(`${ref}: monthsAfterSale גורם לחודש אחרי המסירה (${resolvedMonth} > ${handoverMonth})`);
@@ -99,6 +101,10 @@ export function validatePaymentSchedule(
       case "projectMonth": {
         if (!Number.isFinite(timing.monthIndex)) {
           errors.push(`${ref}: monthIndex אינו סופי`);
+          break;
+        }
+        if (!Number.isInteger(timing.monthIndex)) {
+          errors.push(`${ref}: monthIndex אינו מספר שלם (${timing.monthIndex}) - המנוע חודשי`);
           break;
         }
         if (timing.monthIndex < 0 || timing.monthIndex > handoverMonth) {
@@ -110,6 +116,10 @@ export function validatePaymentSchedule(
         const { fromMonthsAfterSale, toMonthsAfterSale } = timing;
         if (!Number.isFinite(fromMonthsAfterSale) || !Number.isFinite(toMonthsAfterSale)) {
           errors.push(`${ref}: evenSpread מכיל ערך לא סופי`);
+          break;
+        }
+        if (!Number.isInteger(fromMonthsAfterSale) || !Number.isInteger(toMonthsAfterSale)) {
+          errors.push(`${ref}: evenSpread מכיל ערך שאינו מספר שלם (${fromMonthsAfterSale}, ${toMonthsAfterSale}) - המנוע חודשי`);
           break;
         }
         if (fromMonthsAfterSale > toMonthsAfterSale) {
