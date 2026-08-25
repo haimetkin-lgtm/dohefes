@@ -211,29 +211,39 @@ describe("אי-מוטציה של הקלט", () => {
 });
 
 describe("מחיר ממוצע למ\"ר בנקודת האיזון, לפי יחידות נמכרות בלבד", () => {
-  it("מחיר יחידת תמורה אינו גורם מכריע במחיר נקודת האיזון (בניגוד לדילול השטח שתוקן)", () => {
-    // הערה: לא בודקים שוויון מדויק. מחיר יחידת התמורה עדיין נכנס ל-totalRevenueInclVatNis
-    // שמשמש בסיס לעמלת ערבות חוק מכר (guaranteeCommissionNis) - זה מכוון, לא באג: בפועל
-    // היזם נותן ערבות חוק מכר גם לדיירים מקבלי תמורה, לא רק לרוכשים משלמים. ההשפעה הזו
-    // קטנה ומשנית. מה שכן תוקן: השטח של יחידת התמורה כבר לא מדלל את המחיר הממוצע למ"ר -
-    // בדיקה זו מוודאת שההשפעה שנשארה (ערבות בלבד) קטנה בהרבה מהשפעת דילול השטח שהייתה קודם.
-    const build = (compensationPriceNis: number): ProjectInputs => ({
+  it("שווה בדיוק להכנסת היחידות הנמכרות חלקי שטחן המשוקלל - תמורה/מבנה קיים/מב\"צ לא בתמונה", () => {
+    // בדיקה דטרמיניסטית: משחזרים את הנוסחה עצמאית בבדיקה (לא רק קוראים ל-engine פעמיים)
+    // ומוודאים שוויון מדויק. שלוש היחידות הלא-נמכרות מקבלות מחיר לא-אפס בכוונה - אם המימוש
+    // היה כולל אותן בטעות במונה/במכנה, השוויון היה נכשל.
+    const balconyWeight = 0.5;
+    const compensationUnit = unit({ name: "יחידת תמורה", count: 3, areaSqm: 70, mamadSqm: 5, balconySqm: 8, priceNis: 1500000, isCompensationUnit: true });
+    const existingStructureUnit = unit({ name: "מבנה קיים מחוזק", count: 2, areaSqm: 65, mamadSqm: 4, balconySqm: 0, priceNis: 1200000, isExistingStructure: true });
+    const publicBuildingUnit = unit({ name: 'מב"צ', count: 1, areaSqm: 200, mamadSqm: 0, balconySqm: 0, priceNis: 900000, category: "publicBuilding" });
+    const soldUnitA = unit({ name: "יחידה נמכרת א", count: 5, areaSqm: 90, mamadSqm: 10, balconySqm: 10, roofBalconySqm: 0, priceNis: 2000000 });
+    const soldUnitB = unit({ name: "יחידה נמכרת ב", count: 3, areaSqm: 120, mamadSqm: 12, balconySqm: 14, roofBalconySqm: 20, priceNis: 3000000 });
+
+    const inputs: ProjectInputs = {
       dealType: "tama38",
-      projectName: "תמורה מול נמכר",
-      units: [
-        unit({ name: "יחידת תמורה", count: 4, priceNis: compensationPriceNis, isCompensationUnit: true }),
-        unit({ name: "יחידה נמכרת", count: 10, priceNis: 2200000 }),
-      ],
-      costs: baseCosts({ relocationUnitsCount: 4, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3500 }),
+      projectName: "בדיקת נוסחה דטרמיניסטית",
+      units: [compensationUnit, existingStructureUnit, publicBuildingUnit, soldUnitA, soldUnitB],
+      costs: baseCosts({ relocationUnitsCount: 3, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3500 }),
       land: baseLand({ bettermentLevyNis: 200000 }),
-    });
+    };
 
-    const withZeroPrice = computeProject(build(0));
-    const withHugePrice = computeProject(build(50000000));
+    const result = computeProject(inputs);
+    const multiplier = result.feasibility.breakEven.priceMultiplier;
+    expect(multiplier).not.toBeNull();
 
-    const a = withZeroPrice.feasibility.breakEven.averagePricePerSqmNis!;
-    const b = withHugePrice.feasibility.breakEven.averagePricePerSqmNis!;
-    expect(Math.abs(a - b) / a).toBeLessThan(0.1);
+    // שחזור עצמאי: רק שתי היחידות הנמכרות, בשטח המשוקלל שלהן ובהכנסתן לאחר הכפלה במכפיל
+    let weightedAreaSqm = 0;
+    let revenueInclVatNis = 0;
+    for (const u of [soldUnitA, soldUnitB]) {
+      weightedAreaSqm += u.count * (u.areaSqm + u.mamadSqm + (u.balconySqm + u.roofBalconySqm) * balconyWeight);
+      revenueInclVatNis += u.count * u.priceNis * multiplier!;
+    }
+    const expectedAveragePricePerSqmNis = revenueInclVatNis / weightedAreaSqm;
+
+    expect(result.feasibility.breakEven.averagePricePerSqmNis).toBeCloseTo(expectedAveragePricePerSqmNis, 6);
   });
 
   it("בפרויקט עם תמורה, מחיר נקודת האיזון גבוה משמעותית מהממוצע הכולל (שהיה מדולל בשטח התמורה)", () => {
