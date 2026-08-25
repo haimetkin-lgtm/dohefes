@@ -83,7 +83,11 @@ export interface CompleteFinancingResult {
   totalInterestExpenseNis: number;
   totalEquityInjectedNis: number;
   peakClosingDebtBalanceNis: number;
+  /** commit 8a: מ-financed (ובסופו של דבר מ-computeInterestCashFlow) ישירות - לא מחושב מחדש כאן */
+  peakClosingDebtBalanceMonthIndex: number | null;
   peakFundingDeficitNis: number;
+  /** commit 8a: מ-financed ישירות - לא מחושב מחדש כאן */
+  firstFundingDeficitMonthIndex: number | null;
   facilityExceeded: boolean;
   activeGuaranteesBeyondForecast: boolean;
   isConverged: boolean;
@@ -319,7 +323,9 @@ export function computeCompleteFinancing(input: CompleteFinancingInput): Complet
     totalInterestExpenseNis: financed.totalInterestExpenseNis,
     totalEquityInjectedNis: financed.totalEquityInjectedNis,
     peakClosingDebtBalanceNis: financed.peakClosingDebtBalanceNis,
+    peakClosingDebtBalanceMonthIndex: financed.peakClosingDebtBalanceMonthIndex,
     peakFundingDeficitNis: financed.peakFundingDeficitNis,
+    firstFundingDeficitMonthIndex: financed.firstFundingDeficitMonthIndex,
     facilityExceeded: financed.facilityExceeded,
     activeGuaranteesBeyondForecast: financed.activeGuaranteesBeyondForecast,
     isConverged,

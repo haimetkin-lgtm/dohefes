@@ -62,7 +62,11 @@ export interface FinancedCashFlowResult {
   totalInterestExpenseNis: number;
   totalEquityInjectedNis: number;
   peakClosingDebtBalanceNis: number;
+  /** commit 8a: מ-computeInterestCashFlow ישירות - לא מחושב מחדש כאן (ר' §8a) */
+  peakClosingDebtBalanceMonthIndex: number | null;
   peakFundingDeficitNis: number;
+  /** commit 8a: מ-computeInterestCashFlow ישירות - לא מחושב מחדש כאן */
+  firstFundingDeficitMonthIndex: number | null;
   facilityExceeded: boolean;
   /** מקור האמת: guaranteeSchedule.activeBeyondForecast, מועבר כמו שהוא - לא מחושב מחדש */
   activeGuaranteesBeyondForecast: boolean;
@@ -223,7 +227,9 @@ export function computeFinancedCashFlow(input: FinancedCashFlowInput): FinancedC
     totalInterestExpenseNis: interestResult.totalInterestExpenseNis,
     totalEquityInjectedNis: interestResult.totalEquityInjectedNis,
     peakClosingDebtBalanceNis: interestResult.peakClosingDebtBalanceNis,
+    peakClosingDebtBalanceMonthIndex: interestResult.peakClosingDebtBalanceMonthIndex,
     peakFundingDeficitNis: interestResult.peakFundingDeficitNis,
+    firstFundingDeficitMonthIndex: interestResult.firstFundingDeficitMonthIndex,
     facilityExceeded: interestResult.facilityExceeded,
     activeGuaranteesBeyondForecast: guaranteeSchedule.activeBeyondForecast,
   };
