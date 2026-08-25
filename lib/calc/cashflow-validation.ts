@@ -131,6 +131,23 @@ export function validatePaymentSchedule(
         if (resolvedTo > handoverMonth) errors.push(`${ref}: evenSpread מסתיים אחרי המסירה (${resolvedTo} > ${handoverMonth})`);
         break;
       }
+      case "evenSpreadToHandover": {
+        const { fromMonthsAfterSale } = timing;
+        if (!Number.isFinite(fromMonthsAfterSale)) {
+          errors.push(`${ref}: evenSpreadToHandover.fromMonthsAfterSale אינו סופי`);
+          break;
+        }
+        if (!Number.isInteger(fromMonthsAfterSale)) {
+          errors.push(`${ref}: evenSpreadToHandover.fromMonthsAfterSale אינו מספר שלם (${fromMonthsAfterSale}) - המנוע חודשי`);
+          break;
+        }
+        const resolvedFrom = saleMonth + fromMonthsAfterSale;
+        if (resolvedFrom < 0) errors.push(`${ref}: evenSpreadToHandover מתחיל לפני חודש 0 (${resolvedFrom})`);
+        if (resolvedFrom > handoverMonth) {
+          errors.push(`${ref}: evenSpreadToHandover.fromMonthsAfterSale (${fromMonthsAfterSale}) מתחיל אחרי המסירה (${resolvedFrom} > ${handoverMonth})`);
+        }
+        break;
+      }
       case "constructionProgress": {
         if (!Number.isFinite(timing.cumulativeProgress)) {
           errors.push(`${ref}: cumulativeProgress אינו סופי`);

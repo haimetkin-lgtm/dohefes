@@ -12,7 +12,15 @@ export const CASH_FLOW_SCHEMA_VERSION = 1;
 export type PaymentTiming =
   | { kind: "relativeToSale"; monthsAfterSale: number }
   | { kind: "projectMonth"; monthIndex: number }
+  /** קצוות קבועים יחסית למכירה - שימושי לחוזה עם תאריך סיום פריסה ספציפי, לא תלוי-מסירה */
   | { kind: "evenSpread"; fromMonthsAfterSale: number; toMonthsAfterSale: number }
+  /**
+   * פרוסה אחיד מתחילה יחסית למכירה ועד חודש המסירה עצמו (handoverMonth, נגזר בזמן ריצה, לא קבוע
+   * מראש) - preset ה-15/70/15 הכללי צריך את זה, לא evenSpread עם toMonthsAfterSale קשיח: batch
+   * שנמכר מאוחר יותר עדיין מסתיים בדיוק במסירה, לא חורג ממנה. אם fromMonthsAfterSale מביא את
+   * תחילת הפריסה בדיוק לחודש המסירה, כל המנה מתקבלת באותו חודש (טווח של חודש יחיד).
+   */
+  | { kind: "evenSpreadToHandover"; fromMonthsAfterSale: number }
   /** לצורך legacyConstructionLinked בלבד, ר' §3.1 */
   | { kind: "constructionProgress"; cumulativeProgress: number }
   | { kind: "handover" };

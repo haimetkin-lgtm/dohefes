@@ -8,9 +8,11 @@ function sum(receipts: { amountNis: number }[]): number {
   return receipts.reduce((s, r) => s + r.amountNis, 0);
 }
 
+// evenSpreadToHandover, לא evenSpread עם toMonthsAfterSale קשיח: ה-preset הכללי חייב להתאים
+// לכל batch, לא רק לזה שנמכר בדיוק בזמן שמשאיר 21 חודש עד המסירה (ר' סבב ביקורת שביעי, §1)
 const preset15_70_15: PaymentTranche[] = [
   { fraction: 0.15, timing: { kind: "relativeToSale", monthsAfterSale: 0 }, label: "בחתימה" },
-  { fraction: 0.7, timing: { kind: "evenSpread", fromMonthsAfterSale: 1, toMonthsAfterSale: 21 }, label: "בהתקדמות" },
+  { fraction: 0.7, timing: { kind: "evenSpreadToHandover", fromMonthsAfterSale: 1 }, label: "בהתקדמות" },
   { fraction: 0.15, timing: { kind: "handover" }, label: "במסירה" },
 ];
 
@@ -74,22 +76,82 @@ describe("UnitSalesBatch: אותו טיפוס דירה נמכר במספר חו�
   });
 });
 
-describe("יחידות שאף פעם לא מקבלות batches ולא מייצרות תקבול", () => {
-  const batches: UnitSalesBatch[] = [{ unitsCount: 5, saleMonth: 2 }];
+describe("evenSpreadToHandover: preset אחד משרת batches שנמכרים בזמנים שונים בלי לחרוג מהמסירה", () => {
+  const unit: ReceiptRowInput = { count: 100, priceNis: 2_000_000, category: "residential" };
+  const handoverMonth = 24;
 
-  it("יחידת תמורה (isCompensationUnit) מחזירה מערך ריק", () => {
+  it("batch שנמכר בחודש 2: 70% פרוסים מחודש 3 עד 24 (22 חודשים), לא חורגים מהמסירה", () => {
+    const receipts = computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: unit.priceNis }, preset15_70_15, 2, handoverMonth, "explicitSchedule");
+    for (const r of receipts) expect(r.monthIndex).toBeLessThanOrEqual(handoverMonth);
+    const spreadMonths = receipts.filter((r) => r.monthIndex >= 3 && r.monthIndex < handoverMonth);
+    expect(spreadMonths.length + 1).toBe(handoverMonth - 3 + 1); // +1 כי חודש 24 גם מקבל evenSpread (ממוזג עם handover)
+  });
+
+  it("batch שנמכר בחודש 10: 70% פרוסים מחודש 11 עד 24 (14 חודשים), לא חורגים מהמסירה", () => {
+    const receipts = computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: unit.priceNis }, preset15_70_15, 10, handoverMonth, "explicitSchedule");
+    for (const r of receipts) expect(r.monthIndex).toBeLessThanOrEqual(handoverMonth);
+  });
+
+  it("batch שנמכר סמוך למסירה (חודש 23, evenSpreadToHandover מתחיל בדיוק בחודש 24): כל 70% מתקבלים בחודש המסירה, לא חורג", () => {
+    const receipts = computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: unit.priceNis }, preset15_70_15, 23, handoverMonth, "explicitSchedule");
+    for (const r of receipts) expect(r.monthIndex).toBeLessThanOrEqual(handoverMonth);
+    expect(sum(receipts)).toBe(unit.priceNis);
+  });
+
+  it("batch שנמכר בדיוק בחודש המסירה: evenSpreadToHandover מתחיל בחודש 25 (אחרי המסירה) - נכשל במפורש", () => {
+    expect(() =>
+      computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: unit.priceNis }, preset15_70_15, handoverMonth, handoverMonth, "explicitSchedule")
+    ).toThrow();
+  });
+
+  it("כמה batches באותו preset, שנמכרים בחודשים שונים, מסתכמים בדיוק לשווי כל היחידות", () => {
+    const batches: UnitSalesBatch[] = [
+      { unitsCount: 30, saleMonth: 2 },
+      { unitsCount: 40, saleMonth: 10 },
+      { unitsCount: 30, saleMonth: 20 },
+    ];
+    const receipts = computeUnitRowMonthlyReceipts(unit, batches, preset15_70_15, 0, handoverMonth, "explicitSchedule");
+    expect(sum(receipts)).toBe(unit.count * unit.priceNis);
+    for (const r of receipts) expect(r.monthIndex).toBeLessThanOrEqual(handoverMonth);
+  });
+});
+
+describe("יחידות שאינן נמכרות: מערך batches ריק עובר, batch לא-ריק נכשל (לא מוסתר בשקט)", () => {
+  const nonEmptyBatches: UnitSalesBatch[] = [{ unitsCount: 5, saleMonth: 2 }];
+
+  it("יחידת תמורה (isCompensationUnit) עם מערך batches ריק מחזירה מערך ריק", () => {
     const unit: ReceiptRowInput = { count: 5, priceNis: 2_000_000, isCompensationUnit: true };
-    expect(computeUnitRowMonthlyReceipts(unit, batches, preset15_70_15, 0, 24, "explicitSchedule")).toEqual([]);
+    expect(computeUnitRowMonthlyReceipts(unit, [], preset15_70_15, 0, 24, "explicitSchedule")).toEqual([]);
   });
 
-  it("מבנה קיים (isExistingStructure) מחזיר מערך ריק", () => {
+  it("מבנה קיים (isExistingStructure) עם מערך batches ריק מחזיר מערך ריק", () => {
     const unit: ReceiptRowInput = { count: 5, priceNis: 2_000_000, isExistingStructure: true };
-    expect(computeUnitRowMonthlyReceipts(unit, batches, preset15_70_15, 0, 24, "explicitSchedule")).toEqual([]);
+    expect(computeUnitRowMonthlyReceipts(unit, [], preset15_70_15, 0, 24, "explicitSchedule")).toEqual([]);
   });
 
-  it('מב"צ (category="publicBuilding") מחזיר מערך ריק', () => {
+  it('מב"צ (category="publicBuilding") עם מערך batches ריק מחזיר מערך ריק', () => {
     const unit: ReceiptRowInput = { count: 5, priceNis: 0, category: "publicBuilding" };
-    expect(computeUnitRowMonthlyReceipts(unit, batches, preset15_70_15, 0, 24, "explicitSchedule")).toEqual([]);
+    expect(computeUnitRowMonthlyReceipts(unit, [], preset15_70_15, 0, 24, "explicitSchedule")).toEqual([]);
+  });
+
+  it("יחידת תמורה עם batch לא-ריק נכשלת - נתון סותר לא מוסתר בשקט", () => {
+    const unit: ReceiptRowInput = { count: 5, priceNis: 2_000_000, isCompensationUnit: true };
+    expect(() => computeUnitRowMonthlyReceipts(unit, nonEmptyBatches, preset15_70_15, 0, 24, "explicitSchedule")).toThrow(/אצוות מכירה/);
+  });
+
+  it("מבנה קיים עם batch לא-ריק נכשל", () => {
+    const unit: ReceiptRowInput = { count: 5, priceNis: 2_000_000, isExistingStructure: true };
+    expect(() => computeUnitRowMonthlyReceipts(unit, nonEmptyBatches, preset15_70_15, 0, 24, "explicitSchedule")).toThrow(/אצוות מכירה/);
+  });
+
+  it('מב"צ עם batch לא-ריק נכשל', () => {
+    const unit: ReceiptRowInput = { count: 5, priceNis: 0, category: "publicBuilding" };
+    expect(() => computeUnitRowMonthlyReceipts(unit, nonEmptyBatches, preset15_70_15, 0, 24, "explicitSchedule")).toThrow(/אצוות מכירה/);
+  });
+
+  it("count שלילי ביחידת תמורה נכשל על ולידציית count, לא מוסתר על ידי ה-return המוקדם", () => {
+    const unit: ReceiptRowInput = { count: -1, priceNis: 2_000_000, isCompensationUnit: true };
+    expect(() => computeUnitRowMonthlyReceipts(unit, [], preset15_70_15, 0, 24, "explicitSchedule")).toThrow();
   });
 });
 
@@ -121,6 +183,41 @@ describe("constructionProgress: היסט לציר הפרויקט לפי תקופ
     const tranches: PaymentTranche[] = [{ fraction: 1, timing: { kind: "constructionProgress", cumulativeProgress: 0.5 }, label: "50%" }];
     const receipts = computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: 1_000_000 }, tranches, 0, 23, "legacyConstructionLinked", constructionCurve, 0);
     expect(receipts).toEqual([{ monthIndex: 11, amountNis: 1_000_000 }]);
+  });
+});
+
+describe("constructionCurve.length חייב להתאים לציר הפרויקט (handoverMonth-constructionStartMonth+1)", () => {
+  const permitMonths = 8;
+  const constructionMonths = 24;
+  const handoverMonth = permitMonths + constructionMonths - 1; // 31, אורך צפוי = 24
+  const tranches: PaymentTranche[] = [{ fraction: 1, timing: { kind: "constructionProgress", cumulativeProgress: 0.5 }, label: "50%" }];
+
+  it("אורך 24 (התואם בדיוק) עובר", () => {
+    const curve = resolveConstructionCurve(24, { model: "linear" });
+    expect(() =>
+      computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: 1_000_000 }, tranches, 0, handoverMonth, "legacyConstructionLinked", curve, permitMonths)
+    ).not.toThrow();
+  });
+
+  it("אורך 12 (קצר מדי) נכשל, גם אם העקומה עצמה תקינה ומגיעה ל-100%", () => {
+    const shortCurve = resolveConstructionCurve(12, { model: "linear" }); // תקינה כשלעצמה, אבל אורך לא נכון להקשר
+    expect(() =>
+      computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: 1_000_000 }, tranches, 0, handoverMonth, "legacyConstructionLinked", shortCurve, permitMonths)
+    ).toThrow();
+  });
+
+  it("אורך 25 (ארוך מדי) נכשל", () => {
+    const longCurve = resolveConstructionCurve(25, { model: "linear" });
+    expect(() =>
+      computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: 1_000_000 }, tranches, 0, handoverMonth, "legacyConstructionLinked", longCurve, permitMonths)
+    ).toThrow();
+  });
+
+  it("constructionStartMonth > handoverMonth נכשל", () => {
+    const curve = resolveConstructionCurve(24, { model: "linear" });
+    expect(() =>
+      computeSalesBatchMonthlyReceipts({ unitsCount: 1, priceNis: 1_000_000 }, tranches, 0, 5, "legacyConstructionLinked", curve, 10)
+    ).toThrow();
   });
 });
 

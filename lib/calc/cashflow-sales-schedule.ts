@@ -69,6 +69,19 @@ function resolveConstructionProgressProjectMonth(
   if (!Number.isInteger(constructionStartMonth) || constructionStartMonth < 0) {
     throw new Error(`constructionStartMonth חייב להיות מספר שלם לא-שלילי (התקבל ${constructionStartMonth})`);
   }
+  if (constructionStartMonth > handoverMonth) {
+    throw new Error(`constructionStartMonth (${constructionStartMonth}) אחרי handoverMonth (${handoverMonth})`);
+  }
+
+  // אורך העקומה חייב להתאים בדיוק לציר הפרויקט: עקומה תקינה (מגיעה ל-100%) אבל באורך הלא נכון
+  // עדיין מייצגת תזמון שגוי - לדוגמה עקומה קצרה מדי "תגמור" את הבנייה מוקדם מדי מבחינת חודשי
+  // הפרויקט בפועל, גם אם המבנה הפנימי שלה (מונוטוני, מסתיים ב-100%) תקין לגמרי.
+  const expectedConstructionMonths = handoverMonth - constructionStartMonth + 1;
+  if (constructionCurve.length !== expectedConstructionMonths) {
+    throw new Error(
+      `constructionCurve.length (${constructionCurve.length}) אינו תואם את משך הבנייה הצפוי מציר הפרויקט (${expectedConstructionMonths} = handoverMonth-constructionStartMonth+1)`
+    );
+  }
 
   const relativeIndex = constructionCurve.findIndex((v) => v >= cumulativeProgress);
   if (relativeIndex === -1) {
@@ -140,6 +153,18 @@ export function computeSalesBatchMonthlyReceipts(
         const toMonth = saleMonth + timing.toMonthsAfterSale;
         // כולל שני הקצוות; from===to -> חודש יחיד, monthCount=1, חלוקה דטרמיניסטית טריוויאלית
         const monthCount = toMonth - fromMonth + 1;
+        const perMonthAmount = trancheAmountNis / monthCount;
+        for (let m = fromMonth; m <= toMonth; m++) {
+          addAmount(m, perMonthAmount);
+        }
+        break;
+      }
+      case "evenSpreadToHandover": {
+        // הקצה השני נגזר תמיד מ-handoverMonth בזמן ריצה, לא קבוע מראש - זה בדיוק מה שמאפשר
+        // ל-preset אחד (15/70/15) לשרת batches שנמכרים בחודשים שונים בלי לחרוג מהמסירה
+        const fromMonth = saleMonth + timing.fromMonthsAfterSale;
+        const toMonth = handoverMonth;
+        const monthCount = toMonth - fromMonth + 1; // fromMonth===handoverMonth -> חודש יחיד
         const perMonthAmount = trancheAmountNis / monthCount;
         for (let m = fromMonth; m <= toMonth; m++) {
           addAmount(m, perMonthAmount);
@@ -236,11 +261,20 @@ export function computeUnitRowMonthlyReceipts(
   constructionCurve?: number[],
   constructionStartMonth?: number
 ): MonthlyReceipt[] {
-  if (unit.isCompensationUnit || unit.isExistingStructure || unitCategoryOrDefault(unit.category) === "publicBuilding") {
+  // ולידציית count/priceNis תמיד רצה קודם, גם ליחידות שלא נמכרות - אחרת קלט שגוי (count שלילי וכו')
+  // על יחידת תמורה היה מוסתר בשקט מאחורי ה-return המוקדם, במקום להיכשל כמו כל שורה אחרת.
+  validateCountAndPrice(unit.count, unit.priceNis);
+
+  const doesNotSell = unit.isCompensationUnit || unit.isExistingStructure || unitCategoryOrDefault(unit.category) === "publicBuilding";
+  if (doesNotSell) {
+    // salesBatches לא-ריק על יחידה שלא נמכרת הוא נתון סותר בפני עצמו (מישהו קבע שהיא נמכרת),
+    // לא מקרה קצה "לנקות בשקט" - זורקים כדי שהבעיה תיתפס במקום שנוצרה, לא תיעלם עד commit 4.
+    if (salesBatches.length > 0) {
+      throw new Error("יחידה שאינה נמכרת (תמורה/מבנה קיים/מב\"צ) אינה יכולה לכלול אצוות מכירה (salesBatches)");
+    }
     return [];
   }
 
-  validateCountAndPrice(unit.count, unit.priceNis);
   validateSalesBatches(salesBatches, unit.count, marketingStartMonth, handoverMonth);
 
   const byMonth = new Map<number, number>();
