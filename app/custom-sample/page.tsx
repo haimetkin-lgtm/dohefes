@@ -69,6 +69,7 @@ const FINAL_INPUTS: ProjectInputs = {
     commercialConstructionCostPerSqm: 9200,
     officeConstructionCostPerSqm: 10200,
     publicBuildingConstructionCostPerSqm: 0,
+    reinforcementCostPerSqm: 0,
     undergroundConstructionCostPerSqm: 5600,
     balconyConstructionCostRatio: 0.5,
     developmentCostPerSqm: 650,

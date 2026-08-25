@@ -58,6 +58,7 @@ const DEFAULT_COSTS: CostInputs = {
   commercialConstructionCostPerSqm: 0,
   officeConstructionCostPerSqm: 0,
   publicBuildingConstructionCostPerSqm: 0,
+  reinforcementCostPerSqm: 0,
   undergroundConstructionCostPerSqm: 0,
   balconyConstructionCostRatio: 0.5,
   developmentCostPerSqm: 500,
@@ -109,6 +110,9 @@ export default function CalculatorPage() {
   // בהצגת האפשרות תמיד, מי שלא צריך פשוט לא נוגע בה (קטגוריה נשארת מגורים כברירת מחדל).
   const supportsMixedCategories = true;
   const usesUnitCompensation = landMechanism(dealType) === "unitCompensation";
+  // תמ"א 38 "חיזוק ותוספת": חלק מהשטח הוא מבנה קיים שרק מתחזק (עלות נמוכה משמעותית מבנייה חדשה),
+  // לא נהרס כמו ב"הריסה ובנייה מחדש". רלוונטי רק לתמ"א 38.
+  const supportsReinforcement = dealType === "tama38";
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
 
@@ -122,6 +126,7 @@ export default function CalculatorPage() {
   const [commercialCost, setCommercialCost] = useState(0);
   const [officeCost, setOfficeCost] = useState(0);
   const [publicBuildingCost, setPublicBuildingCost] = useState(0);
+  const [reinforcementCost, setReinforcementCost] = useState(0);
   const [undergroundCost, setUndergroundCost] = useState(chamberRow.underground);
   const [undergroundArea, setUndergroundArea] = useState(0);
   const [netPlotArea, setNetPlotArea] = useState(0);
@@ -186,6 +191,7 @@ export default function CalculatorPage() {
     setCommercialCost(costs.commercialConstructionCostPerSqm);
     setOfficeCost(costs.officeConstructionCostPerSqm);
     setPublicBuildingCost(costs.publicBuildingConstructionCostPerSqm);
+    setReinforcementCost(costs.reinforcementCostPerSqm);
     setUndergroundCost(costs.undergroundConstructionCostPerSqm);
     setUndergroundArea(costs.undergroundAreaSqm);
     setNetPlotArea(costs.netPlotAreaSqm);
@@ -230,6 +236,7 @@ export default function CalculatorPage() {
         commercialConstructionCostPerSqm: commercialCost,
         officeConstructionCostPerSqm: officeCost,
         publicBuildingConstructionCostPerSqm: publicBuildingCost,
+        reinforcementCostPerSqm: reinforcementCost,
         undergroundConstructionCostPerSqm: undergroundCost,
         balconyConstructionCostRatio: 0.5,
         developmentCostPerSqm: 500,
@@ -278,7 +285,7 @@ export default function CalculatorPage() {
       },
     }),
     [
-      projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, publicBuildingCost, undergroundCost, undergroundArea, netPlotArea, demolition,
+      projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, publicBuildingCost, reinforcementCost, undergroundCost, undergroundArea, netPlotArea, demolition,
       buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
@@ -533,6 +540,19 @@ export default function CalculatorPage() {
               </label>
             </>
           )}
+          {supportsReinforcement && (
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">
+                עלות חיזוק שלד קיים למ&quot;ר (₪) <span className="text-gray-400">חיזוק ותוספת, לא הריסה ובנייה</span>
+              </span>
+              <input
+                type="number"
+                value={reinforcementCost}
+                onChange={(e) => setReinforcementCost(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </label>
+          )}
           <label className="flex flex-col gap-1">
             <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר תת קרקעי (₪)</span>
             <input
@@ -781,6 +801,7 @@ export default function CalculatorPage() {
                 <th className="py-1 pl-2">טיפוס</th>
                 {supportsMixedCategories && <th className="py-1 pl-2">קטגוריה</th>}
                 {usesUnitCompensation && <th className="py-1 pl-2">תמורה</th>}
+                {supportsReinforcement && <th className="py-1 pl-2">מבנה קיים</th>}
                 <th className="py-1 pl-2">כמות</th>
                 <th className="py-1 pl-2">שטח עיקרי</th>
                 <th className="py-1 pl-2">ממ&quot;ד</th>
@@ -827,6 +848,16 @@ export default function CalculatorPage() {
                         checked={u.isCompensationUnit ?? false}
                         onChange={(e) => updateUnit(i, { isCompensationUnit: e.target.checked })}
                         aria-label={`יחידת תמורה, שורה ${i + 1}`}
+                      />
+                    </td>
+                  )}
+                  {supportsReinforcement && (
+                    <td className="py-1 pl-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={u.isExistingStructure ?? false}
+                        onChange={(e) => updateUnit(i, { isExistingStructure: e.target.checked })}
+                        aria-label={`מבנה קיים המחוזק, שורה ${i + 1}`}
                       />
                     </td>
                   )}

@@ -69,6 +69,8 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     office: { mainAreaSqm: 0, otherAreaSqm: 0 },
     publicBuilding: { mainAreaSqm: 0, otherAreaSqm: 0 },
   };
+  let existingStructureAreaSqm = 0;
+  let existingStructureOtherAreaSqm = 0;
 
   for (const u of units) {
     const cat = unitCategory(u.category);
@@ -79,8 +81,15 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     totalBalconySqm += u.count * u.balconySqm;
     totalRoofBalconySqm += u.count * u.roofBalconySqm;
     unitCount += u.count;
-    areaByCategory[cat].mainAreaSqm += mainArea;
-    areaByCategory[cat].otherAreaSqm += otherArea;
+    // מבנה קיים המחוזק (תמ"א 38 חיזוק ותוספת): עלות בנייה בנפרד (reinforcementCostPerSqm),
+    // לא לפי הקטגוריה שלו. השטח הפיזי עצמו עדיין נספר בסיכומים הכוללים למעלה כרגיל.
+    if (u.isExistingStructure) {
+      existingStructureAreaSqm += mainArea;
+      existingStructureOtherAreaSqm += otherArea;
+    } else {
+      areaByCategory[cat].mainAreaSqm += mainArea;
+      areaByCategory[cat].otherAreaSqm += otherArea;
+    }
   }
 
   const totalMarketableAreaSqm =
@@ -96,6 +105,8 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     totalMarketableAreaSqm,
     unitCount,
     areaByCategory,
+    existingStructureAreaSqm,
+    existingStructureOtherAreaSqm,
   };
 }
 
@@ -178,6 +189,23 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     // הערה: otherAreaSqm כולל גם ממ"ד (לרוב רלוונטי רק למגורים, אבל אין נזק אם 0 בקטגוריות אחרות)
     constructionBreakdown.push({ category: cat, mainAreaSqm, mainCostNis, otherAreaSqm, otherCostNis });
   });
+
+  // חיזוק שלד קיים (תמ"א 38 חיזוק ותוספת), עלות נפרדת לגמרי מהקטגוריות, ר' UnitType.isExistingStructure.
+  // "פסאודו-קטגוריה" משלה בפירוט, לא מעורבבת עם עלות בנייה חדשה של אותה קטגוריה.
+  if (areas.existingStructureAreaSqm > 0 || areas.existingStructureOtherAreaSqm > 0) {
+    const reinforcementRate = costs.reinforcementCostPerSqm || costs.mainConstructionCostPerSqm;
+    const reinforcementBalconyRate = reinforcementRate * costs.balconyConstructionCostRatio;
+    const mainCostNis = areas.existingStructureAreaSqm * reinforcementRate;
+    const otherCostNis = areas.existingStructureOtherAreaSqm * reinforcementBalconyRate;
+    categorizedConstructionNis += mainCostNis + otherCostNis;
+    constructionBreakdown.push({
+      category: "existingStructure",
+      mainAreaSqm: areas.existingStructureAreaSqm,
+      mainCostNis,
+      otherAreaSqm: areas.existingStructureOtherAreaSqm,
+      otherCostNis,
+    });
+  }
 
   const directConstructionNis =
     categorizedConstructionNis +

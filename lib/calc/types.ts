@@ -53,6 +53,12 @@ export interface UnitType {
    * חישוב שווי הבניין הכולל. false/undefined = יחידה רגילה שהיזם מוכר.
    */
   isCompensationUnit?: boolean;
+  /**
+   * מבנה קיים המחוזק, לא נהרס (תמ"א 38 חיזוק ותוספת): עלות הבנייה שלה נגזרת מ-
+   * reinforcementCostPerSqm (חיזוק שלד קיים, זול משמעותית מבנייה חדשה) ולא מעלות הקטגוריה הרגילה,
+   * ללא קשר לקטגוריה עצמה. false/undefined = יחידה חדשה שנבנית מאפס, כברירת המחדל.
+   */
+  isExistingStructure?: boolean;
 }
 
 export interface CostInputs {
@@ -68,6 +74,11 @@ export interface CostInputs {
   officeConstructionCostPerSqm: number;
   /** עלות בנייה למ"ר מבנה ציבור (מב"צ). אם 0, נופל חזרה למחיר המגורים. אין ליחידות מב"צ הכנסה כלל */
   publicBuildingConstructionCostPerSqm: number;
+  /**
+   * עלות חיזוק שלד קיים למ"ר (תמ"א 38 חיזוק ותוספת), ליחידות המסומנות isExistingStructure.
+   * חלה במקום עלות הקטגוריה הרגילה, לא בנוסף. אם 0, נופל חזרה למחיר המגורים (כמו שאר הקטגוריות)
+   */
+  reinforcementCostPerSqm: number;
   /** עלות בנייה למ"ר תת קרקעי/מרתף. ברירת מחדל מאומדן הלשכה */
   undergroundConstructionCostPerSqm: number;
   /** יחס עלות מרפסות מעלות השטח העיקרי (טווח הלשכה: 30%-50%, ברירת מחדל 50% כמו במקור) */
@@ -179,8 +190,11 @@ export interface AreaSummary {
   /** שטח לשיווק = עיקרי + ממ"ד + (מרפסות * מקדם משקל) */
   totalMarketableAreaSqm: number;
   unitCount: number;
-  /** פילוח שטח עיקרי + מרפסות/ממ"ד לפי קטגוריה, לחישוב עלות בנייה נפרדת ב-mixedUse */
+  /** פילוח שטח עיקרי + מרפסות/ממ"ד לפי קטגוריה, לחישוב עלות בנייה נפרדת ב-mixedUse. לא כולל יחידות isExistingStructure */
   areaByCategory: Record<UnitCategory, { mainAreaSqm: number; otherAreaSqm: number }>;
+  /** שטח עיקרי/אחר של יחידות מבנה קיים המחוזק (isExistingStructure), בנפרד מ-areaByCategory */
+  existingStructureAreaSqm: number;
+  existingStructureOtherAreaSqm: number;
 }
 
 export interface RevenueSummary {
@@ -193,9 +207,13 @@ export interface RevenueSummary {
   averagePricePerSqmNis: number;
 }
 
-/** שורת פירוט עלות בנייה לקטגוריה אחת, לצורך תצוגה בדוח ("פירוט עלויות בנייה") */
+/**
+ * שורת פירוט עלות בנייה, לצורך תצוגה בדוח ("פירוט עלויות בנייה"). לרוב לפי קטגוריה, אבל
+ * "existingStructure" הוא פסאודו-קטגוריה נפרדת: כל היחידות המסומנות isExistingStructure
+ * (חיזוק שלד קיים) מרוכזות יחד לשורה אחת, ללא קשר לקטגוריה שלהן.
+ */
 export interface ConstructionCostRow {
-  category: UnitCategory;
+  category: UnitCategory | "existingStructure";
   /** שטח עיקרי (הדירות/היחידות עצמן), מ"ר */
   mainAreaSqm: number;
   mainCostNis: number;

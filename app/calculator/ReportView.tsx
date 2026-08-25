@@ -14,17 +14,13 @@ const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
   mixedUse: "מעורב מגורים ותעסוקה",
 };
 
-// המודל מייצג רק את מסלול ההריסה, לא מסלול חיזוק (אין בו סעיפי חיזוק הנדסי)
-const DEAL_TYPE_SUBTITLE: Partial<Record<ProjectInputs["dealType"], string>> = {
-  tama38: "הריסה ובנייה מחדש",
-};
-
 const CATEGORY_LABEL: Record<string, string> = {
   residential: "מגורים",
   residentialPremium: "מגורים פרימיום",
   commercial: "מסחר",
   office: "משרדים",
   publicBuilding: 'מב"צ',
+  existingStructure: "חיזוק שלד קיים",
 };
 
 // תווית שורת פירוט הבנייה לקטגוריה, תלוית-הקשר: כשיש גם residential וגם residentialPremium
@@ -72,7 +68,10 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
     inputs.units.some((u) => (u.category ?? "residential") === "residential") &&
     inputs.units.some((u) => u.category === "residentialPremium");
   const usesUnitCompensation = landMechanism(inputs.dealType) === "unitCompensation";
+  const hasReinforcement = inputs.units.some((u) => u.isExistingStructure);
   const dateStr = new Date().toLocaleDateString("he-IL");
+  const dealTypeSubtitle =
+    inputs.dealType === "tama38" ? (hasReinforcement ? "חיזוק ותוספת" : "הריסה ובנייה מחדש") : undefined;
 
   return (
     <div
@@ -88,9 +87,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
           <div className="text-xs font-medium text-[#14502F] bg-white border border-[#BFE0CC] rounded-full px-2.5 py-0.5 mt-1 inline-block">
             {DEAL_TYPE_LABEL[inputs.dealType]}
           </div>
-          {DEAL_TYPE_SUBTITLE[inputs.dealType] && (
-            <div className="text-[10px] text-gray-400 mt-1">{DEAL_TYPE_SUBTITLE[inputs.dealType]}</div>
-          )}
+          {dealTypeSubtitle && <div className="text-[10px] text-gray-400 mt-1">{dealTypeSubtitle}</div>}
         </div>
       </div>
 
@@ -111,6 +108,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                   <th className="text-right py-2 px-2">טיפוס</th>
                   {isMixed && <th className="text-right py-2 px-2">קטגוריה</th>}
                   {usesUnitCompensation && <th className="text-right py-2 px-2">תמורה</th>}
+                  {hasReinforcement && <th className="text-right py-2 px-2">מבנה קיים</th>}
                   <th className="text-right py-2 px-2">כמות</th>
                   <th className="text-right py-2 px-2">שטח עיקרי</th>
                   <th className="text-right py-2 px-2">ממ&quot;ד</th>
@@ -126,6 +124,9 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                     {isMixed && <td className="py-1.5 px-2">{CATEGORY_LABEL[u.category ?? "residential"]}</td>}
                     {usesUnitCompensation && (
                       <td className="py-1.5 px-2">{u.isCompensationUnit ? "כן" : "—"}</td>
+                    )}
+                    {hasReinforcement && (
+                      <td className="py-1.5 px-2">{u.isExistingStructure ? "כן" : "—"}</td>
                     )}
                     <td className="py-1.5 px-2">{u.count}</td>
                     <td className="py-1.5 px-2">{fmt(u.areaSqm)}</td>
