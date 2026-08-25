@@ -292,6 +292,24 @@ type UnusedCreditCommissionBalanceBasis = "openingDebt";  // יחיד בגרסה
 הבחירה בפועל מוצגת בדוח דרך `financing.interestBalanceBasisUsed` ו-`financing.unusedCreditCommissionBalanceBasisUsed`
 - לעולם לא נסתרת.
 
+**עדכון (commit 6d) - שלוש אפשרויות בסיס, ללא ברירת מחדל, במודול נפרד**: הפסקה למעלה מתעדת את התכנון המקורי
+(בסיס יחיד `"openingDebt"`, כדי לפתור מעגליות בתוך `computeCashFlow` המשולב). בפועל, מודול `cashflow-financing-fees.ts`
+(`computeFinancingFeeSchedule`) מיישם עמלת אי-ניצול כלוח **נפרד ועצמאי**, עדיין לא מחובר לתזרים המזומן עצמו, עם
+שלוש אפשרויות בסיס מפורשות - ללא ברירת מחדל שקטה, הקלט חייב לבחור:
+
+```ts
+type UnusedFacilityBalanceBasis =
+  | "openingAvailableFacility"   // max(0, facilityLimit - openingDebtBalance)
+  | "closingAvailableFacility"   // max(0, facilityLimit - closingDebtBalance)
+  | "averageOpeningClosingAvailableFacility"; // ממוצע שני אלה
+```
+
+זה **לא** פותר את מעגליות בסיס-הסגירה שתוארה למעלה - הוא בכוונה **לא** מנסה לפתור אותה בשלב הזה. במקום זאת,
+`computeFinancingFeeSchedule` מחשב את העמלה על יתרות חוב/מסגרת שכבר קיימות (מ-`computeInterestCashFlow`, "לפני
+עמלות"), ומסמן `requiresCashFlowRecalculation: true` בכל פעם שיש עמלה חיובית - פתיחת תיק ו/או אי-ניצול, לא רק
+כשהבסיס עצמו תלוי בסגירה - כדי שיהיה ברור שהתוצאה **זמנית**, לא תזרים סופי, ותצטרך שילוב/חישוב חוזר בפועל
+בהמשך. הבחירה איזה מבין שלושת הבסיסים תהיה ברירת המחדל בפועל כשהעמלה תחובר לתזרים - טרם הוכרעה.
+
 ### 4.5 הזרמת הון עצמי
 
 **ברירת מחדל `asNeededUpToCap`**: מוזרם רק כשנדרש (שלב 5), עד לתקרה `equityCapNis`. **לא** מוזרם כולו בחודש
