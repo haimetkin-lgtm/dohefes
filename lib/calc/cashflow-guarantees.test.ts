@@ -20,13 +20,14 @@ function buyer(overrides: Partial<BuyerSaleLawGuaranteeInput> = {}): BuyerSaleLa
   };
 }
 
+// commit 6b: אין releaseMonthIndex נפרד - נגזר מ-startMonthIndex+mechanism.durationMonths.
+// ברירת המחדל כאן (durationMonths=6, startMonthIndex=0) מכסה בדיוק את כל הציר [0,6).
 function kombinatsia(overrides: Partial<KombinatsiaOwnerGuaranteeInput> = {}): KombinatsiaOwnerGuaranteeInput {
   return {
     kind: "kombinatsiaOwner",
-    mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 36 },
+    mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 6 },
     ownerUnitsMarketValueNis: 2_000_000,
     startMonthIndex: 0,
-    releaseMonthIndex: 6,
     ...overrides,
   };
 }
@@ -83,8 +84,8 @@ describe("תקבולי יחידות תמורה אינם נכנסים לערבו�
   });
 });
 
-describe("שחרור ערבות מפסיק את החיוב במועד הנכון", () => {
-  it("buyerSaleLaw: releaseMonthIndex=3 -> חודשים 0-2 צוברים, 3-5 אפס", () => {
+describe("שחרור ערבות מפסיק את החיוב במועד הנכון (buyerSaleLaw, releaseMonthIndex מפורש)", () => {
+  it("releaseMonthIndex=3 -> חודשים 0-2 צוברים, 3-5 אפס", () => {
     const result = run([
       buyer({ monthlyEligibleBuyerReceiptsNis: [100_000, 100_000, 100_000, 100_000, 100_000, 100_000], releaseMonthIndex: 3 }),
     ]);
@@ -96,19 +97,101 @@ describe("שחרור ערבות מפסיק את החיוב במועד הנכון
   });
 });
 
-describe("ערבות בעלי קומבינציה משתמשת בבסיס ובמשך שלה", () => {
-  it("kombinatsiaOwner פעילה רק בחלון startMonthIndex..releaseMonthIndex, בבסיס הקבוע שלה בלבד", () => {
+describe("קומבינציה: מקור אמת יחיד לעיתוי - durationMonths, לא releaseMonthIndex נפרד (commit 6b)", () => {
+  it("durationMonths אכן קובע את חודש השחרור", () => {
     const result = run([
-      kombinatsia({ ownerUnitsMarketValueNis: 2_000_000, startMonthIndex: 1, releaseMonthIndex: 4, mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 36 } }),
-      buyer({ monthlyEligibleBuyerReceiptsNis: [50_000, 50_000, 50_000, 50_000, 50_000, 50_000], releaseMonthIndex: 6 }),
+      kombinatsia({
+        ownerUnitsMarketValueNis: 2_000_000,
+        startMonthIndex: 1,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 3 },
+      }),
     ]);
+    // start=1, duration=3 -> פעיל בחודשים 1,2,3 (עד 1+3=4, לא כולל)
     expect(result.months[0].ownerGuaranteeBalanceNis).toBe(0);
     expect(result.months[1].ownerGuaranteeBalanceNis).toBe(2_000_000);
     expect(result.months[3].ownerGuaranteeBalanceNis).toBe(2_000_000);
     expect(result.months[4].ownerGuaranteeBalanceNis).toBe(0);
-    // שינוי תקבולי הרוכשים לא משפיע על יתרת הבעלים - נשארת קבועה בחלון הפעילות
+  });
+
+  it("off-by-one: חודש ההתחלה פעיל, חודש השחרור (start+duration) אינו פעיל", () => {
+    const result = run([
+      kombinatsia({ startMonthIndex: 2, mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 1 } }),
+    ]);
+    // start=2, duration=1 -> חודש 2 פעיל, חודש 3 (=2+1) כבר לא
     expect(result.months[2].ownerGuaranteeBalanceNis).toBe(2_000_000);
-    // ולהפך: יתרת הרוכשים לא מושפעת מהבסיס הקבוע של הבעלים
+    expect(result.months[3].ownerGuaranteeBalanceNis).toBe(0);
+  });
+
+  it("durationMonths=0 נדחה (חייב חיובי ממש, לא רק לא-שלילי)", () => {
+    expect(() =>
+      run([kombinatsia({ mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 0 } })])
+    ).toThrow();
+  });
+  it("durationMonths שלילי נדחה", () => {
+    expect(() =>
+      run([kombinatsia({ mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: -1 } })])
+    ).toThrow();
+  });
+  it("durationMonths לא שלם נדחה", () => {
+    expect(() =>
+      run([kombinatsia({ mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 2.5 } })])
+    ).toThrow();
+  });
+  it("durationMonths לא סופי (NaN) נדחה", () => {
+    expect(() =>
+      run([kombinatsia({ mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: NaN } })])
+    ).toThrow();
+  });
+
+  it("ערבות שנמשכת מעבר לציר מסומנת activeBeyondForecast, לא נזרקת שגיאה", () => {
+    const result = run([
+      kombinatsia({
+        startMonthIndex: 4,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 36 }, // 4+36=40, מעבר ל-lastMonth+1=6
+      }),
+    ]);
+    expect(result.activeBeyondForecast).toBe(true);
+  });
+
+  it("סוף התחזית אינו מאפס את הערבות - החודש האחרון בציר עדיין מציג יתרה מלאה", () => {
+    const result = run([
+      kombinatsia({
+        startMonthIndex: 0,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 36 },
+      }),
+    ]);
+    expect(result.months[5].ownerGuaranteeBalanceNis).toBe(2_000_000); // לא אופס בגלל סוף הציר
+    expect(result.months[5].ownerGuaranteeExpenseNis).toBeGreaterThan(0);
+    expect(result.activeBeyondForecast).toBe(true);
+  });
+
+  it("שחרור בדיוק ב-lastMonth+1 אינו מסומן activeBeyondForecast (בתוך הציר בדיוק, לא חורג ממנו)", () => {
+    const result = run([
+      kombinatsia({ startMonthIndex: 0, mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 6 } }),
+    ]);
+    expect(result.activeBeyondForecast).toBe(false);
+    expect(result.months[5].ownerGuaranteeBalanceNis).toBe(2_000_000);
+  });
+
+  it("אין שני מקורות זמן סותרים ב-API: הטיפוס אינו כולל releaseMonthIndex עבור kombinatsiaOwner", () => {
+    // בדיקת-קומפילציה, לא ריצה: אם היה עדיין קיים שדה releaseMonthIndex נפרד, השורה הבאה הייתה
+    // עוברת type-check גם עם ערך סותר את durationMonths - היא לא קיימת יותר בטיפוס בכלל.
+    const instance = kombinatsia({ startMonthIndex: 0 });
+    expect("releaseMonthIndex" in instance).toBe(false);
+  });
+});
+
+describe("ערבות בעלי קומבינציה משתמשת בבסיס שלה בלבד, לא מושפעת מתקבולי רוכשים", () => {
+  it("שינוי תקבולי הרוכשים לא משפיע על יתרת הבעלים ולהפך", () => {
+    const result = run([
+      kombinatsia({
+        ownerUnitsMarketValueNis: 2_000_000,
+        startMonthIndex: 1,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 3 },
+      }),
+      buyer({ monthlyEligibleBuyerReceiptsNis: [50_000, 50_000, 50_000, 50_000, 50_000, 50_000], releaseMonthIndex: 6 }),
+    ]);
+    expect(result.months[2].ownerGuaranteeBalanceNis).toBe(2_000_000);
     expect(result.months[2].buyerGuaranteeBalanceNis).toBe(150_000);
   });
 });
@@ -137,10 +220,14 @@ describe("ערבות יחידות תמורה ללא שיעור מפורש נכש
       ])
     ).toThrow();
   });
+
+  it("releaseMonthIndex קודם ל-startMonthIndex נדחה (unitCompensationOwner נשאר מפורש בשני השדות)", () => {
+    expect(() => run([unitCompensation({ startMonthIndex: 4, releaseMonthIndex: 2 })])).toThrow();
+  });
 });
 
 describe("preset קבוצת רכישה מחזיר אפס", () => {
-  it("מערך instances ריק -> כל החודשים אפס, אין missingAssumptions", () => {
+  it("מערך instances ריק -> כל החודשים אפס, אין missingAssumptions, אין activeBeyondForecast", () => {
     const result = run([]);
     for (const m of result.months) {
       expect(m.totalGuaranteeBalanceNis).toBe(0);
@@ -150,6 +237,7 @@ describe("preset קבוצת רכישה מחזיר אפס", () => {
     expect(result.peakGuaranteeBalanceNis).toBe(0);
     expect(result.peakGuaranteeBalanceMonthIndex).toBeNull();
     expect(result.missingAssumptions).toEqual([]);
+    expect(result.activeBeyondForecast).toBe(false);
   });
 });
 
@@ -157,7 +245,7 @@ describe("שני מנגנונים פעילים באותו חודש מסוכמי�
   it("buyerSaleLaw + kombinatsiaOwner יחד: כל שדה נכון בנפרד, הסך = הסכום", () => {
     const result = run([
       buyer({ monthlyEligibleBuyerReceiptsNis: [100_000, 100_000, 100_000, 100_000, 100_000, 100_000], releaseMonthIndex: 6 }),
-      kombinatsia({ ownerUnitsMarketValueNis: 2_000_000, startMonthIndex: 0, releaseMonthIndex: 6 }),
+      kombinatsia({ ownerUnitsMarketValueNis: 2_000_000, startMonthIndex: 0 }),
     ]);
     const m2 = result.months[2];
     const buyerRate = 0.0085 / 12;
@@ -176,7 +264,11 @@ describe("שיא יתרת הערבויות ומועדו נכונים", () => {
   it("השיא לא בהכרח בחודש האחרון - קומבינציה משתחררת באמצע, רוכשים ממשיכים לצבור", () => {
     const result = run([
       buyer({ monthlyEligibleBuyerReceiptsNis: [500_000, 0, 0, 0, 0, 0], releaseMonthIndex: 6 }),
-      kombinatsia({ ownerUnitsMarketValueNis: 2_000_000, startMonthIndex: 0, releaseMonthIndex: 2 }),
+      kombinatsia({
+        ownerUnitsMarketValueNis: 2_000_000,
+        startMonthIndex: 0,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 2 }, // release=0+2=2
+      }),
     ]);
     // חודש 0-1: רוכשים 500,000 + בעלים 2,000,000 = 2,500,000. חודש 2 ואילך: רק רוכשים 500,000
     expect(result.months[0].totalGuaranteeBalanceNis).toBe(2_500_000);
@@ -197,9 +289,12 @@ describe("שיעורים לא תקינים נדחים", () => {
   it("שיעור לא סופי נדחה", () => {
     expect(() => run([buyer({ mechanism: { kind: "buyerSaleLaw", annualRateFraction: NaN } })])).toThrow();
   });
-  it("durationMonths שלילי ב-kombinatsiaOwner נדחה", () => {
+});
+
+describe("תקבול רוכשים שלילי נדחה (commit 6b - אין מנגנון החזר/הפחתת יתרה חלקית)", () => {
+  it("ערך שלילי יחיד ב-monthlyEligibleBuyerReceiptsNis נדחה", () => {
     expect(() =>
-      run([kombinatsia({ mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: -1 } })])
+      run([buyer({ monthlyEligibleBuyerReceiptsNis: [100_000, -5_000, 0, 0, 0, 0] })])
     ).toThrow();
   });
 });
@@ -208,17 +303,14 @@ describe("ולידציית ציר וחלונות זמן", () => {
   it("monthIndices לא רציף נדחה", () => {
     expect(() => computeGuaranteeSchedule({ monthIndices: [0, 1, 3], instances: [] })).toThrow();
   });
-  it("startMonthIndex לא שלם נדחה", () => {
+  it("kombinatsiaOwner: startMonthIndex לא שלם נדחה", () => {
     expect(() => run([kombinatsia({ startMonthIndex: 1.5 })])).toThrow();
   });
-  it("startMonthIndex מחוץ לציר נדחה", () => {
+  it("kombinatsiaOwner: startMonthIndex מחוץ לציר נדחה", () => {
     expect(() => run([kombinatsia({ startMonthIndex: 99 })])).toThrow();
   });
-  it("releaseMonthIndex קודם ל-startMonthIndex נדחה", () => {
-    expect(() => run([kombinatsia({ startMonthIndex: 4, releaseMonthIndex: 2 })])).toThrow();
-  });
-  it("releaseMonthIndex=lastMonth+1 מותר במפורש (עדיין פעיל עד סוף הציר)", () => {
-    expect(() => run([kombinatsia({ startMonthIndex: 0, releaseMonthIndex: 6 })])).not.toThrow();
+  it("unitCompensationOwner: releaseMonthIndex=lastMonth+1 מותר במפורש (עדיין פעיל עד סוף הציר)", () => {
+    expect(() => run([unitCompensation({ startMonthIndex: 0, releaseMonthIndex: 6 })])).not.toThrow();
   });
   it("אורך monthlyEligibleBuyerReceiptsNis שלא תואם לציר נדחה", () => {
     expect(() => run([buyer({ monthlyEligibleBuyerReceiptsNis: [1, 2, 3] })])).toThrow();
@@ -249,11 +341,14 @@ describe("אין מנגנונים כפולים מאותו סוג אלא אם ה�
   });
 });
 
-describe("אין NaN/Infinity, בתרחיש מלא עם שלושת המנגנונים", () => {
+describe("אין NaN/Infinity, בתרחיש מלא עם שלושת המנגנונים (כולל activeBeyondForecast)", () => {
   it("כל השדות המספריים סופיים", () => {
     const result = run([
       buyer({ monthlyEligibleBuyerReceiptsNis: [200_000, 300_000, 0, 400_000, 0, 100_000], releaseMonthIndex: 5 }),
-      kombinatsia({ startMonthIndex: 1, releaseMonthIndex: 4 }),
+      kombinatsia({
+        startMonthIndex: 1,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 36 },
+      }),
       unitCompensation({ label: "דייר א", startMonthIndex: 0, releaseMonthIndex: 3 }),
       unitCompensation({
         label: "דייר ב (טרם אושר שיעור)",
@@ -268,6 +363,7 @@ describe("אין NaN/Infinity, בתרחיש מלא עם שלושת המנגנו�
     }
     expect(Number.isFinite(result.totalGuaranteeExpenseNis)).toBe(true);
     expect(Number.isFinite(result.peakGuaranteeBalanceNis)).toBe(true);
+    expect(result.activeBeyondForecast).toBe(true);
   });
 });
 
@@ -293,7 +389,10 @@ describe("התאמת שקל בין פירוט המנגנונים לסך החוד
   it("total*Nis של כל חודש = סכום שלושת המנגנונים; totalGuaranteeExpenseNis הפרויקטלי = סכום כל החודשים", () => {
     const result = run([
       buyer({ monthlyEligibleBuyerReceiptsNis: [200_000, 300_000, 150_000, 400_000, 0, 100_000], releaseMonthIndex: 5 }),
-      kombinatsia({ startMonthIndex: 1, releaseMonthIndex: 4 }),
+      kombinatsia({
+        startMonthIndex: 1,
+        mechanism: { kind: "kombinatsiaOwner", annualRateFraction: 0.01, durationMonths: 3 },
+      }),
       unitCompensation({ startMonthIndex: 0, releaseMonthIndex: 3 }),
     ]);
 

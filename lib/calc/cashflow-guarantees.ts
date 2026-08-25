@@ -27,6 +27,11 @@ export interface BuyerSaleLawGuaranteeInput {
    * תקבולי רוכשים זכאים לכל חודש בציר (eligibleBuyerReceiptsNis, לא מצטבר - המנוע מצטבר בעצמו),
    * באותו אורך וסדר בדיוק כמו monthIndices. יחידות תמורה שלא שולם עבורן תקבול אינן הופכות אוטומטית
    * לתקבול רוכשים - הבסיס הוא רק מה שהוזן כאן בפועל, לא totalRevenueInclVatNis הכללי ולא שווי יחידות.
+   *
+   * **מגבלה מתועדת (commit 6b)**: ערכים שליליים (למשל החזר כספי לרוכש) אינם נתמכים ונדחים בוולידציה.
+   * המנוע הזה אינו מודל הפחתת-יתרה חלקית - הדרך היחידה להקטין/לאפס את יתרת הערבות היא releaseMonthIndex
+   * המלא. אין לנסות "לשחרר" חלק מהיתרה באמצעות תקבול שלילי - זה היה מאפשר ליתרה לרדת בשקט בלי מנגנון
+   * שחרור מפורש.
    */
   monthlyEligibleBuyerReceiptsNis: number[];
   /** מחודש זה ואילך (כולל) אין עוד יתרה/עמלה - גבול לא-כולל מלמטה: רק monthIndex < releaseMonthIndex צובר */
@@ -41,12 +46,9 @@ export interface KombinatsiaOwnerGuaranteeInput {
   ownerUnitsMarketValueNis: number;
   /** מועד תחילת החשיפה (למשל תחילת פינוי) - קלט מפורש, לא מוסק */
   startMonthIndex: number;
-  /**
-   * מחודש זה ואילך (כולל) אין עוד יתרה/עמלה. הערה: mechanism.durationMonths קיים על הטיפוס אך
-   * **אינו** משמש כאן לגזירת releaseMonthIndex - זו בדיוק ההחלטה שהתבקשנו לא לקבל לבד (התחלה/סוף
-   * חודש המסירה). durationMonths נשאר מידע תיעודי בלבד בשלב זה - ר' "הנחות חסרות" בדיווח.
-   */
-  releaseMonthIndex: number;
+  // אין releaseMonthIndex נפרד (commit 6b): מקור אמת יחיד לעיתוי השחרור הוא mechanism.durationMonths,
+  // כדי למנוע שני שדות שיכולים לסתור זה את זה. חודש השחרור נגזר בתוך computeGuaranteeSchedule:
+  // startMonthIndex + mechanism.durationMonths (גבול לא-כולל - ר' תיעוד הפונקציה למטה).
 }
 
 export interface UnitCompensationOwnerGuaranteeInput {
@@ -103,6 +105,13 @@ export interface GuaranteeScheduleResult {
    *  (תרומה 0), לא מוחלף בניחוש שקט. "כישלון גלוי" לפי הוראת הביצוע, לא זריקת שגיאה: זהו מצב
    *  תקין ומתועד של הטיפוס עצמו (הליטרל "requiresVerification"), לא קלט פגום. */
   missingAssumptions: string[];
+  /**
+   * commit 6b: true אם חודש השחרור הנגזר של kombinatsiaOwner (startMonthIndex+durationMonths)
+   * חורג מציר החודשים המתוזמן (lastMonth+1). **אינה שגיאה** - הערבות ממשיכה להיות מחושבת ומוצגת
+   * ככל שהיא פעילה בתוך הציר (סוף התחזית אינו מאפס אותה בשקט), הדגל רק מציין שהחשיפה בפועל נמשכת
+   * גם אחרי גבול המודל הנוכחי.
+   */
+  activeBeyondForecast: boolean;
 }
 
 // --- ולידציה ---
@@ -184,7 +193,7 @@ function validateInstances(instances: GuaranteeInstanceInput[], monthIndices: nu
       continue;
     }
 
-    // kombinatsiaOwner / unitCompensationOwner - שני השדות המשותפים
+    // kombinatsiaOwner / unitCompensationOwner - startMonthIndex משותף, אימות זהה
     if (!Number.isFinite(instance.startMonthIndex) || !Number.isInteger(instance.startMonthIndex)) {
       throw new Error(`${instance.kind}${label}: startMonthIndex אינו מספר שלם סופי (${instance.startMonthIndex})`);
     }
@@ -193,18 +202,26 @@ function validateInstances(instances: GuaranteeInstanceInput[], monthIndices: nu
         `${instance.kind}${label}: startMonthIndex (${instance.startMonthIndex}) מחוץ לציר הפרויקט [${firstMonth}, ${lastMonth}]`
       );
     }
-    validateReleaseMonth(instance.releaseMonthIndex, firstMonth, lastMonth, `${instance.kind}${label}`);
-    if (instance.releaseMonthIndex < instance.startMonthIndex) {
-      throw new Error(
-        `${instance.kind}${label}: releaseMonthIndex (${instance.releaseMonthIndex}) קודם ל-startMonthIndex (${instance.startMonthIndex})`
-      );
-    }
 
     if (instance.kind === "kombinatsiaOwner") {
       validateFiniteNonNegative(instance.ownerUnitsMarketValueNis, `kombinatsiaOwner${label}: ownerUnitsMarketValueNis`);
+      // commit 6b: מקור אמת יחיד לעיתוי השחרור - durationMonths, לא releaseMonthIndex נפרד.
+      // חייב חיובי ממש (לא רק >=0 כמו validateGuaranteeMechanism הכללי): משך 0 היה יוצר חלון
+      // פעילות ריק מבנית, ערבות שלמעשה אף פעם לא פעילה - כנראה טעות קלט, לא ערך לגיטימי.
+      const { durationMonths } = instance.mechanism;
+      if (!Number.isInteger(durationMonths) || durationMonths <= 0) {
+        throw new Error(`kombinatsiaOwner${label}: durationMonths חייב להיות מספר שלם חיובי (${durationMonths})`);
+      }
     } else {
-      // unitCompensationOwner: הבסיס נדרש תמיד, גם כששיעור="requiresVerification" (עובדת שמאות
-      // נפרדת מהחלטת השיעור) - חסר כאן לא מוחלף ב-0 שקט, זו שגיאה חוסמת
+      // unitCompensationOwner: אין durationMonths בטיפוס - releaseMonthIndex נשאר מפורש, כנדרש
+      validateReleaseMonth(instance.releaseMonthIndex, firstMonth, lastMonth, `unitCompensationOwner${label}`);
+      if (instance.releaseMonthIndex < instance.startMonthIndex) {
+        throw new Error(
+          `unitCompensationOwner${label}: releaseMonthIndex (${instance.releaseMonthIndex}) קודם ל-startMonthIndex (${instance.startMonthIndex})`
+        );
+      }
+      // הבסיס נדרש תמיד, גם כששיעור="requiresVerification" (עובדת שמאות נפרדת מהחלטת השיעור) -
+      // חסר כאן לא מוחלף ב-0 שקט, זו שגיאה חוסמת
       validateFiniteNonNegative(instance.compensationUnitValueNis, `unitCompensationOwner${label}: compensationUnitValueNis`);
     }
   }
@@ -226,12 +243,18 @@ function sumInPlaceOrder(values: number[]): number[] {
  *
  * סדר חישוב לכל חודש ולכל מופע מנגנון:
  * - buyerSaleLaw: יתרה = סכום מצטבר (עד ועם החודש הנוכחי, "יתרת סגירה" - אותה מוסכמה כמו הריבית
- *   ב-commit 5) של monthlyEligibleBuyerReceiptsNis, כל עוד monthIndex < releaseMonthIndex.
- * - kombinatsiaOwner / unitCompensationOwner: יתרה = הבסיס הקבוע (ownerUnitsMarketValueNis /
- *   compensationUnitValueNis) כל עוד startMonthIndex <= monthIndex < releaseMonthIndex, אחרת 0.
+ *   ב-commit 5) של monthlyEligibleBuyerReceiptsNis, כל עוד monthIndex < releaseMonthIndex (מפורש).
+ * - kombinatsiaOwner: יתרה = ownerUnitsMarketValueNis הקבוע כל עוד startMonthIndex <= monthIndex
+ *   < releaseMonthIndex, כאשר releaseMonthIndex **נגזר** (commit 6b, מקור אמת יחיד) כ-
+ *   startMonthIndex + mechanism.durationMonths - לא שדה קלט נפרד. גבול לא-כולל: ערבות שמתחילה
+ *   בחודש 2 למשך 36 חודשים פעילה בחודשים 2-37, לא בחודש 38.
+ * - unitCompensationOwner: יתרה = compensationUnitValueNis הקבוע כל עוד startMonthIndex <=
+ *   monthIndex < releaseMonthIndex (מפורש - אין durationMonths בטיפוס הזה, נשאר קלט מפורש).
  * - הוצאה חודשית = יתרת אותו חודש * (annualRateFraction/12), לכל מנגנון בנפרד.
  * - unitCompensationOwner עם annualRateFraction==="requiresVerification": תרומה 0 בכל חודש,
  *   מדווח פעם אחת ב-missingAssumptions - לא מוחלף בניחוש שקט.
+ * - אם חודש השחרור הנגזר של kombinatsiaOwner חורג מציר החודשים המתוזמן: **לא** נזרקת שגיאה, הערבות
+ *   ממשיכה להיות מחושבת בתוך הציר (סוף התחזית לא מאפס אותה בשקט), ו-activeBeyondForecast=true.
  *
  * יתרה שלילית אינה אפשרית מבנית: כל הבסיסים מאומתים לא-שליליים ואין כאן חיסור בשום מקום (זה מודל
  * יתרה בלבד, לא waterfall עם משיכות/פירעונות) - לכן אין צורך ב-Math.max(0, ...) בשום מקום.
@@ -261,6 +284,12 @@ export function computeGuaranteeSchedule(input: GuaranteeScheduleInput): Guarant
   const kombinatsiaInstance = instances.find(
     (i): i is KombinatsiaOwnerGuaranteeInput => i.kind === "kombinatsiaOwner"
   );
+  // commit 6b: מקור אמת יחיד - נגזר פעם אחת מ-startMonthIndex+durationMonths, לא שדה קלט נפרד
+  const kombinatsiaReleaseMonthIndex = kombinatsiaInstance
+    ? kombinatsiaInstance.startMonthIndex + kombinatsiaInstance.mechanism.durationMonths
+    : null;
+  const lastMonthIndex = monthIndices[monthIndices.length - 1];
+  const activeBeyondForecast = kombinatsiaReleaseMonthIndex !== null && kombinatsiaReleaseMonthIndex > lastMonthIndex + 1;
 
   const months: GuaranteeMonth[] = monthIndices.map((monthIndex, idx) => {
     let buyerGuaranteeBalanceNis = 0;
@@ -278,8 +307,9 @@ export function computeGuaranteeSchedule(input: GuaranteeScheduleInput): Guarant
 
     if (
       kombinatsiaInstance &&
+      kombinatsiaReleaseMonthIndex !== null &&
       monthIndex >= kombinatsiaInstance.startMonthIndex &&
-      monthIndex < kombinatsiaInstance.releaseMonthIndex
+      monthIndex < kombinatsiaReleaseMonthIndex
     ) {
       const monthlyRate = kombinatsiaInstance.mechanism.annualRateFraction / 12;
       ownerGuaranteeBalanceNis = kombinatsiaInstance.ownerUnitsMarketValueNis;
@@ -339,5 +369,6 @@ export function computeGuaranteeSchedule(input: GuaranteeScheduleInput): Guarant
     peakGuaranteeBalanceNis,
     peakGuaranteeBalanceMonthIndex,
     missingAssumptions,
+    activeBeyondForecast,
   };
 }
