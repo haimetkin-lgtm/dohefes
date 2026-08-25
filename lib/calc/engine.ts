@@ -231,8 +231,10 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const presaleInflowNis = revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.presaleRate;
   const creditFacilityNis = Math.max(0, totalDirectAndIndirect - costs.equityNis - presaleInflowNis);
   const unusedCreditCommissionNis = creditFacilityNis * costs.unusedCreditCommissionRate * 0.5;
+  // עמלת פתיחת תיק, % מהכנסות היזם כולל מע"מ (לא מהתזרים כמו שתי העמלות האחרות)
+  const accountOpeningCommissionNis = revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.accountOpeningCommissionRate;
 
-  const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis;
+  const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis + accountOpeningCommissionNis;
 
   // F. מימון, מפושט: ריבית פשוטה על יתרת חוב ממוצעת (הנחת פריסה ליניארית).
   const avgOutstandingBalanceNis = creditFacilityNis / 2;

@@ -101,6 +101,7 @@ const FINAL_INPUTS: ProjectInputs = {
     contingencyRate: 0.05,
     guaranteeCommissionRate: 0.0085,
     unusedCreditCommissionRate: 0.0035,
+    accountOpeningCommissionRate: 0.0045,
     annualInterestRate: 0.04,
     constructionMonths: 42,
     permitMonths: 16,

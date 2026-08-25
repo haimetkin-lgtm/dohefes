@@ -80,6 +80,7 @@ const DEFAULT_COSTS: CostInputs = {
   contingencyRate: 0.05,
   guaranteeCommissionRate: 0.0085,
   unusedCreditCommissionRate: 0.0035,
+  accountOpeningCommissionRate: 0.0045,
   annualInterestRate: 0.04,
   constructionMonths: 30,
   permitMonths: 12,
@@ -103,8 +104,10 @@ export default function CalculatorPage() {
   const [dealType, setDealType] = useState<DealType>("basic");
   // מנוע החישוב (engine.ts) מטפל בפילוח קטגוריות (מגורים/מסחר/משרדים) בכל סוג עסקה שהקרקע
   // בו משולמת באחוז חלוקה, לא רק מעורב שימושים. פינוי בינוי עם מסחר בקומת קרקע נפוץ בפועל.
-  const supportsMixedCategories =
-    dealType === "mixedUse" || dealType === "pinuyBinui" || dealType === "kombinatsia" || dealType === "kombinatsiaTemurot";
+  // זמין תמיד, לא רק במעורב שימושים: נמצא בקבצי מקור אמיתיים (למשל תרגיל בית "יזמות") שגם
+  // פרויקט מגורים "רגיל" יכול לכלול מסחר/מב"צ (בית כנסת כמטלה ציבורית) לצד המגורים. אין נזק
+  // בהצגת האפשרות תמיד, מי שלא צריך פשוט לא נוגע בה (קטגוריה נשארת מגורים כברירת מחדל).
+  const supportsMixedCategories = true;
   const usesUnitCompensation = landMechanism(dealType) === "unitCompensation";
   const [region, setRegion] = useState(CHAMBER_COSTS[0].region);
   const [height, setHeight] = useState<BuildingHeight>("low");
@@ -259,6 +262,7 @@ export default function CalculatorPage() {
         contingencyRate,
         guaranteeCommissionRate: 0.0085,
         unusedCreditCommissionRate: 0.0035,
+        accountOpeningCommissionRate: 0.0045,
         annualInterestRate: interestRate,
         constructionMonths,
         permitMonths: 12,

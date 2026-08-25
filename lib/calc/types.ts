@@ -115,6 +115,8 @@ export interface CostInputs {
   // עמלות מימון (מפושט, ר' הערה במנוע)
   guaranteeCommissionRate: number; // עמלת ערבות חוק מכר, % מהכנסות
   unusedCreditCommissionRate: number; // עמלת אי ניצול אשראי, % ממסגרת האשראי
+  /** עמלת פתיחת תיק, % מהכנסות היזם כולל מע"מ (0.45% במקור, ר' 01-תמא-38.md ו"תרגיל בית - יזמות") */
+  accountOpeningCommissionRate: number;
 
   // מימון
   annualInterestRate: number; // ריבית שנתית, %
