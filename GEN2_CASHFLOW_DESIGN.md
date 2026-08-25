@@ -90,13 +90,16 @@ type CashFlowCostItemId =
   // בנייה ישירה, מפורק לפי קטגוריה - מעורב שימושים דורש עקומות נפרדות בפועל (04-מעורב.md)
   | "demolition" | "constructionResidential" | "constructionResidentialPremium"
   | "constructionCommercial" | "constructionOffice" | "constructionPublicBuilding"
-  | "constructionExistingStructure" | "constructionUnderground" | "constructionDevelopment"
-  // עמלת מימון חד-פעמית, שכן ניתנת לתזמון חיצוני (בשונה מערבויות/ריבית/אי-ניצול, ר' §4)
-  | "accountOpeningCommission";
+  | "constructionExistingStructure" | "constructionUnderground" | "constructionDevelopment";
 ```
 
-**במפורש לא כלול**: `guaranteeCommission*`, `unusedCreditCommission`, `interest`. אלה תוצרים של הלולאה
-החודשית עצמה (§4), מחושבים מחדש בכל חודש - אין להם `timingRule` חיצוני.
+**עדכון (commit 7-prep)**: `"accountOpeningCommission"` **הוסר** מהרשימה הזו - היה מקור אמת כפול מול
+`FacilityOpeningFee` (`cashflow-financing-fees.ts`, commit 6d), שכבר מחשבת עמלת פתיחת תיק/הקמת מסגרת עם
+עיתוי מפורש (`chargeMonthIndex`) משלה. עמלת פתיחת תיק מתוזמנת **אך ורק** דרך `FacilityOpeningFee` מעכשיו.
+
+**במפורש לא כלול**: `guaranteeCommission*`, `unusedCreditCommission`, `interest`, וכעת גם
+`accountOpeningCommission`. אלה תוצרים של הלולאה החודשית/מנועי המשנה הייעודיים (§4, §6, commit 6d) -
+אין להם `timingRule` חיצוני דרך `CostTimingRule`.
 
 טבלת ה-`timingRule` המוצע:
 
@@ -122,7 +125,9 @@ type CashFlowCostItemId =
 | `relocationRent` | `relocationUnitsCount*relocationMonths*rate` | `spreadOverRelocation` |
 | `demolition` | `CostInputs.demolitionFlatNis` | `constructionStart` |
 | `construction*` (8 מזהים) | `ConstructionCostRow`/`costPerSqmByCategory` | `spreadOverConstruction`, לפי עקומת הבנייה (§7) |
-| `accountOpeningCommission` | `developerRevenueExclVatNis*1.17*accountOpeningCommissionRate` | `escortStart` |
+
+**הוסר (7-prep)**: `accountOpeningCommission` היה כאן עם `timingRule: "escortStart"` - הועבר במלואו ל-
+`FacilityOpeningFee` (§6d), לא מופיע יותר בטבלה הזו.
 
 ### 2.1 שתי התאמות נפרדות לתרחיש הבסיס (תוקן - הייתה שגויה בגרסה הקודמת)
 
@@ -133,9 +138,9 @@ type CashFlowCostItemId =
 
 ```ts
 interface CashFlowReconciliation {
-  scheduledOperatingCostsNis: number;     // סכום כל CashFlowCostItemId פרט ל-accountOpeningCommission
+  scheduledOperatingCostsNis: number;     // סכום כל CashFlowCostItemId (accountOpeningCommission כבר לא ביניהם, 7-prep)
   baseOperatingCostsNis: number;          // = indirectNis + directConstructionNis + landNis (מהמנוע הקיים)
-  accountOpeningCommissionNis: number;    // מתוזמן בנפרד, לא חלק מההתאמה התפעולית
+  accountOpeningCommissionNis: number;    // מקורו FacilityOpeningFee (7-prep), לא חלק מההתאמה התפעולית
   totalGuaranteeCommissionsNis: number;   // סכום כל הערבויות שחושבו בפועל בתזרים
   totalUnusedCreditCommissionNis: number; // סכום עמלות אי-הניצול שחושבו בתזרים
   totalInterestNis: number;               // סכום הריבית שחושבה בתזרים
@@ -545,6 +550,7 @@ type GuaranteeMechanism =
   | { kind: "unitCompensationOwner"; annualRateFraction: number | "requiresVerification" };
 
 // --- עיתוי עלויות (§2) ---
+// commit 7-prep: accountOpeningCommission הוסר - עבר במלואו ל-FacilityOpeningFee (§6d)
 type CashFlowCostItemId =
   | "landPurchase" | "bettermentLevy"
   | "brokerage" | "purchaseTax" | "electricConnection" | "planningFlat"
@@ -553,8 +559,7 @@ type CashFlowCostItemId =
   | "contingency" | "municipalFees" | "organizerFee" | "relocationRent"
   | "demolition" | "constructionResidential" | "constructionResidentialPremium"
   | "constructionCommercial" | "constructionOffice" | "constructionPublicBuilding"
-  | "constructionExistingStructure" | "constructionUnderground" | "constructionDevelopment"
-  | "accountOpeningCommission";
+  | "constructionExistingStructure" | "constructionUnderground" | "constructionDevelopment";
 
 type CostTimingRuleKind =
   | "landPurchaseMonth" | "permitMonth" | "escortStart" | "constructionStart"
@@ -654,6 +659,13 @@ interface CashFlowResult {
 | אימות מול קבצי המקור | לא רלוונטי | דורש בחירה מפורשת ב-`legacyConstructionLinked`, לא ברירת מחדל |
 
 **מסקנה**: אין סיכון לדוחות קיימים. `computeCashFlow` תוספתי בלבד.
+
+**עדכון (commit 7-prep) - מיפוי עמלת פתיחת תיק בשכבת התאימות העתידית**: כשתיבנה שכבת תאימות שממפה דוחות
+ישנים לטיפוסי Gen2, שדה `accountOpeningCommissionRate` הישן (`lib/calc/types.ts`, `CostInputs`, המנוע
+הסטטי הקיים - `computeProject`/`engine.ts`, **לא נוגעים בו כאן**) ימופה **אך ורק** ל-`FacilityOpeningFee`
+(למשל `{ kind: "facilityFraction", fraction: accountOpeningCommissionRate, ... }`) - **לא** לפריט עלות
+מתוזמן (`CashFlowCostItemId` כבר לא כולל `accountOpeningCommission` כלל, ר' §2 ו-§9) וגם **לא** לשניהם
+בו-זמנית. מיפוי כפול היה יוצר בדיוק את אותה כפילות מקור-אמת ש-7-prep תיקן.
 
 ---
 

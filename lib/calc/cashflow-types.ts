@@ -85,6 +85,11 @@ export type GuaranteeMechanism =
  * לא keyof CostInputs: מכסה גם סעיפי קרקע (LandInputs, נפרד מ-CostInputs) וגם ערכים מחושבים
  * (תיווך, מס רכישה) שאינם שדה קלט גולמי. במפורש לא כולל guaranteeCommission, unusedCreditCommission,
  * interest - אלה תוצרי הלולאה החודשית עצמה, אין להם timing חיצוני.
+ *
+ * commit 7-prep: **גם `accountOpeningCommission` הוסר מכאן** (הוסרה שורה `"accountOpeningCommission"`
+ * שהייתה כאן) - היה מקור אמת כפול מול `FacilityOpeningFee` (`cashflow-financing-fees.ts`, commit 6d),
+ * שכבר מחשבת עמלת פתיחת תיק/הקמת מסגרת עם עיתוי מפורש (`chargeMonthIndex`) משלה. עמלת פתיחת תיק
+ * מתוזמנת **אך ורק** דרך `FacilityOpeningFee` מעכשיו, לא כפריט עלות מתוזמן כאן.
  */
 /** מקור האמת היחיד למזהי העלות - הטיפוס נגזר מהמערך, לא מוגדר בנפרד (מונע סטייה בין השניים) */
 export const CASH_FLOW_COST_ITEM_IDS = [
@@ -115,7 +120,6 @@ export const CASH_FLOW_COST_ITEM_IDS = [
   "constructionExistingStructure",
   "constructionUnderground",
   "constructionDevelopment",
-  "accountOpeningCommission",
 ] as const;
 
 export type CashFlowCostItemId = (typeof CASH_FLOW_COST_ITEM_IDS)[number];
@@ -224,6 +228,8 @@ export interface CashFlowReconciliation {
   scheduledOperatingCostsNis: number;
   /** = indirectNis + directConstructionNis + landNis, מהמנוע הקיים (computeCosts) */
   baseOperatingCostsNis: number;
+  /** commit 7-prep: מקורה FacilityOpeningFee (cashflow-financing-fees.ts), לא CashFlowCostItemId
+   *  מתוזמן - השדה עצמו נשאר (סיכום להתאמה), רק המקור שינה */
   accountOpeningCommissionNis: number;
   totalGuaranteeCommissionsNis: number;
   totalUnusedCreditCommissionNis: number;
