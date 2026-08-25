@@ -355,18 +355,43 @@ const PURCHASE_GROUP_DEFAULT_PRESET: Partial<CashFlowAssumptions> = {
 
 ## 6. ערבויות: שלושה מנגנונים נפרדים
 
+**עדכון תיעודי (6-prep)**: הטיפוס למטה תואם עכשיו במדויק את `GuaranteeMechanism` המאושר והמיושם בפועל ב-
+`lib/calc/cashflow-types.ts` (`annualRateFraction`/`durationMonths`, לא `ratePct`/`durationYears` כפי שנוסח כאן
+בטעות בגרסה קודמת של המסמך - `cashflow-types.ts` הוא מקור האמת, המסמך תוקן בהתאם, לא הקוד).
+
 ```ts
 type GuaranteeMechanism =
-  | { kind: "buyerSaleLaw"; ratePct: number }
-  | { kind: "kombinatsiaOwner"; ratePct: number; durationYears: number }
-  | { kind: "unitCompensationOwner"; ratePct: number | "requiresVerification" };
+  | { kind: "buyerSaleLaw"; annualRateFraction: number }
+  | { kind: "kombinatsiaOwner"; annualRateFraction: number; durationMonths: number }
+  | { kind: "unitCompensationOwner"; annualRateFraction: number | "requiresVerification" };
+```
+
+`annualRateFraction` הוא **שבר עשרוני שנתי**, אחיד עם שאר המנוע (`PaymentTranche.fraction` וכו'):
+
+```ts
+0.0085  // 0.85% - תקין
+0.85    // שגוי - זה 85%, לא 0.85%
+85      // שגוי - טעות אחוז-במקום-שבר
 ```
 
 | מנגנון | בסיס | שיעור | משך חשיפה | מקור |
 |---|---|---|---|---|
-| `buyerSaleLaw` | הכנסה מצטברת שהוכרה | 0.85% (evidenced) | דינמי | 01/04/05 |
+| `buyerSaleLaw` | תקבולי רוכשים זכאים **מצטברים**, כפי שהם מופיעים בפועל בלוח התקבולים (`eligibleBuyerReceiptsNis`) - **לא** הכנסה חשבונאית מוכרת לפי אחוז ביצוע, ולא שווי כל היחידות | 0.85% (evidenced) | דינמי | 01/04/05 |
 | `kombinatsiaOwner` | שווי שוק **קבוע** של יחידות הבעלים | 1.0% (evidenced) | מח"מ **קבוע**: 3 שנים | 05 בלבד |
 | `unitCompensationOwner` | **שווי דירת התמורה החדשה** | **אין ברירת מחדל** - קלט מפורש או `"requiresVerification"` | ממועד פינוי עד מסירת דירת התמורה והשבת הערבות | לא נמצא במקור |
+
+**חשוב (6-prep)**: הבסיס העדכני של `buyerSaleLaw` (`eligibleBuyerReceiptsNis`) הוחלף מהניסוח הקודם ("הכנסה
+מצטברת שהוכרה") ביוזמת המשתמש, כדי להסיר עמימות בין בסיס מזומן (תקבולים בפועל) לבין מושג חשבונאי של הכרה
+בהכנסה לפי אחוז ביצוע - שני דברים שונים שעלולים להתפצל מהותית כשלוח התשלומים (למשל 15/70/15) אינו זהה לעקומת
+התקדמות הבנייה. **קובץ המקור המקורי (01-תמא-38.md) אינו קיים בריפו הזה** ולא ניתן לאמת ישירות מולו איזה משני
+המושגים תואם את החישוב המקורי - זו נקודה שנותרה פתוחה לאימות מול המקור המקורי אם וכאשר הוא יהיה זמין, לא
+הוכרעה כאן על סמך ראיה ישירה.
+
+**בסיסי הערבות ומועדי ההתחלה/השחרור אינם חלק מ-`GuaranteeMechanism` ואינם נגזרים ממנו בשקט.** `GuaranteeMechanism`
+מכיל רק שיעור (ומשך, עבור `kombinatsiaOwner`) - לא בסיס כספי, לא חודש התחלה, לא חודש שחרור. אלה מתקבלים כקלט
+מפורש נפרד לפונקציית לוח הערבויות (`computeGuaranteeSchedule`, §11), לכל מופע מנגנון בנפרד: `eligibleBuyerReceiptsNis`
+חודשי לכל חודש (`buyerSaleLaw`), שווי שוק קבוע + חודש התחלה מפורש (`kombinatsiaOwner`), שווי דירת התמורה + חודש
+פינוי + חודש מסירת דירת התמורה (`unitCompensationOwner`). אין ברירת מחדל שקטה לאף אחד מהם.
 
 **לא מוחל אוטומטית** `kombinatsiaOwner` על יחידות תמורה בתמ"א/פינוי בינוי. ללא שיעור מפורש: לא מחושב (0),
 מסומן ב-`missingAssumptions`. **מתוכננים בנפרד, לא מחושבים בשלב א'**: ערבות שכירות, ערבות מיסים, ערבות רישום.
@@ -436,9 +461,9 @@ type EquityInjectionMode = "asNeededUpToCap" | "proRata";
 
 // --- ערבויות (§6) ---
 type GuaranteeMechanism =
-  | { kind: "buyerSaleLaw"; ratePct: number }
-  | { kind: "kombinatsiaOwner"; ratePct: number; durationYears: number }
-  | { kind: "unitCompensationOwner"; ratePct: number | "requiresVerification" };
+  | { kind: "buyerSaleLaw"; annualRateFraction: number }
+  | { kind: "kombinatsiaOwner"; annualRateFraction: number; durationMonths: number }
+  | { kind: "unitCompensationOwner"; annualRateFraction: number | "requiresVerification" };
 
 // --- עיתוי עלויות (§2) ---
 type CashFlowCostItemId =
