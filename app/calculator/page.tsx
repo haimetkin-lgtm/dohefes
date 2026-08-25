@@ -57,6 +57,7 @@ const DEFAULT_COSTS: CostInputs = {
   premiumConstructionCostPerSqm: 0,
   commercialConstructionCostPerSqm: 0,
   officeConstructionCostPerSqm: 0,
+  publicBuildingConstructionCostPerSqm: 0,
   undergroundConstructionCostPerSqm: 0,
   balconyConstructionCostRatio: 0.5,
   developmentCostPerSqm: 500,
@@ -117,6 +118,7 @@ export default function CalculatorPage() {
   const [premiumCost, setPremiumCost] = useState(0);
   const [commercialCost, setCommercialCost] = useState(0);
   const [officeCost, setOfficeCost] = useState(0);
+  const [publicBuildingCost, setPublicBuildingCost] = useState(0);
   const [undergroundCost, setUndergroundCost] = useState(chamberRow.underground);
   const [undergroundArea, setUndergroundArea] = useState(0);
   const [netPlotArea, setNetPlotArea] = useState(0);
@@ -180,6 +182,7 @@ export default function CalculatorPage() {
     setPremiumCost(costs.premiumConstructionCostPerSqm);
     setCommercialCost(costs.commercialConstructionCostPerSqm);
     setOfficeCost(costs.officeConstructionCostPerSqm);
+    setPublicBuildingCost(costs.publicBuildingConstructionCostPerSqm);
     setUndergroundCost(costs.undergroundConstructionCostPerSqm);
     setUndergroundArea(costs.undergroundAreaSqm);
     setNetPlotArea(costs.netPlotAreaSqm);
@@ -223,6 +226,7 @@ export default function CalculatorPage() {
         premiumConstructionCostPerSqm: premiumCost,
         commercialConstructionCostPerSqm: commercialCost,
         officeConstructionCostPerSqm: officeCost,
+        publicBuildingConstructionCostPerSqm: publicBuildingCost,
         undergroundConstructionCostPerSqm: undergroundCost,
         balconyConstructionCostRatio: 0.5,
         developmentCostPerSqm: 500,
@@ -270,7 +274,7 @@ export default function CalculatorPage() {
       },
     }),
     [
-      projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, undergroundCost, undergroundArea, netPlotArea, demolition,
+      projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, publicBuildingCost, undergroundCost, undergroundArea, netPlotArea, demolition,
       buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
@@ -511,6 +515,15 @@ export default function CalculatorPage() {
                   type="number"
                   value={officeCost}
                   onChange={(e) => setOfficeCost(Number(e.target.value))}
+                  className="border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-gray-500 text-xs">עלות בנייה למ&quot;ר מב&quot;צ (₪), ריק = כמו מגורים</span>
+                <input
+                  type="number"
+                  value={publicBuildingCost}
+                  onChange={(e) => setPublicBuildingCost(Number(e.target.value))}
                   className="border border-gray-300 rounded-lg px-3 py-2"
                 />
               </label>
@@ -799,6 +812,7 @@ export default function CalculatorPage() {
                         <option value="residentialPremium">מגורים פרימיום</option>
                         <option value="commercial">מסחר</option>
                         <option value="office">משרדים</option>
+                        <option value="publicBuilding">מב&quot;צ (מבנה ציבור)</option>
                       </select>
                     </td>
                   )}

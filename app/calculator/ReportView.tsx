@@ -24,6 +24,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   residentialPremium: "מגורים פרימיום",
   commercial: "מסחר",
   office: "משרדים",
+  publicBuilding: 'מב"צ',
 };
 
 // תווית שורת פירוט הבנייה לקטגוריה, תלוית-הקשר: כשיש גם residential וגם residentialPremium

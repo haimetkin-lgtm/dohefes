@@ -67,6 +67,7 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     residentialPremium: { mainAreaSqm: 0, otherAreaSqm: 0 },
     commercial: { mainAreaSqm: 0, otherAreaSqm: 0 },
     office: { mainAreaSqm: 0, otherAreaSqm: 0 },
+    publicBuilding: { mainAreaSqm: 0, otherAreaSqm: 0 },
   };
 
   for (const u of units) {
@@ -156,12 +157,13 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const landNis = (isCashLandDeal(dealType) ? land.landPurchaseNis : 0) + land.bettermentLevyNis;
 
   // D. בנייה ישירה, תמיד על 100% מהבניין, ללא קשר לחלוקת קומבינציה. לכל קטגוריה עלות מ"ר משלה:
-  // residentialPremium/commercial/office נופלים חזרה לעלות המגורים הרגילה אם לא הוזנו (0).
+  // residentialPremium/commercial/office/publicBuilding נופלים חזרה לעלות המגורים הרגילה אם לא הוזנו (0).
   const costPerSqmByCategory: Record<UnitCategory, number> = {
     residential: costs.mainConstructionCostPerSqm,
     residentialPremium: costs.premiumConstructionCostPerSqm || costs.mainConstructionCostPerSqm,
     commercial: costs.commercialConstructionCostPerSqm || costs.mainConstructionCostPerSqm,
     office: costs.officeConstructionCostPerSqm || costs.mainConstructionCostPerSqm,
+    publicBuilding: costs.publicBuildingConstructionCostPerSqm || costs.mainConstructionCostPerSqm,
   };
   let categorizedConstructionNis = 0;
   const constructionBreakdown: ConstructionCostRow[] = [];

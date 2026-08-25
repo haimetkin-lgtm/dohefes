@@ -21,9 +21,11 @@ export type DealType =
 /**
  * residential=מגורים "רגיל" (בפינוי בינוי: דירות תמורה לדיירים קיימים), residentialPremium=מגורים
  * ברמת גימור/מחיר גבוהים יותר (בפינוי בינוי: דירות למכירה). שתיהן מגורים לצורך מע"מ, שונות רק
- * בעלות הבנייה למ"ר. commercial/office כרגיל.
+ * בעלות הבנייה למ"ר. commercial/office כרגיל. publicBuilding=מבנה ציבור (מב"צ) שהיזם בונה ומוסר
+ * לרשות המקומית ללא תמורה (ר' 04-מעורב-מגורים-ותעסוקה.md) - יש לו עלות בנייה משלו אך המחיר
+ * ליחידה תמיד 0, אין הכנסה כלל. קיים כאפשרות בכל סוג עסקה שתומך בפילוח קטגוריות, לא רק מעורב.
  */
-export type UnitCategory = "residential" | "residentialPremium" | "commercial" | "office";
+export type UnitCategory = "residential" | "residentialPremium" | "commercial" | "office" | "publicBuilding";
 
 export interface UnitType {
   /** שם חופשי, למשל "דירת 4 חדרים" */
@@ -64,6 +66,8 @@ export interface CostInputs {
   commercialConstructionCostPerSqm: number;
   /** עלות בנייה למ"ר משרדים, רלוונטי רק ל-mixedUse. אם 0, נופל חזרה למחיר המגורים */
   officeConstructionCostPerSqm: number;
+  /** עלות בנייה למ"ר מבנה ציבור (מב"צ). אם 0, נופל חזרה למחיר המגורים. אין ליחידות מב"צ הכנסה כלל */
+  publicBuildingConstructionCostPerSqm: number;
   /** עלות בנייה למ"ר תת קרקעי/מרתף. ברירת מחדל מאומדן הלשכה */
   undergroundConstructionCostPerSqm: number;
   /** יחס עלות מרפסות מעלות השטח העיקרי (טווח הלשכה: 30%-50%, ברירת מחדל 50% כמו במקור) */

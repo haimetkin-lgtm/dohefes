@@ -43,6 +43,7 @@ const CATEGORY_LABEL: Record<UnitCategory, string> = {
   residentialPremium: "מגורים (פרימיום)",
   commercial: "מסחר",
   office: "משרדים",
+  publicBuilding: 'מב"צ',
 };
 
 // אותם שטחים ותמהיל בדיוק כמו השלד, רק שעכשיו כל הערכים הכספיים כבר מולאו: מחיר ליחידה,
@@ -67,6 +68,7 @@ const FINAL_INPUTS: ProjectInputs = {
     premiumConstructionCostPerSqm: 15500,
     commercialConstructionCostPerSqm: 9200,
     officeConstructionCostPerSqm: 10200,
+    publicBuildingConstructionCostPerSqm: 0,
     undergroundConstructionCostPerSqm: 5600,
     balconyConstructionCostRatio: 0.5,
     developmentCostPerSqm: 650,
