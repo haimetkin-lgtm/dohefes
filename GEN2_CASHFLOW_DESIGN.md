@@ -705,6 +705,105 @@ interface CashFlowResult {
 
 ---
 
+## 13. מטריצת מיפוי ProjectInputs → CashFlowInput (commit 8b)
+
+`lib/calc/cashflow-project-adapter.ts` (`prepareCashFlowInput`) הוא שכבת תאימות **opt-in בלבד** -
+לא נקרא אוטומטית, לא נוגע ב-`ProjectInputs`/`ProjectResult`/`computeProject`. ה-audit הבא נבדק בפועל
+מול כל שדה ב-`ProjectInputs`/`LandInputs`/`CostInputs`/`UnitType` (**אין `FinancingInputs` נפרד בקוד
+הקיים** - שדות המימון חיים בתוך `CostInputs`, ר' ממצא למטה).
+
+### 13.1 ממצא מקדים: אין `FinancingInputs`
+
+השדות שהיו אמורים להיות ב-"FinancingInputs" (`annualInterestRate`, `constructionMonths`, `permitMonths`,
+`equityNis`, `presaleRate`, `guaranteeCommissionRate`, `unusedCreditCommissionRate`,
+`accountOpeningCommissionRate`) הם למעשה חלק מ-`CostInputs` עצמו. אין טיפוס נפרד. תועד כאן כדי שלא
+יונח בטעות שהוא קיים.
+
+### 13.2 עלויות מתוזמנות (`CashFlowCostItemId`, 27 פריטים אחרי 7-prep)
+
+| פריט | מקור | סוג מיפוי |
+|---|---|---|
+| `bettermentLevy`, `planningFlat`, `engineeringInspection`, `financialSupervision`, `demolition` | שדה גולמי ישיר (`land.bettermentLevyNis`, `costs.planningFlatNis` וכו') | ישיר |
+| `landPurchase` | `land.landPurchaseNis`, מותנה ב-`isCashLandDeal(dealType)` (פונקציה מיוצאת, לא משוכפלת) | ישיר עם תנאי |
+| `organizerFee`, `relocationRent`, `municipalFees` | חשוף כבר ב-`CostBreakdown` (חוזר בשימוש דרך `computeCosts`, לא נגזר מחדש) | ישיר (reuse) |
+| `constructionResidential`/`Premium`/`Commercial`/`Office`/`PublicBuilding`/`ExistingStructure` | סכום `mainCostNis+otherCostNis` לפי קטגוריה תואמת ב-`CostBreakdown.constructionBreakdown` (חשוף, לא נגזר) | ישיר (reuse) |
+| `electricConnection`, `legalRefund` | `areas.unitCount * costs.xPerUnitNis` (`areas` מ-`computeAreas`, חוזר בשימוש) | המרה בטוחה |
+| `constructionUnderground`, `constructionDevelopment` | `costs.undergroundAreaSqm*rate`, `(costs.netPlotAreaSqm/2)*rate` - שדות גולמיים בלבד, בלי הסתעפות דיל | המרה בטוחה |
+| `brokerage` | `costBreakdown.landNis * costs.brokerageRate` (`landNis` חשוף, לא נגזר כאן) | המרה בטוחה |
+| `purchaseTax` | `(isCashLandDeal(dealType) ? land.landPurchaseNis : land.combinationLandValueForTaxNis) * costs.purchaseTaxRate` | המרה בטוחה |
+| `planningConsultants`, `overhead`, `managementFee`, `contingency` | `costBreakdown.directConstructionNis * rate` (`directConstructionNis` חשוף) | המרה בטוחה |
+| `marketing` | `revenue.developerRevenueExclVatNis * costs.marketingRate` (בלי VAT_FACTOR בנוסחת המקור) | המרה בטוחה |
+| `legal` | `revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.legalRate` | **אסור למפות** - `VAT_FACTOR` (1.17) קבוע פנימי לא-מיוצא מ-`engine.ts`; שכפולו כאן היה בדיוק "העתקת נוסחה". מדווח `professionalVerification` כש-`legalRate>0`, לא מחושב |
+
+**עיתוי לכל עלות חיובית** תמיד חסר בדוח ישן (`COST_TIMING_MISSING`) - `ProjectInputs` אין לו נתוני
+עיתוי ברמת חודש בכלל, רק משכי-זמן מצרפיים. סכום 0 מפורש נשאר 0, לא הופך ל"חסר" (עקבי עם
+`computeCostSchedule` commit 7a עצמו).
+
+### 13.3 ציר הפרויקט
+
+`constructionStartMonthIndex = costs.permitMonths`, `handoverMonthIndex = permitMonths+constructionMonths-1`
+- שני שדות גולמיים מפורשים, המרה בטוחה (חשבון פשוט, ללא הסתעפות). `marketingStartMonthIndex=0` נקבע
+כברירת מחדל **מתירנית** (גבול תחתון בלבד, לא מגביל אף תזמון מכירה אמיתי) - לא ניחוש עסקי.
+
+### 13.4 שורות מכירה (`SalesUnitRowInput`)
+
+`unit` (count/priceNis/category/isCompensationUnit/isExistingStructure) ממופה ישירות מ-`UnitType`.
+**`batches`/`isBuyerSaleLawEligible` לעולם לא ממומצאים** - `SALES_BATCHES_MISSING`/`BUYER_ELIGIBILITY_MISSING`
+לכל שורה שמוכרת בפועל (לא תמורה/מבנה קיים/מב"צ). `UnitType` הקיים **אין לו מזהה יציב** - `unitRowId`
+נגזר דטרמיניסטית מקטגוריה+מיקום במערך (`legacy-<category>-<index>`), לא UUID אקראי, עם `warning` מפורש
+שהוא אינו יציב אם סדר/מספר היחידות משתנה. **הדור הבא יזדקק למזהה קבוע ושמור** בעת שמירת הנחות תזרים -
+תיעוד בלבד כאן, לא נוסף שדה חובה ל-`UnitType` בשלב הזה.
+
+### 13.5 ערבויות ועמלות מימון - שיעורים ישנים מאוחדים, לא ניתנים לפיצול בטוח
+
+- `guaranteeCommissionRate`: שיעור **מאוחד** לכל סוגי הערבות (ר' TODO מתועד ב-`computeCosts`: "לא להניח
+  ששני סוגי הערבות מחושבים באותו שיעור או על אותו בסיס"). `rate=0` → `guarantees=[]` ישיר (אין ערבות
+  בכלל). `rate>0` → `GUARANTEE_MECHANISM_AMBIGUOUS` (`professionalVerification`), לא מפוצל אוטומטית
+  לשלושת המנגנונים.
+- `accountOpeningCommissionRate`: ממופה **אך ורק** ל-`FacilityOpeningFee` (לא ללוח העלויות - `accountOpeningCommission`
+  הוסר מ-`CashFlowCostItemId` ב-7-prep). הסכום עצמו תלוי ב-`VAT_FACTOR` (אותה בעיה כמו `legal`) -
+  `professionalVerification`. חודש החיוב (`chargeMonthIndex`) אינו קיים בדוח הישן בכלל - `required`.
+- `unusedCreditCommissionRate`: הבסיס (`UnusedFacilityBalanceBasis`, שלוש אפשרויות) וחלון הזמן הם
+  מושגים חדשים ב-Gen2 שלא היו קיימים במנוע הסטטי - חסר תמיד כש-`rate>0`.
+- **`purchaseGroup` preset מתועד**: לפי `dealType` (enum, לא שם חופשי) - `guarantees=[]` ו-
+  `creditFacilityLimitNis=0` ממופים ישירות, בלי לדרוס הנחות אחרות (עיתוי עלויות/לוח תקבולים עדיין
+  נבדקים כרגיל).
+
+### 13.6 מסגרת אשראי / הון עצמי / ריבית
+
+- **`creditFacilityLimitNis`**: **תמיד חסר** (מלבד `purchaseGroup`) - `creditFacilityNis` הישן הוא ערך
+  נגזר-פנימי בתוך `computeCosts` (לא חשוף ב-`CostBreakdown`, לא קלט ישיר). ניתן לספק דרך `assumptions`.
+- **`equityCapNis`**: ממופה ישירות מ-`costs.equityNis` ("הון עצמי מושקע") - פירוש שמרני: תקרה, לא
+  הזרמה מיידית מלאה.
+- **`minimumCashBalanceNis`**: אין שדה ישן מקביל - ברירת מחדל בטוחה `0` (אין מינימום נדרש), לא ניחוש
+  עסקי.
+- **`annualInterestRate`**: ממופה **רק לאחר אימות** שהערך הוא שבר עשרוני. תקרה `1.0` (זהה ל-
+  `MAX_PLAUSIBLE_ANNUAL_INTEREST_RATE` ב-`cashflow-interest-engine.ts`) - ערך גבוה יותר (כמו `6`,
+  כלומר "6%" שהוזן כמספר שלם) **נדחה**, לא מומר אוטומטית (לא `/100` ניחושי).
+
+### 13.7 עקומת בנייה, לוח תקבולים - תמיד חסרים
+
+`ConstructionCurveAssumptions` (`linear`/`sCurve`/`legacy`/`custom`) ו-`SalesScheduleAssumptions`
+(`explicitSchedule` מול `legacyConstructionLinked`, ותוכן `byCategory`) - שני מושגים שלא היו קיימים
+במנוע הסטטי בכלל. חסרים תמיד ללא `assumptions`.
+
+### 13.8 `Partial<CashFlowAssumptions>` בפועל - מה נצרך ומה לא
+
+`CashFlowAssumptions` הוא הטיפוס מ-commit 1, לפני הפירוק המודולרי (6a-8a) - אינו תואם במלואו למבנה
+בפועל. **נצרך בפועל**: `salesSchedule`, `costTimingOverrides`, `constructionCurve` (דרך
+`resolveConstructionCurve`, לא משוכפל), `equityCapNis`, `minimumCashBalanceNis`, `creditFacilityLimitNis`.
+**לא נצרך**: `guarantees: GuaranteeMechanism[]` (חסר בסיס/עיתוי המופע ש-`CashFlowGuaranteeInput` דורש),
+`equityInjectionMode`/`interestBalanceBasis`/`unusedCreditCommissionBalanceBasis` (אין להם שדה מקביל
+ב-`InterestCashFlowAssumptions`/`FinancingFeeAssumptions` בפועל). שורות מכירה (`batches`/
+`isBuyerSaleLawEligible`) **לא ניתנות בכלל** להשלמה דרך הפרמטר הזה - אין לו שדה לכך. גם עוגני
+`CostScheduleAnchors` מעבר ל-`constructionStartMonthIndex` (שכבר ידוע מהציר עצמו) אין להם שדה מקביל.
+
+**מסקנה מעשית**: פרויקט טיפוסי עם יחידות נמכרות **לא יכול להגיע ל-`status:"ready"`** דרך הפרמטר הזה
+בלבד, גם עם כל שאר ההנחות מסופקות - נדרש ערוץ הנחות עשיר יותר לשורות מכירה בפרויקט עתידי. `status:"ready"`
+נבדק ומאומת רק בתרחיש בלי יחידות נמכרות בפועל (למשל תמורה בלבד).
+
+---
+
 ## סיכום עבור אישור פתיחת ענף יישום
 
 **סטטוס: מסמך זה מאושר (גרסה 4). מאושר לפתוח ענף יישום, אך ורק ל-commit 1 (טיפוסים+ולידציה) בשלב זה.**
