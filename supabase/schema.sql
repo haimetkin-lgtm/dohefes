@@ -58,3 +58,6 @@ create policy "anyone can upload dohefes files" on storage.objects
 -- מיגרציה: הוספת report_id/ai_notes לטבלה קיימת (הרץ פעם אחת ב-SQL Editor של סופרבייס)
 alter table dohefes_custom_orders add column if not exists report_id uuid references dohefes_reports(id);
 alter table dohefes_custom_orders add column if not exists ai_notes jsonb;
+
+-- מיגרציה: דוח מעקב בנייה תקופתי, תקציב מול ביצוע (הרץ פעם אחת ב-SQL Editor של סופרבייס)
+alter table dohefes_reports add column if not exists tracking jsonb;

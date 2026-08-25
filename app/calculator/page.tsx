@@ -383,6 +383,11 @@ export default function CalculatorPage() {
           <a href={`${SITE_URL}/calculator/?id=${reportId}`} className="text-[#1D6F42] underline break-all">
             {`${SITE_URL}/calculator/?id=${reportId}`}
           </a>
+          <p className="mt-1">
+            <a href={`${SITE_URL}/tracking/?id=${reportId}`} className="text-[#1D6F42] underline">
+              מעבר לדוח מעקב בנייה ←
+            </a>
+          </p>
           {mainCost === 0 && undergroundCost === 0 && (
             <p className="mt-1 text-[#8a2f22]">
               זהו שלד ראשוני שבנה הסוכן החכם על סמך הפרטים שנמסרו: סוג העסקה ופילוח היחידות. עלויות הבנייה, מחירי המכירה ונתוני הקרקע עדיין לא הוזנו, יש להשלים אותם למטה כדי לקבל תוצאה אמיתית.

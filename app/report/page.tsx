@@ -64,6 +64,11 @@ export default function SavedReportPage() {
             חזרה למחולל ←
           </a>
         </p>
+        <p className="text-sm text-gray-500 mt-1">
+          <a href={`/dohefes/tracking/?id=${reportId}`} className="text-[#1D6F42] underline">
+            מעבר לדוח מעקב בנייה ←
+          </a>
+        </p>
       </div>
 
       <ReportView inputs={inputs} result={result} />
