@@ -1,7 +1,7 @@
-// commit 4 של מנוע התזרים: מנוע תזרים בסיסי בלבד. פונקציה טהורה שמקבלת קלט חודשי מוכן
-// (תקבולים/תשלומים, כבר מחושבים על ידי commits 2-3) ומריצה waterfall של מזומן/הון עצמי/אשראי.
-// אין כאן ריבית, ערבויות, עמלת אי-ניצול או פתיחת תיק (commit 5). אין חיבור ל-ProjectInputs,
-// computeProject, React או Supabase - שכבה תוספתית טהורה. ר' GEN2_CASHFLOW_DESIGN.md §4.
+// commit 4 (+4b, סבב תיקוני שמות/שדות) של מנוע התזרים: מנוע תזרים בסיסי בלבד. פונקציה טהורה
+// שמקבלת קלט חודשי מוכן (תקבולים/תשלומים, כבר מחושבים על ידי commits 2-3) ומריצה waterfall של
+// מזומן/הון עצמי/אשראי. אין כאן ריבית, ערבויות, עמלת אי-ניצול או פתיחת תיק (commit 5). אין חיבור
+// ל-ProjectInputs, computeProject, React או Supabase - שכבה תוספתית טהורה. ר' GEN2_CASHFLOW_DESIGN.md §4.
 
 import { validatePhases } from "./cashflow-validation";
 import type { ProjectPhase } from "./cashflow-types";
@@ -32,20 +32,51 @@ export interface BaseCashFlowMonth {
   creditDrawNis: number;
   creditRepaymentNis: number;
 
-  /** חוסר מימון גלוי: כמה חסר בחודש הזה אחרי מיצוי הון עצמי+מסגרת. 0 אם אין חוסר. */
-  fundingShortfallNis: number;
+  /**
+   * יתרת גירעון בסוף החודש (תוקן, ר' סבב ביקורת 4b: **יתרה מצטברת, לא זרימה חודשית חדשה**).
+   * `= max(0, minimumCashBalanceNis - closingCashBalanceNis)`. אם גירעון של 100,000 ₪ נוצר בחודש 1
+   * ולא קורה שום דבר בחודש 2, גם חודש 2 יציג fundingDeficitBalanceNis=100,000 - **זה אותו גירעון
+   * שנשאר פתוח, לא גירעון חדש**. אסור לסכם את השדה הזה על פני חודשים - הוא stock (יתרה), לא flow
+   * (תנועה). לצורך תנועה (כמה נוצר/נסגר החודש) יש להשוות בין חודשים סמוכים, אין שדה ייעודי לכך
+   * עדיין (לא נוסף בכוונה - אין לו שימוש ברור כרגע, ר' דיון בביקורת).
+   */
+  fundingDeficitBalanceNis: number;
 
+  /**
+   * יתרת מזומן בסוף החודש. **כשהערך שלילי, זה לא יתרת חשבון בנק אמיתית** - זה חוסר מימון/התחייבות
+   * בלתי ממומנת שמצטברת במודל (ר' fundingDeficitBalanceNis, ששני השדות שווים בערכם המוחלט בדיוק
+   * כשיש גירעון: `closingCashBalanceNis < minimumCashBalanceNis` תמיד גורר `fundingDeficitBalanceNis
+   * = minimumCashBalanceNis - closingCashBalanceNis`). סדר החישוב לא השתנה בסבב הזה, רק התיעוד.
+   */
   closingCashBalanceNis: number;
   closingDebtBalanceNis: number;
+
+  /** מסגרת אשראי זמינה לניצול, לפי יתרת הסגירה: max(0, creditFacilityLimitNis - closingDebtBalanceNis) */
+  availableCreditFacilityNis: number;
 }
 
 export interface BaseCashFlowResult {
   months: BaseCashFlowMonth[];
   totalEquityInjectedNis: number;
-  peakDebtBalanceNis: number;
-  peakDebtMonthIndex: number | null;
-  maximumFundingShortfallNis: number;
-  /** true אם יש חודש כלשהו עם fundingShortfallNis > 0 */
+
+  /**
+   * שיא יתרת החוב **בסופי חודשים בלבד** (תוקן שם, ר' סבב ביקורת 4b - היה peakDebtBalanceNis).
+   * המנוע עובד על תקבולים/תשלומים נטו חודשיים, אין לו רזולוציה תוך-חודשית - יתכן ששיא החוב
+   * האמיתי בתוך חודש מסוים גבוה יותר מהערך הזה (למשל תשלום גדול בתחילת חודש ותקבול רק בסופו).
+   * לא נוספה רזולוציה יומית בשלב הזה.
+   */
+  peakClosingDebtBalanceNis: number;
+  peakClosingDebtBalanceMonthIndex: number | null;
+
+  /**
+   * שיא **יתרת** הגירעון (לא סכום חודשי!) על פני כל הציר - ר' fundingDeficitBalanceNis. שם ישן
+   * (maximumFundingShortfallNis) הוחלף כדי לא לרמז על "סכום חודשים", זו בדיקת מקסימום על יתרות.
+   */
+  peakFundingDeficitNis: number;
+  /** החודש הראשון שבו נוצרה יתרת גירעון (fundingDeficitBalanceNis>0), null אם מעולם לא קרה */
+  firstFundingDeficitMonthIndex: number | null;
+
+  /** true אם יש חודש כלשהו עם fundingDeficitBalanceNis > 0 */
   facilityExceeded: boolean;
 }
 
@@ -94,15 +125,17 @@ function validateMonthlyInputs(monthlyInputs: BaseCashFlowMonthInput[]): void {
 /**
  * מנוע תזרים בסיסי: waterfall חודשי של מזומן/הון עצמי/אשראי, בלי ריבית/ערבויות/עמלות (ר' commit 5).
  *
- * סדר חישוב לכל חודש (ר' §4.2 במסמך התכנון, מצומצם לשלב הבסיסי):
+ * סדר חישוב לכל חודש (ר' §4.2 במסמך התכנון, מצומצם לשלב הבסיסי) - **ללא שינוי בסבב 4b, רק
+ * שמות/תיעוד/שדה נוסף**:
  * 1. יתרות פתיחה = יתרות סגירה של החודש הקודם (0 בחודש הראשון).
  * 2. cashBeforeFinancing = openingCash + inflows - outflows.
  * 3. אם cashBeforeFinancing < minimumCashBalanceNis: הזרמת הון עצמי עד לצורך/לתקרה שנותרה,
  *    ואז משיכת אשראי עד לצורך/למסגרת שנותרה (openingDebt כבר בחשבון) - בסדר הזה, לא הפוך.
- * 4. fundingShortfallNis = max(0, minimumCashBalanceNis - cashAfterAvailableFunding) - חוסר גלוי,
- *    לא ממציאים כסף מעבר להון+מסגרת.
- * 5. עודף מעל המינימום (אם יש) משמש לפירעון חוב, מוגבל ליתרת החוב הקיימת (לא פורעים יותר משיש).
- * 6. יתרות סגירה נגזרות אלגברית מהתאמות המקורות/שימושים (ר' בדיקות ה-reconciliation).
+ * 4. עודף מעל המינימום (אם יש) משמש לפירעון חוב, מוגבל ליתרת החוב הקיימת (לא פורעים יותר משיש).
+ * 5. יתרות סגירה נגזרות אלגברית מהתאמות המקורות/שימושים (ר' בדיקות ה-reconciliation).
+ * 6. fundingDeficitBalanceNis = max(0, minimumCashBalanceNis - closingCashBalanceNis) - **יתרה**,
+ *    לא זרימה חדשה - חוסר שנוצר בחודש X וממשיך בלי שינוי מוצג באותו ערך בכל חודש עוקב, עד שתקבול
+ *    מספיק גדול מצמצם/סוגר אותו. לא ממציאים כסף מעבר להון+מסגרת.
  *
  * לא ממיין/מתקן קלט בשקט: monthlyInputs חייב להגיע רציף, ממוין, בלי כפילויות, אחרת נזרקת שגיאה.
  * לא נוגע במערך/באובייקטים שהתקבלו - כל הפלט הוא אובייקטים חדשים.
@@ -131,12 +164,11 @@ export function computeBaseCashFlow(monthlyInputs: BaseCashFlowMonthInput[], ass
 
       // 2) אשראי, עד לצורך שנותר אחרי ההון העצמי, או למסגרת שנותרה (לפי יתרת הפתיחה) - השני בתור
       const remainingShortfall = shortfallBeforeFinancing - equityInjectionNis;
-      const availableFacilityNis = Math.max(0, assumptions.creditFacilityLimitNis - openingDebtBalanceNis);
-      creditDrawNis = Math.min(remainingShortfall, availableFacilityNis);
+      const availableFacilityForDrawNis = Math.max(0, assumptions.creditFacilityLimitNis - openingDebtBalanceNis);
+      creditDrawNis = Math.min(remainingShortfall, availableFacilityForDrawNis);
     }
 
     const cashAfterAvailableFunding = cashBeforeFinancing + equityInjectionNis + creditDrawNis;
-    const fundingShortfallNis = Math.max(0, assumptions.minimumCashBalanceNis - cashAfterAvailableFunding);
 
     // עודף מעל המינימום פורע חוב, לא יותר משיש בפועל (יתרת פתיחה + משיכת החודש הזה)
     const debtBeforeRepaymentNis = openingDebtBalanceNis + creditDrawNis;
@@ -145,6 +177,8 @@ export function computeBaseCashFlow(monthlyInputs: BaseCashFlowMonthInput[], ass
 
     const closingCashBalanceNis = cashAfterAvailableFunding - creditRepaymentNis;
     const closingDebtBalanceNis = debtBeforeRepaymentNis - creditRepaymentNis;
+    const fundingDeficitBalanceNis = Math.max(0, assumptions.minimumCashBalanceNis - closingCashBalanceNis);
+    const availableCreditFacilityNis = Math.max(0, assumptions.creditFacilityLimitNis - closingDebtBalanceNis);
 
     months.push({
       monthIndex: input.monthIndex,
@@ -156,9 +190,10 @@ export function computeBaseCashFlow(monthlyInputs: BaseCashFlowMonthInput[], ass
       equityInjectionNis,
       creditDrawNis,
       creditRepaymentNis,
-      fundingShortfallNis,
+      fundingDeficitBalanceNis,
       closingCashBalanceNis,
       closingDebtBalanceNis,
+      availableCreditFacilityNis,
     });
 
     equityInjectedSoFar += equityInjectionNis;
@@ -166,30 +201,35 @@ export function computeBaseCashFlow(monthlyInputs: BaseCashFlowMonthInput[], ass
     openingDebtBalanceNis = closingDebtBalanceNis;
   }
 
-  let peakDebtBalanceNis = 0;
-  let peakDebtMonthIndex: number | null = null;
-  let maximumFundingShortfallNis = 0;
+  let peakClosingDebtBalanceNis = 0;
+  let peakClosingDebtBalanceMonthIndex: number | null = null;
+  let peakFundingDeficitNis = 0;
+  let firstFundingDeficitMonthIndex: number | null = null;
   let facilityExceeded = false;
 
   for (const month of months) {
-    if (month.closingDebtBalanceNis > peakDebtBalanceNis) {
-      peakDebtBalanceNis = month.closingDebtBalanceNis;
-      peakDebtMonthIndex = month.monthIndex;
+    if (month.closingDebtBalanceNis > peakClosingDebtBalanceNis) {
+      peakClosingDebtBalanceNis = month.closingDebtBalanceNis;
+      peakClosingDebtBalanceMonthIndex = month.monthIndex;
     }
-    if (month.fundingShortfallNis > maximumFundingShortfallNis) {
-      maximumFundingShortfallNis = month.fundingShortfallNis;
+    if (month.fundingDeficitBalanceNis > peakFundingDeficitNis) {
+      peakFundingDeficitNis = month.fundingDeficitBalanceNis;
     }
-    if (month.fundingShortfallNis > 0) {
+    if (month.fundingDeficitBalanceNis > 0) {
       facilityExceeded = true;
+      if (firstFundingDeficitMonthIndex === null) {
+        firstFundingDeficitMonthIndex = month.monthIndex;
+      }
     }
   }
 
   return {
     months,
     totalEquityInjectedNis: equityInjectedSoFar,
-    peakDebtBalanceNis,
-    peakDebtMonthIndex,
-    maximumFundingShortfallNis,
+    peakClosingDebtBalanceNis,
+    peakClosingDebtBalanceMonthIndex,
+    peakFundingDeficitNis,
+    firstFundingDeficitMonthIndex,
     facilityExceeded,
   };
 }

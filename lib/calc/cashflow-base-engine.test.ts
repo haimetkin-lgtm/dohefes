@@ -28,7 +28,7 @@ describe("דוגמה מספרית של שלושה חודשים (הון עצמי 
     expect(m0.creditDrawNis).toBe(200_000);
     expect(m0.closingCashBalanceNis).toBe(0);
     expect(m0.closingDebtBalanceNis).toBe(200_000);
-    expect(m0.fundingShortfallNis).toBe(0);
+    expect(m0.fundingDeficitBalanceNis).toBe(0);
   });
 
   it("חודש 1: תקרת ההון העצמי מוצתה, כל החוסר נמשך מהמסגרת שנותרה", () => {
@@ -37,7 +37,7 @@ describe("דוגמה מספרית של שלושה חודשים (הון עצמי 
     expect(m1.equityInjectionNis).toBe(0); // אין עוד תקרה
     expect(m1.creditDrawNis).toBe(50_000); // 100,000-150,000=-50,000 מחסור, מסגרת שנותרה=300,000-200,000=100,000
     expect(m1.closingDebtBalanceNis).toBe(250_000);
-    expect(m1.fundingShortfallNis).toBe(0);
+    expect(m1.fundingDeficitBalanceNis).toBe(0);
   });
 
   it("חודש 2: תקבול גדול פורע את מלוא החוב הקיים, לא יותר", () => {
@@ -51,10 +51,10 @@ describe("דוגמה מספרית של שלושה חודשים (הון עצמי 
     assertReconciliation(result.months);
   });
 
-  it("totalEquityInjectedNis, peakDebtBalanceNis, peakDebtMonthIndex נכונים", () => {
+  it("totalEquityInjectedNis, peakClosingDebtBalanceNis, peakClosingDebtBalanceMonthIndex נכונים", () => {
     expect(result.totalEquityInjectedNis).toBe(200_000);
-    expect(result.peakDebtBalanceNis).toBe(250_000);
-    expect(result.peakDebtMonthIndex).toBe(1);
+    expect(result.peakClosingDebtBalanceNis).toBe(250_000);
+    expect(result.peakClosingDebtBalanceMonthIndex).toBe(1);
     expect(result.facilityExceeded).toBe(false);
   });
 });
@@ -64,7 +64,7 @@ describe("ללא הון עצמי (equityCapNis=0)", () => {
     const result = computeBaseCashFlow([month(0, 0, 100_000)], { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 500_000 });
     expect(result.months[0].equityInjectionNis).toBe(0);
     expect(result.months[0].creditDrawNis).toBe(100_000);
-    expect(result.months[0].fundingShortfallNis).toBe(0);
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(0);
   });
 });
 
@@ -86,12 +86,12 @@ describe("מימון משולב (הון עצמי חלקי + אשראי לשאר�
 });
 
 describe("מסגרת אשראי קטנה מדי -> חוסר מימון גלוי, לא מומצא כסף", () => {
-  it("fundingShortfallNis > 0 כשההון+המסגרת לא מספיקים, יתרת מזומן שלילית משקפת זאת ישירות", () => {
+  it("fundingDeficitBalanceNis > 0 כשההון+המסגרת לא מספיקים, יתרת מזומן שלילית משקפת זאת ישירות", () => {
     const result = computeBaseCashFlow([month(0, 0, 100_000)], { equityCapNis: 10_000, minimumCashBalanceNis: 0, creditFacilityLimitNis: 20_000 });
     const m0 = result.months[0];
     expect(m0.equityInjectionNis).toBe(10_000);
     expect(m0.creditDrawNis).toBe(20_000);
-    expect(m0.fundingShortfallNis).toBe(70_000); // 100,000 - 10,000 - 20,000
+    expect(m0.fundingDeficitBalanceNis).toBe(70_000); // 100,000 - 10,000 - 20,000
     expect(m0.closingCashBalanceNis).toBe(-70_000); // לא אופס באופן מלאכותי
     expect(result.facilityExceeded).toBe(true);
   });
@@ -105,7 +105,7 @@ describe("חוסר מימון מצטבר עובר לחודש הבא", () => {
     );
     expect(result.months[0].closingCashBalanceNis).toBe(-100_000);
     expect(result.months[1].openingCashBalanceNis).toBe(-100_000);
-    expect(result.months[1].fundingShortfallNis).toBe(100_000); // עדיין באותו חוסר, כי אין תקבולים חדשים
+    expect(result.months[1].fundingDeficitBalanceNis).toBe(100_000); // עדיין באותו חוסר, כי אין תקבולים חדשים
   });
 });
 
@@ -130,7 +130,7 @@ describe("תקבולים מוקדמים שמונעים חוב מלכתחילה",
     );
     expect(result.months[0].creditDrawNis).toBe(0);
     expect(result.months[1].creditDrawNis).toBe(0); // יתרת המזומן מחודש 0 (400,000) מכסה
-    expect(result.peakDebtBalanceNis).toBe(0);
+    expect(result.peakClosingDebtBalanceNis).toBe(0);
   });
 });
 
@@ -147,7 +147,7 @@ describe("שמירת כרית מזומן מינימלית", () => {
       { equityCapNis: 100_000, minimumCashBalanceNis: 20_000, creditFacilityLimitNis: 0 }
     );
     // חודש 0: גירעון 100,000+20,000 כרית=120,000, אך התקרה 100,000 -> הון 100,000, שארית 20,000 fundingShortfall (אין מסגרת)
-    expect(result.months[0].fundingShortfallNis).toBe(20_000);
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(20_000);
     const m1 = result.months[1];
     expect(m1.closingCashBalanceNis).toBeGreaterThanOrEqual(20_000 - 1e-6);
   });
@@ -167,10 +167,10 @@ describe("פירעון שאינו עולה על יתרת החוב", () => {
 });
 
 describe("מסגרת אשראי 0", () => {
-  it("אין משיכת אשראי בשום חודש, כל הפער עובר ל-fundingShortfallNis", () => {
+  it("אין משיכת אשראי בשום חודש, כל הפער עובר ל-fundingDeficitBalanceNis", () => {
     const result = computeBaseCashFlow([month(0, 0, 50_000)], { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 });
     expect(result.months[0].creditDrawNis).toBe(0);
-    expect(result.months[0].fundingShortfallNis).toBe(50_000);
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(50_000);
   });
 });
 
@@ -245,5 +245,104 @@ describe("התאמות מזומן וחוב בכל חודש, על פני תרחי
     ];
     const result = computeBaseCashFlow(monthlyInputs, { equityCapNis: 100_000, minimumCashBalanceNis: 10_000, creditFacilityLimitNis: 250_000 });
     assertReconciliation(result.months);
+  });
+});
+
+// ===== סבב ביקורת 4b: יתרת גירעון (stock, לא flow), מסגרת זמינה, שיא/הופעה ראשונה =====
+
+describe("fundingDeficitBalanceNis הוא יתרה, לא זרימה חודשית חדשה", () => {
+  it("גירעון של 100,000 שנשאר לאורך חודשיים בלי פעילות מוצג פעם אחת כיתרה, לא כשני חוסרים", () => {
+    const result = computeBaseCashFlow(
+      [month(0, 0, 100_000), month(1, 0, 0), month(2, 0, 0)],
+      { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 }
+    );
+    // שלושת החודשים מציגים את אותה יתרת גירעון בדיוק - זה אותו גירעון פתוח, לא מצטבר/מוכפל
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(100_000);
+    expect(result.months[1].fundingDeficitBalanceNis).toBe(100_000);
+    expect(result.months[2].fundingDeficitBalanceNis).toBe(100_000);
+    // ההוכחה שזו לא "עוד 100,000 חדשים": סכום 3 החודשים (300,000) גדול מהגירעון האמיתי (100,000) -
+    // מי שיסכם את השדה בטעות יקבל תוצאה שגויה פי 3, בעוד peakFundingDeficitNis נכון
+    expect(result.peakFundingDeficitNis).toBe(100_000);
+  });
+
+  it("תקבול בחודש מאוחר מצמצם את יתרת הגירעון, לא רק 'מתחיל' חוסר חדש", () => {
+    const result = computeBaseCashFlow(
+      [month(0, 0, 100_000), month(1, 40_000, 0), month(2, 0, 0)],
+      { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 }
+    );
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(100_000);
+    expect(result.months[1].fundingDeficitBalanceNis).toBe(60_000); // צומצם ב-40,000
+    expect(result.months[2].fundingDeficitBalanceNis).toBe(60_000); // נשאר יציב, לא גדל שוב
+  });
+
+  it("תקבול מספיק גדול סוגר את יתרת הגירעון לגמרי (חזרה ל-0)", () => {
+    const result = computeBaseCashFlow(
+      [month(0, 0, 100_000), month(1, 150_000, 0)],
+      { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 }
+    );
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(100_000);
+    expect(result.months[1].fundingDeficitBalanceNis).toBe(0);
+    expect(result.months[1].closingCashBalanceNis).toBe(50_000);
+  });
+});
+
+describe("peakFundingDeficitNis ו-firstFundingDeficitMonthIndex", () => {
+  it("מזהים נכון את שיא הגירעון ואת החודש שבו הוא הופיע לראשונה", () => {
+    const result = computeBaseCashFlow(
+      [month(0, 0, 50_000), month(1, 0, 30_000), month(2, 100_000, 0)],
+      { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 }
+    );
+    // חודש 0: גירעון 50,000. חודש 1: מצטבר ל-80,000 (עוד 30,000 תשלום, בלי תקבול). חודש 2: נסגר.
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(50_000);
+    expect(result.months[1].fundingDeficitBalanceNis).toBe(80_000);
+    expect(result.months[2].fundingDeficitBalanceNis).toBe(0);
+    expect(result.peakFundingDeficitNis).toBe(80_000);
+    expect(result.firstFundingDeficitMonthIndex).toBe(0);
+  });
+
+  it("null כשמעולם לא היה גירעון", () => {
+    const result = computeBaseCashFlow([month(0, 100_000, 0)], { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 });
+    expect(result.peakFundingDeficitNis).toBe(0);
+    expect(result.firstFundingDeficitMonthIndex).toBeNull();
+    expect(result.facilityExceeded).toBe(false);
+  });
+});
+
+describe("availableCreditFacilityNis מתעדכן אחרי משיכה ואחרי פירעון", () => {
+  it("יורד אחרי משיכה, עולה בחזרה אחרי פירעון", () => {
+    const result = computeBaseCashFlow(
+      [month(0, 0, 200_000), month(1, 300_000, 0)],
+      { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 250_000 }
+    );
+    // חודש 0: משיכה 200,000 -> מסגרת זמינה יורדת ל-250,000-200,000=50,000
+    expect(result.months[0].creditDrawNis).toBe(200_000);
+    expect(result.months[0].availableCreditFacilityNis).toBe(50_000);
+    // חודש 1: פירעון מלא (200,000) -> מסגרת זמינה חוזרת ל-250,000 המלאה
+    expect(result.months[1].creditRepaymentNis).toBe(200_000);
+    expect(result.months[1].closingDebtBalanceNis).toBe(0);
+    expect(result.months[1].availableCreditFacilityNis).toBe(250_000);
+  });
+
+  it("שווה למסגרת המלאה כשאין חוב כלל", () => {
+    const result = computeBaseCashFlow([month(0, 100_000, 0)], { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 400_000 });
+    expect(result.months[0].closingDebtBalanceNis).toBe(0);
+    expect(result.months[0].availableCreditFacilityNis).toBe(400_000);
+  });
+});
+
+describe("מזומן שלילי: מתועד ומוחזר בעקביות עם fundingDeficitBalanceNis", () => {
+  it("closingCashBalanceNis שלילי, וערכו המוחלט שווה בדיוק ל-fundingDeficitBalanceNis כש-minimumCashBalanceNis=0", () => {
+    const result = computeBaseCashFlow([month(0, 0, 70_000)], { equityCapNis: 0, minimumCashBalanceNis: 0, creditFacilityLimitNis: 0 });
+    const m0 = result.months[0];
+    expect(m0.closingCashBalanceNis).toBe(-70_000);
+    expect(m0.fundingDeficitBalanceNis).toBe(70_000);
+    expect(Math.abs(m0.closingCashBalanceNis)).toBe(m0.fundingDeficitBalanceNis);
+  });
+
+  it("עם minimumCashBalanceNis>0, fundingDeficitBalanceNis = minimum - closingCash (לא רק ערך מוחלט)", () => {
+    const result = computeBaseCashFlow([month(0, 0, 70_000)], { equityCapNis: 0, minimumCashBalanceNis: 20_000, creditFacilityLimitNis: 0 });
+    const m0 = result.months[0];
+    expect(m0.closingCashBalanceNis).toBe(-70_000);
+    expect(m0.fundingDeficitBalanceNis).toBe(90_000); // 20,000 - (-70,000)
   });
 });
