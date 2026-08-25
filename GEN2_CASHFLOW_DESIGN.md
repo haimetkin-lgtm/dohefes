@@ -1,12 +1,14 @@
 # דור 2, שלב תזרים ומימון: מפרט תכנון
 
 **Status: Approved design, not implemented.**
-תאריך אישור: 2026-08-25. גרסת סכמה מתוכננת ליישום: `CASH_FLOW_SCHEMA_VERSION = 1`.
+תאריך אישור: 2026-08-25. גרסת סכמה מתוכננת ליישום: `CASH_FLOW_SCHEMA_VERSION = 1`. גרסת מסמך: 3 (מעודכנת אחרי
+סבב ביקורת שני - יתרת מזומן חודשית, עיתוי תשלום מפורש, מזהה עלות ייעודי, מסגרת אשראי, מעגל ריבית, עקומת בנייה
+כ-union מבחין, אזהרות/שלמות בפלט).
 
 מסמך זה מתאר **תכנון בלבד**. שום שינוי לא בוצע במנוע החישוב הקיים (`lib/calc/engine.ts`) או בטיפוסים
-הקיימים (`lib/calc/types.ts`). כל דבר במסמך הזה שמתואר כ"קיים" הוא תיאור נאמן של הקוד/קבצי המקור כפי שהם
-**היום**, לא יכולת חדשה. יישום בפועל (מנוע `computeCashFlow`, טיפוסים חדשים, בדיקות) יתחיל רק בענף נפרד,
-אחרי אישור נוסף לפי §9.
+הקיימים (`lib/calc/types.ts`). כל דבר שמתואר כ"קיים" הוא תיאור נאמן של הקוד/קבצי המקור **כפי שהם היום**, לא
+יכולת חדשה. יישום בפועל (מנוע `computeCashFlow`, טיפוסים חדשים, בדיקות) עדיין לא התחיל - ימתין לאישור נוסף
+לפני פתיחת ענף.
 
 מקורות שנקראו: `AGENTS.md`, `README.md`, `lib/calc/types.ts`, `lib/calc/engine.ts`, וששת מפרטי הנוסחאות
 ב-`Dropbox/2026/קלוד קוד - מיזמים/דוחות אפס/מפרט נוסחאות/` (קריאה מלאה של 01-תמא-38, 03-קבוצת-רכישה,
@@ -30,13 +32,12 @@ unusedCreditCommissionNis   = creditFacilityNis * unusedCreditCommissionRate * 0
 accountOpeningCommissionNis = developerRevenueExclVatNis * 1.17 * accountOpeningCommissionRate  ← חד-פעמי בפועל
 ```
 
-קירוב **סטטי, לא תלוי-זמן**: אין חודשים, שלבים, עקומת בנייה או לוח תקבולים. הנוסחה הזו **נשארת בדיוק כפי שהיא**
-עד שתוחלף במפורש - `computeProject`/`ProjectResult` לא משתנים במסגרת שלב התכנון הזה, וגם לא בתחילת שלב היישום
-(ר' §8 מפת תאימות).
+קירוב **סטטי, לא תלוי-זמן**. הנוסחה הזו **נשארת בדיוק כפי שהיא** - `computeProject`/`ProjectResult` לא משתנים
+במסגרת שלב התכנון או בתחילת שלב היישום (ר' §10 מפת תאימות).
 
 **סטייה קיימת מהמקור, לא נוצרה היום**: `purchaseGroup` מקבלת כרגע את אותה נוסחת מימון/ערבות/אי-ניצול כמו כל
-סוג עסקה אחר. לפי 03-קבוצת-רכישה.md, בתרחיש הבסיס שלושתן אמורות להיות אפס (ר' §5). זו נקודת תיקון מתוכננת
-ב**מנוע התזרים החדש בלבד** (ר' §5), לא ב-`computeCosts` הקיים.
+סוג עסקה אחר. לפי 03-קבוצת-רכישה.md, בתרחיש הבסיס שלושתן אמורות להיות אפס (ר' §5). תיקון מתוכנן **רק** במנוע
+התזרים החדש, לא ב-`computeCosts` הקיים.
 
 ---
 
@@ -70,102 +71,234 @@ accountOpeningCommissionNis = developerRevenueExclVatNis * 1.17 * accountOpening
 
 ---
 
-## 2. פריסת העלויות
+## 2. פריסת העלויות ומזהה העלות הייעודי
 
-כל סעיף מקבל `timingRule` **גלוי בטיפוס עצמו** (ר' §7), לא נוסחה קבורה. אוצר המילים המוצע ל-`rule`:
+**תיקון מהותי מהגרסה הקודמת**: `costTimingOverrides` לא יכול להתבסס על `keyof CostInputs`, כי חלק מהסעיפים
+(קרקע, היטל השבחה) נמצאים ב-`LandInputs` נפרד, וחלקם בכלל לא שדה קלט גולמי אלא ערך **מחושב** בתוך
+`computeCosts` (למשל תיווך = `landNis * brokerageRate`). לכן מוגדר טיפוס עצמאי, `CashFlowCostItemId`, שמכסה
+את כל סעיפי העלות (קרקע/בנייה/עקיפות) בלי תלות במבנה `CostInputs`/`LandInputs` הקיים:
 
-`landPurchaseMonth` · `permitMonth` · `escortStart` · `constructionStart` · `preCompletion` ·
-`spreadOverConstruction` · `spreadOverEscort` · `spreadOverRelocation` · `salesCurve` · `requiresProjectAgreement`
+```ts
+type CashFlowCostItemId =
+  // קרקע (מ-LandInputs, לא מ-CostInputs)
+  | "landPurchase" | "bettermentLevy"
+  // עקיפות
+  | "brokerage" | "purchaseTax" | "electricConnection" | "planningFlat"
+  | "planningConsultants" | "engineeringInspection" | "marketing" | "legal"
+  | "legalRefund" | "financialSupervision" | "overhead" | "managementFee"
+  | "contingency" | "municipalFees" | "organizerFee" | "relocationRent"
+  // בנייה ישירה, מפורק לפי קטגוריה (לא סעיף אחד מאוחד) - כי מעורב שימושים דורש עקומות
+  // נפרדות למגורים/מסחר/משרדים בפועל (04-מעורב.md, שלושה גיליונות תזרים מקבילים)
+  | "demolition" | "constructionResidential" | "constructionResidentialPremium"
+  | "constructionCommercial" | "constructionOffice" | "constructionPublicBuilding"
+  | "constructionExistingStructure" | "constructionUnderground" | "constructionDevelopment"
+  // עמלה חד-פעמית שכן ניתנת לתזמון (בשונה מערבויות/ריבית/אי-ניצול, ר' הערה למטה)
+  | "accountOpeningCommission";
+```
 
-| סעיף | `timingRule` | סטטוס |
+**במפורש לא כלול** ב-`CashFlowCostItemId`: `guaranteeCommission*`, `unusedCreditCommission`, `interest`. אלה
+לא "סעיפי עלות" עם תזמון חיצוני - הם **תוצרים** של הלולאה החודשית עצמה (§4), מחושבים מחדש בכל חודש לפי יתרת
+החוב/ההכנסה המצטברת של אותו חודש. אין להם `timingRule` נפרד כי אין להם "מתי" עצמאי מהחישוב.
+
+טבלת ה-`timingRule` המוצע לכל מזהה (זהה בתוכן לגרסה הקודמת, רק ממופה עכשיו למזהה תקין):
+
+| `CashFlowCostItemId` | מקור בתוצאת המנוע הקיים | `timingRule` |
 |---|---|---|
-| `landPurchaseNis` | `landPurchaseMonth` | preset |
-| `bettermentLevyNis` | `requiresProjectAgreement` | **דורש התאמה לפרויקט** - ברירת מחדל: מועד מימוש הזכויות או לפני ההיתר, תלוי סוג פרויקט |
-| תיווך | `landPurchaseMonth` | preset |
-| מס רכישה | `landPurchaseMonth` | preset - ברירת מחדל חודש העסקה |
-| חיבור חשמל | `preCompletion` | preset - לקראת סיום הביצוע, לפני אכלוס |
-| תכנון ומדידות | `constructionStart` | preset |
-| תכנון ויועצים (% מבנייה) | `spreadOverConstruction` | preset |
-| פיקוח הנדסי | `spreadOverConstruction` | preset - שכר חודשי למפקח, ר' זיכרון פרויקט |
-| שיווק (% מהכנסות) | `salesCurve` | preset |
-| משפטי (% מהכנסות) | `salesCurve` | preset |
-| החזר שכ"ט עו"ד | `salesCurve` (בחתימת כל חוזה) | preset |
-| ליווי פיננסי | `spreadOverEscort` | preset - פריסה חודשית לאורך תקופת הליווי הבנקאי |
-| תקורות / דמי ניהול / בצ"מ (% מבנייה) | `spreadOverConstruction` | preset |
-| אגרות והיטלי בנייה | `permitMonth` | preset - בחודש ההיתר או הסמוכים לו |
-| הריסה | `constructionStart` | preset |
-| בנייה ישירה (כל תעריפי המ"ר) | `spreadOverConstruction`, לפי עקומת הבנייה (ר' §7) | preset |
-| דמי שכירות לדיירים | `spreadOverRelocation` | preset - צמוד ל-`relocationMonths`, לא ל-`constructionMonths` |
-| שכר מארגן (קבוצת רכישה) | `landPurchaseMonth` | preset |
-| פתיחת תיק (עמלה חד-פעמית) | `escortStart` | preset |
+| `landPurchase` | `LandInputs.landPurchaseNis` | `landPurchaseMonth` |
+| `bettermentLevy` | `LandInputs.bettermentLevyNis` | `requiresProjectAgreement` - **דורש התאמה לפרויקט** |
+| `brokerage` | `landNis * brokerageRate` (מחושב) | `landPurchaseMonth` |
+| `purchaseTax` | `purchaseTaxBasis * purchaseTaxRate` (מחושב) | `landPurchaseMonth` |
+| `electricConnection` | `unitCount * electricConnectionPerUnitNis` | `preCompletion` |
+| `planningFlat` | `CostInputs.planningFlatNis` | `constructionStart` |
+| `planningConsultants` | `directConstructionNis * planningConsultantsRate` | `spreadOverConstruction` |
+| `engineeringInspection` | `CostInputs.engineeringInspectionFlatNis` | `spreadOverConstruction` |
+| `marketing` | `developerRevenueExclVatNis * marketingRate` | `salesCurve` |
+| `legal` | `developerRevenueExclVatNis * VAT_FACTOR * legalRate` | `salesCurve` |
+| `legalRefund` | `unitCount * legalRefundPerUnitNis` | `salesCurve` (בחתימה) |
+| `financialSupervision` | `CostInputs.financialSupervisionFlatNis` | `spreadOverEscort` |
+| `overhead` | `directConstructionNis * overheadRate` | `spreadOverConstruction` |
+| `managementFee` | `directConstructionNis * managementFeeRate` | `spreadOverConstruction` |
+| `contingency` | `directConstructionNis * contingencyRate` | `spreadOverConstruction` |
+| `municipalFees` | `computeMunicipalFees(...)` | `permitMonth` |
+| `organizerFee` | `CostInputs.organizerFeeNis` (קבוצת רכישה) | `landPurchaseMonth` |
+| `relocationRent` | `relocationUnitsCount*relocationMonths*rate` | `spreadOverRelocation` |
+| `demolition` | `CostInputs.demolitionFlatNis` | `constructionStart` |
+| `construction*` (8 מזהים) | לפי `ConstructionCostRow`/`costPerSqmByCategory` | `spreadOverConstruction`, לפי עקומת הבנייה (§7) |
+| `accountOpeningCommission` | `developerRevenueExclVatNis*1.17*accountOpeningCommissionRate` | `escortStart` |
 
-כל השורות למעלה הן **presets לעריכה**, לא קבועים. `bettermentLevyNis` מסומן במפורש כדורש התאמה כי אין לו
-עיגון-זמן עקבי בין סוגי הפרויקטים.
+אוצר המילים ל-`rule`: `landPurchaseMonth` · `permitMonth` · `escortStart` · `constructionStart` ·
+`preCompletion` · `spreadOverConstruction` · `spreadOverEscort` · `spreadOverRelocation` · `salesCurve` ·
+`requiresProjectAgreement`.
+
+**ולידציה נדרשת בשלב היישום**: אין מזהה שמופיע פעמיים ברשימת ה-overrides, וסכום כל סעיפי העלות המתוזמנים
+(לפני מימון) שווה בדיוק לסכום המקביל בתרחיש הבסיס של `computeCosts` הקיים (`indirectNis+directConstructionNis+
+landNis`, ללא הפרש) - זו בדיקת "לא הלך כסף לאיבוד" ברמת הקלט, נפרדת מבדיקת המאזן החודשית (§12 תרחיש 11).
 
 ---
 
 ## 3. לוח תקבולים ומכירות
 
-**שני דגמים, לא במעמד שווה:**
+### 3.1 שני דגמים, לא במעמד שווה
 
-- **ברירת המחדל החדשה לדוחות חדשים**: `explicitSchedule` - לוח תקבולים מפורש וניתן לעריכה לחלוטין, לכל
-  קטגוריית יחידות בנפרד. **`preset` התחלתי בלבד** (לא דרישה): 15% בחתימה / 70% פרוס על תקופת הביצוע / 15%
-  במסירה. **זו הנחת ברירת מחדל עסקית, לא דרישת חוק המכר** - חוזה מכר ספציפי גובר תמיד על ה-preset, ויש
-  לאפשר עריכה מלאה של הלוח לכל פרויקט.
-- **`legacyConstructionLinked`**: הדגם המקורי מ-01-תמא-38.md (הכנסה מוכרת = פונקציה של קצב ההוצאה המצטברת
-  על הבנייה, "אחוז השלמה"). נשמר **אך ורק** לתאימות/שחזור מול קבצי המקור המקוריים (בדיקות אימות, השוואה
-  לקובץ ה-Excel המקורי). **דוחות חדשים לעולם לא ייבחרו בו כברירת מחדל.**
+- **ברירת המחדל החדשה לדוחות חדשים**: `explicitSchedule` - לוח תקבולים מפורש וניתן לעריכה, לכל קטגוריית
+  יחידות בנפרד. **`preset` התחלתי בלבד, לא דרישה**: 15% בחתימה / 70% פרוס על תקופת הביצוע / 15% במסירה. **זו
+  הנחת ברירת מחדל עסקית, לא דרישת חוק המכר** - חוזה מכר ספציפי גובר תמיד על ה-preset.
+- **`legacyConstructionLinked`**: הדגם המקורי מ-01-תמא-38.md (הכנסה מוכרת = פונקציה של קצב ההוצאה המצטברת).
+  נשמר **אך ורק** לתאימות/שחזור מול קבצי המקור המקוריים. **דוחות חדשים לעולם לא ייבחרו בו כברירת מחדל.**
 
-**הפרדה מפורשת** בין `saleMonth` (מועד חתימת חוזה המכר, ליחידה/קבוצת יחידות) לבין `paymentReceiptDates`
-(מועדי קבלת כל תשלום בפועל לפי הלוח שנבחר) - אלה שני נתונים שונים, לא אותו שדה.
+### 3.2 טיפוס תזמון תשלום מפורש (תיקון מהגרסה הקודמת)
 
-**הבחנות שכבר מתועדות במקור (04-מעורב.md §4.2), נשמרות במודל החדש:**
+הגרסה הקודמת של `PaymentTranche` כללה רק `cumulativePercent`+`label`, בלי שום ציון **חודש**. תוקן:
+
+```ts
+type PaymentTiming =
+  | { kind: "relativeToSale"; monthsAfterSale: number }                       // X חודשים אחרי חתימה
+  | { kind: "projectMonth"; monthIndex: number }                              // חודש קבוע בציר הפרויקט
+  | { kind: "evenSpread"; fromMonthsAfterSale: number; toMonthsAfterSale: number } // פרוס אחיד בין שני מועדים
+  | { kind: "constructionProgress"; cumulativeProgress: number }              // לצורך legacyConstructionLinked בלבד
+  | { kind: "handover" };                                                     // במסירה, מוגדר כחודש האחרון
+
+interface PaymentTranche {
+  percent: number;      // אחוז מהתמורה, לא מצטבר - נמנע מהסיכון של אחוז מצטבר יורד/כפול
+  timing: PaymentTiming;
+  label: string;        // לתצוגה בלבד
+}
+```
+
+**ולידציה נדרשת**: סך `percent` בכל היחידות של `PaymentTranche[]` לקטגוריה = 100% בדיוק, אין `percent` שלילי,
+כל `PaymentTiming` נופל בתוך ציר הפרויקט בפועל (לא לפני חודש 0, לא אחרי המסירה).
+
+### 3.3 דוגמה: תרגום preset 15/70/15 לחודשי תקבול בפועל
+
+פרויקט עם `constructionMonths=24`, יחידה שנמכרה ב-`saleMonth=3`:
+
+```ts
+[
+  { percent: 15, timing: { kind: "relativeToSale", monthsAfterSale: 0 },  label: "בחתימה" },   // חודש 3
+  { percent: 70, timing: { kind: "evenSpread", fromMonthsAfterSale: 1, toMonthsAfterSale: 21 }, label: "בהתקדמות" }, // חודשים 4-24, ~3.33% לחודש
+  { percent: 15, timing: { kind: "handover" }, label: "במסירה" },                                // חודש 24
+]
+```
+
+### 3.4 הבחנות שכבר מתועדות במקור (04-מעורב.md §4.2), נשמרות
 
 | קטגוריה | preset |
 |---|---|
-| מגורים למכירה | לוח `explicitSchedule` (ברירת מחדל 15/70/15) |
-| מסחר | הכל במסירה בלבד, אין תשלומים מקדימים (נכס מניב) |
+| מגורים למכירה | `explicitSchedule` (ברירת מחדל 15/70/15) |
+| מסחר | הכל `handover` בלבד, אין תשלומים מקדימים (נכס מניב) |
 | משרדים | כמו מגורים |
 | יחידות תמורה (`isCompensationUnit`) | אין תקבול בשום שיטה |
-| קבוצת רכישה | לא "מכירה" - תשלומי חברים לפי התקדמות, מנגנון ייעודי נפרד מהמודל הזה |
+| קבוצת רכישה | לא "מכירה" - תשלומי חברים לפי התקדמות, מנגנון נפרד מהמודל הזה |
 
 ---
 
-## 4. הון עצמי ואשראי
+## 4. הון עצמי, אשראי, ויתרת מזומן חודשית (תוקן מהותית)
 
-**סדר עדיפויות חודשי (preset, ברירת מחדל `asNeededUpToCap`):**
+### 4.1 מה היה חסר
+
+הגרסה הקודמת עקבה רק אחרי יתרת **חוב**, בלי יתרת **מזומן** נפרדת - לא ניתן היה להעביר עודף תקבולים מחודש
+לחודש, להוכיח מאזן מלא, או להבחין בין "יש מזומן פנוי" לבין "צריך לפרוע חוב". תוקן: `CashFlowMonth` כולל עכשיו
+גם יתרות פתיחה/סגירה למזומן וגם לחוב, בנפרד.
+
+### 4.2 Waterfall חודשי מלא, בסדר הזה בדיוק
 
 ```
-בכל חודש, לפי הסדר:
-1. שימוש בתקבולים זמינים לאותו חודש.
-2. הזרמת הון עצמי נדרש, עד לתקרת ההון העצמי שהוגדרה (equityCapNis) - רק הסכום הדרוש, לא הכל מראש.
-3. משיכת אשראי בנקאי עבור מה שנשאר לכסות אחרי 1+2.
+1. openingCashBalanceNis[m] = closingCashBalanceNis[m-1]        (0 בחודש הראשון)
+   openingDebtBalanceNis[m] = closingDebtBalanceNis[m-1]         (0 בחודש הראשון)
+2. operatingInflowsNis[m]   = תקבולים תפעוליים (לפי לוח התקבולים, §3)
+3. operatingOutflowsNis[m]  = תשלומים תפעוליים (סעיפי עלות המתוזמנים לחודש זה, §2) + עמלות ערבות/אי-ניצול לחודש זה
+   cashBeforeFinancing[m]   = openingCashBalanceNis[m] + operatingInflowsNis[m] - operatingOutflowsNis[m]
+4. אם cashBeforeFinancing[m] < minimumCashBalanceNis:
+       shortfall               = minimumCashBalanceNis - cashBeforeFinancing[m]
+       equityInjectionNis[m]   = min(shortfall, equityCapNis - הון עצמי שהוזרם עד כה)
+   אחרת: equityInjectionNis[m] = 0
+5. remainingShortfall        = max(0, shortfall - equityInjectionNis[m])
+   creditDrawNis[m]          = remainingShortfall   (0 אם אין מחסור)
+   cashAfterDraw[m]          = cashBeforeFinancing[m] + equityInjectionNis[m] + creditDrawNis[m]
+6. closingDebtBeforeInterestNis[m] = openingDebtBalanceNis[m] + creditDrawNis[m]
+   surplus                        = max(0, cashAfterDraw[m] - minimumCashBalanceNis)
+   creditRepaymentNis[m]          = min(surplus, closingDebtBeforeInterestNis[m])
+   closingDebtBeforeInterestAfterRepaymentNis[m] = closingDebtBeforeInterestNis[m] - creditRepaymentNis[m]
+7. interestNis[m] = (annualInterestRate/12) * בסיס[m]   ← הבסיס תלוי ב-interestBalanceBasis, ר' 4.4
+   מדיניות ברירת מחדל: הריבית **לא** משולמת מהמזומן באותו חודש, אלא מצטרפת ליתרת החוב (מהוונת)
+8. closingDebtBalanceNis[m] = closingDebtBeforeInterestAfterRepaymentNis[m] + interestNis[m]
+   closingCashBalanceNis[m] = cashAfterDraw[m] - creditRepaymentNis[m]
 ```
 
-**לא**: הזרמת כל ההון בחודש הראשון בלי קשר לצורך, ולא פריסה שווה אוטומטית בלי קשר לצורך. שיטת הזרמה
-פרו-רטה/יחסית (`proRata`) מתוכננת כאפשרות עתידית, **לא ברירת מחדל כרגע** - רלוונטית רק אם הסכם ליווי ספציפי
-דורש זאת.
+`minimumCashBalanceNis` הוא שדה חדש ב-`CashFlowAssumptions`, **ברירת מחדל `0`**, ניתן לשינוי (למשל אם רוצים
+תמיד "כרית" מזומן מינימלית לפני שממשיכים לפרוע חוב).
 
-**בסיס חישוב הריבית**, שדה מפורש וגלוי, לא נסתר:
+### 4.3 דוגמה מספרית, חודש עם משיכת אשראי (מוכיחה את משוואת המאזן)
+
+נתונים: `openingCashBalanceNis=0`, `openingDebtBalanceNis=1,000,000`, תקבולים החודש `100,000`, תשלומים
+`400,000`, `minimumCashBalanceNis=0`, הון עצמי כבר מוצה במלואו (הזרמה החודש=0), ריבית שנתית `6%` (חודשי `0.5%`).
+
+```
+cashBeforeFinancing = 0 + 100,000 - 400,000 = -300,000
+shortfall            = 0 - (-300,000) = 300,000
+equityInjection      = 0   (התקרה כבר מוצתה)
+creditDraw           = 300,000
+cashAfterDraw        = -300,000 + 0 + 300,000 = 0
+
+closingDebtBeforeInterest = 1,000,000 + 300,000 = 1,300,000
+surplus                   = max(0, 0-0) = 0  →  creditRepayment = 0
+closingDebtBeforeInterestAfterRepayment = 1,300,000
+
+interest = 0.5% * 1,300,000 = 6,500       ← מחושבת על היתרה *לפני* הוספת הריבית עצמה, אין מעגליות
+closingDebtBalance = 1,300,000 + 6,500 = 1,306,500
+closingCashBalance = 0 - 0 = 0
+```
+
+**בדיקת מאזן** (מקורות = שימושים + שינוי מזומן/חוב):
+
+```
+מקורות: openingCash(0) + inflows(100,000) + equity(0) + creditDraw(300,000)            = 400,000
+שימושים: outflows(400,000) + repayment(0) + Δcash(closingCash-openingCash = 0)          = 400,000  ✓
+
+Δdebt = closingDebt(1,306,500) - openingDebt(1,000,000) - creditDraw(300,000) + repayment(0) = 6,500
+      = interest, כצפוי - הריבית "מופיעה" רק כגידול ביתרת החוב, לא כתזרים יוצא באותו חודש.
+```
+
+### 4.4 בסיס הריבית - שם השדה תוקן, אין עוד עמימות
 
 ```ts
-interestBalanceBasis: "closing" | "averageOpeningClosing"
+type InterestBalanceBasis = "closingDebtBeforeInterest" | "averageOpeningAndPreInterestClosing";
 ```
 
-**גרסה ראשונה: ברירת המחדל `"closing"`** (ריבית חודשית על יתרת הסגירה של החודש) - תואמת את שיטת קובצי המקור
-(`interest[t] = rate/4 * balance[t]`). `"averageOpeningClosing"` מתוכנן כאפשרות נוספת אם היישום פשוט, אבל
-**הבחירה בין השתיים מוצגת בגוף הדוח במפורש** ("ריבית מחושבת על יתרת סגירה חודשית"), לא נסתרת בנוסחה.
+**גרסה ראשונה: ברירת מחדל `"closingDebtBeforeInterest"`** - ריבית מחושבת על יתרת החוב **אחרי** משיכות/פירעונות
+תפעוליים של אותו חודש, אבל **לפני** הוספת הריבית של אותו חודש עצמו (ר' שלב 6-7 ב-4.2 והדוגמה ב-4.3). זה פותר
+את סיכון המעגליות (יתרת סגירה → ריבית → צורך נוסף באשראי → יתרת סגירה חדשה) על ידי כך שהריבית **לא** משפיעה
+על משיכת האשראי של אותו חודש - היא מצטרפת רק ליתרת הפתיחה של החודש **הבא**.
 
+`"averageOpeningAndPreInterestClosing"` (ממוצע בין יתרת הפתיחה ל-`closingDebtBeforeInterestAfterRepayment`,
+**לפני** תוספת הריבית עצמה - כדי לא ליצור אותה מעגליות) מתוכננת כאפשרות שנייה, **תיושם רק אם פשוט**, לא
+מובטחת בגרסה הראשונה. הבחירה בפועל מוצגת בדוח דרך `financing.interestBalanceBasisUsed` - לעולם לא נסתרת.
+
+### 4.5 הזרמת הון עצמי
+
+**ברירת מחדל `asNeededUpToCap`**: הון עצמי מוזרם רק כשנדרש (שלב 4 ב-4.2), עד לתקרה `equityCapNis`. **לא**
+מוזרם כולו בחודש הראשון בלי קשר לצורך, ולא נפרס שווה בשווה ללא תלות בצורך בפועל. שיטת הזרמה יחסית/פרו-רטה
+(`proRata`) מתוכננת כאפשרות עתידית, לא ברירת מחדל - רק אם הסכם ליווי ספציפי דורש זאת.
+
+### 4.6 מסגרת אשראי - שדה חדש, לא הייתה מוגדרת
+
+הגרסה הקודמת השתמשה ב"מסגרת קבועה" בנוסחת עמלת אי-הניצול, בלי להגדיר מאיפה היא מגיעה. תוקן:
+
+```ts
+creditFacilityLimitNis: number | "auto";
 ```
-יתרת מזומן לפני מימון[m]   = תקבולים[m] - תשלומים[m]
-הזרמת הון עצמי[m]           = min(צורך[m], equityCapNis - הון עצמי שכבר הוזרם)
-משיכת אשראי[m]              = השארית אחרי 1+2
-פירעון אשראי מתוך תקבולים[m] = תקבולים שמקזזים ישירות את יתרת החוב
-יתרת חוב לסוף חודש[m]       = יתרת חוב[m-1] + משיכה[m] - פירעון[m]
-שיא האשראי                  = max(יתרת חוב לסוף חודש) על פני כל הציר
-ריבית חודשית[m]             = ריבית_שנתית/12 * בסיס[m]   (בסיס = closing, בגרסה ראשונה)
-מסגרת שלא נוצלה[m]          = max(0, מסגרת_קבועה - יתרת חוב[m])
-```
+
+**בעיה שזוהתה ותוקנה**: אסור שהמסגרת תיגזר משיא החוב **של אותו תזרים עצמו** - זה יוצר מצב שבו עמלת אי-הניצול
+תמיד קרובה ל-0 (המסגרת "מתאימה את עצמה בדיעבד" לצורך בפועל), מה שהופך את המנגנון חסר משמעות. לכן:
+
+| הקשר | ברירת מחדל |
+|---|---|
+| פרויקט אמיתי (לקוח מזין נתונים) | קלט מפורש, מהסכם הליווי הבנקאי בפועל |
+| תרחיש לדוגמה/דמו | `"auto"`, עם נוסחה מתועדת ואזהרה גלויה שזו הערכה, לא מסגרת אמיתית מהבנק (הצעה לנוסחה: שיא החוב הצפוי + רווח ביטחון קבוע, למשל 15%, לא שיא בדיעבד) |
+| `purchaseGroup` (preset ברירת מחדל) | `0` |
+
+פלט חדש: `creditFacilityLimitNisUsed: number` (הערך בפועל שנעשה בו שימוש) ו-`peakFacilityUtilizationRatio: number | null`
+(שיא יתרת החוב חלקי המסגרת, `null` אם המסגרת 0 או לא רלוונטית).
 
 ---
 
@@ -174,22 +307,20 @@ interestBalanceBasis: "closing" | "averageOpeningClosing"
 לפי 03-קבוצת-רכישה.md, ה-preset של מנוע התזרים ל-`purchaseGroup`:
 
 ```ts
-const PURCHASE_GROUP_DEFAULT_PRESET = {
-  financingNis: 0,
-  buyerGuaranteeCommissionNis: 0,
-  unusedCreditCommissionNis: 0,
-  fundingSource: "memberEquity",
+const PURCHASE_GROUP_DEFAULT_PRESET: Partial<CashFlowAssumptions> = {
+  creditFacilityLimitNis: 0,
+  guarantees: [],   // אין buyerSaleLaw, אין kombinatsiaOwner - מימון כולו בהון חברי הקבוצה
 };
 ```
 
-**זהו preset ברירת מחדל בלבד, לא קידוד קשיח**. פרויקט "קבוצת רכישה" ספציפי יכול לדרוס אותו במלואו (למשל אם
-נדרש בפועל ליווי בנקאי). **אזהרה מקצועית שתוצג בממשק**: הסיווג לצורך חוק המכר תלוי במהות העסקה בפועל, לא רק
-בשם שנבחר. לפי הנחיית משרד הבינוי והשיכון, קבוצת רכישה אמיתית (רוכשים בעלים שבונים לעצמם) בדרך כלל אינה
-כפופה לחובות חוק המכר של יזם מוכר, אך פרויקט **המכונה** "קבוצת רכישה" בלבד, כשבפועל מדובר במכר דירות לציבור,
-עלול להיחשב חייב בחובות אלה על אף השם. **אין להסתמך על תיוג `dealType` בלבד לצורך זה.**
+**preset ברירת מחדל בלבד, לא קידוד קשיח** - פרויקט ספציפי יכול לדרוס במלואו (למשל אם נדרש בפועל ליווי בנקאי).
+**אזהרה מקצועית שתוצג בממשק**: הסיווג לצורך חוק המכר תלוי במהות העסקה בפועל, לא רק בשם שנבחר. לפי הנחיית
+משרד הבינוי והשיכון, קבוצת רכישה אמיתית (רוכשים בעלים שבונים לעצמם) בדרך כלל אינה כפופה לחובות חוק המכר של
+יזם מוכר, אך פרויקט **המכונה** "קבוצת רכישה" בלבד, כשבפועל מדובר במכר דירות לציבור, עלול להיחשב חייב בחובות
+אלה על אף השם. **אין להסתמך על תיוג `dealType` בלבד לצורך זה.**
 
-תאימות: שינוי ה-preset הזה קורה **רק** במנוע התזרים החדש (`computeCashFlow`), לא ב-`computeCosts`/
-`computeProject` הקיימים. דוחות ישנים שנטענים דרך המנוע הקיים ממשיכים לקבל בדיוק את אותה תוצאה כמו היום.
+תאימות: שינוי ה-preset קורה **רק** במנוע התזרים החדש (`computeCashFlow`), לא ב-`computeCosts`/`computeProject`
+הקיימים. דוחות ישנים ממשיכים לקבל בדיוק את אותה תוצאה כמו היום.
 
 ---
 
@@ -197,61 +328,50 @@ const PURCHASE_GROUP_DEFAULT_PRESET = {
 
 ```ts
 type GuaranteeMechanism =
-  | { kind: "buyerSaleLaw"; ratePct: number }                                     // רוכשים משלמים
-  | { kind: "kombinatsiaOwner"; ratePct: number; durationYears: number }          // בעלים בקומבינציה
-  | { kind: "unitCompensationOwner"; ratePct: number | "requiresVerification" };  // תמורה בתמ"א/פינוי בינוי
+  | { kind: "buyerSaleLaw"; ratePct: number }
+  | { kind: "kombinatsiaOwner"; ratePct: number; durationYears: number }
+  | { kind: "unitCompensationOwner"; ratePct: number | "requiresVerification" };
 ```
 
 | מנגנון | בסיס | שיעור | משך חשיפה | מקור |
 |---|---|---|---|---|
 | `buyerSaleLaw` | הכנסה מצטברת שהוכרה | 0.85% (evidenced) | דינמי, לפי קצב מכירות בפועל | 01/04/05 |
 | `kombinatsiaOwner` | שווי שוק **קבוע** של יחידות הבעלים | 1.0% (evidenced) | מח"מ **קבוע**: 3 שנים | 05 בלבד |
-| `unitCompensationOwner` (תמ"א 38/פינוי בינוי) | **שווי דירת התמורה החדשה** | **אין ברירת מחדל אוטומטית** - קלט מפורש, או `"requiresVerification"` אם לא סופק | **ממועד פינוי/מסירת הדירה הקיימת ועד מסירת דירת התמורה והשבת הערבות** | לא נמצא במקור, נקבע כעת כהנחה חדשה |
+| `unitCompensationOwner` (תמ"א 38/פינוי בינוי) | **שווי דירת התמורה החדשה** | **אין ברירת מחדל אוטומטית** - קלט מפורש, או `"requiresVerification"` | **ממועד פינוי/מסירת הדירה הקיימת ועד מסירת דירת התמורה והשבת הערבות** | לא נמצא במקור, הנחה חדשה |
 
-**לא מוחל אוטומטית** מנגנון `kombinatsiaOwner` (1%, מח"מ קבוע) על יחידות תמורה בתמ"א 38/פינוי בינוי - אלה
-עסקאות שונות מהותית (קומבינציה = בעל קרקע יחיד עם שווי ידוע; תמ"א/פינוי בינוי = דיירים מרובים, כל אחד עם
-דירת תמורה). כשלא סופק שיעור מפורש לפרויקט, `unitCompensationOwner.ratePct = "requiresVerification"` - המנוע
-**לא מחשב** ערבות עבורו (0 בפועל), ומסמן אותו כנתון חסר בדוח, לא כשגיאה שקטה.
+**לא מוחל אוטומטית** `kombinatsiaOwner` (1%, מח"מ קבוע) על יחידות תמורה בתמ"א/פינוי בינוי - עסקאות שונות
+מהותית. כשלא סופק שיעור מפורש, `unitCompensationOwner.ratePct = "requiresVerification"` - **לא מחושב** (0
+בפועל), מסומן כנתון חסר בדוח (`missingAssumptions`, ר' §7), לא שגיאה שקטה.
 
-**מתוכננים בנפרד, לא מחושבים בשלב א' של מנוע התזרים:**
-- ערבות שכירות (למקרה של דירות/יחידות מושכרות בתקופת הביניים)
-- ערבות מיסים, כשרלוונטית
-- ערבות רישום
-
-בשלב א' מחושבות **רק** הערבויות עם בסיס ושיעור מוגדרים (`buyerSaleLaw`, `kombinatsiaOwner`, ו-
-`unitCompensationOwner` כשסופק שיעור מפורש). כל השאר מסומנות כנתון חסר בדוח, לא מוערכות אוטומטית.
+**מתוכננים בנפרד, לא מחושבים בשלב א'**: ערבות שכירות, ערבות מיסים (כשרלוונטית), ערבות רישום. מחושבות רק
+הערבויות עם בסיס+שיעור מוגדרים.
 
 ---
 
-## 7. עקומת הבנייה
+## 7. עקומת הבנייה (תוקן: union מבחין, לא שני שדות סותרים)
 
-**ברירת מחדל חדשה לדוחות חדשים: `sCurve`** (התחלה איטית, האצה באמצע, האטה בסוף - משקפת התנהגות בנייה
-מציאותית טוב יותר מפריסה אחידה).
+הבעיה בגרסה הקודמת: `model` ו-`cumulativePercentByMonth` ישבו יחד באותו אובייקט, בלי להבהיר אם המערך הוא
+קלט (למודל `custom`) או פלט מחושב (למודלים `linear`/`sCurve`) - "שתי אמיתות" סותרות. תוקן ל-union מבחין:
 
 ```ts
-type ConstructionCurveModel = "linear" | "sCurve" | "legacy";
-interface ConstructionCurveAssumptions {
-  model: ConstructionCurveModel;
-  cumulativePercentByMonth: number[]; // חייב לסכם בדיוק ל-1.0 (100%) בחודש האחרון
-}
+type ConstructionCurveAssumptions =
+  | { model: "linear" }
+  | { model: "sCurve"; shapeParameter?: number }   // ברירת מחדל חדשה לדוחות חדשים
+  | { model: "legacy" }                             // פרופיל תואם-מקור, לאימות בלבד
+  | { model: "custom"; cumulativePercentByMonth: number[] };  // קלט ידני מלא, היחיד עם מערך בפועל
 ```
 
-- `linear`: פריסה אחידה, כמו שהמקור מרמז ("cum_spend" גדל בהדרגה, בלי צורה מפורשת).
-- `sCurve`: ברירת המחדל החדשה, נוסחת S-curve סטנדרטית (למשל לוגיסטית/בטא), לא נגזרת ממקור ספציפי.
-- `legacy`: פרופיל תואם-מקור, לצורך אימות מול קבצי ה-Excel המקוריים בלבד.
+`linear`/`sCurve`/`legacy` **מחשבים** את `cumulativePercentByMonth` בזמן ריצה, לא מאחסנים אותו. `custom` הוא
+היחיד שבו המערך הוא קלט אמיתי מהמשתמש. **חייב לסכם בדיוק ל-100%** בחודש האחרון, בכל המודלים.
 
-עתידי (לא בשלב א'): הזנת אחוז ביצוע ידני לכל חודש, לפרויקטים עם לוח בנייה בפועל שונה מכל preset.
-
-**בדיקות נדרשות**: אין חודש עם אחוז שלילי, אין NaN/Infinity, הסכום המצטבר מגיע בדיוק ל-100% גם במשך בנייה
-קצר (`constructionMonths=1`) או חריג (ארוך מאוד).
+עתידי (לא בשלב א'): הרחבת `custom` להזנת אחוז ביצוע חופשי לכל חודש בממשק, לא רק כטיפוס.
 
 ---
 
 ## 8. DSCR - לא נוסף בשלב זה
 
-אושר: DSCR הוא מדד טיפוסי לנכס עם הכנסה תפעולית שוטפת ושירות חוב מחזורי. בפרויקט הקמה-ומכירה (כמו כל
-המודלים כאן) האשראי נפרע בבת אחת מתקבולים, אין "שירות חוב" עיתי. **לא נוסף כברירת מחדל.** יישקל בעתיד רק אם
-ייבנה תרחיש החזקה-והשכרה (למשל מסחר שנשאר בבעלות היזם ומניב שכירות שוטפת) - מחוץ להיקף השלב הזה.
+אושר: DSCR מתאים לנכס עם הכנסה תפעולית שוטפת ושירות חוב מחזורי. בפרויקט הקמה-ומכירה האשראי נפרע בבת אחת
+מתקבולים, אין "שירות חוב" עיתי. **לא נוסף כברירת מחדל.** יישקל בעתיד רק אם ייבנה תרחיש החזקה-והשכרה.
 
 ---
 
@@ -260,32 +380,56 @@ interface ConstructionCurveAssumptions {
 ```ts
 export const CASH_FLOW_SCHEMA_VERSION = 1;
 
+// --- לוח תקבולים (§3) ---
+type PaymentTiming =
+  | { kind: "relativeToSale"; monthsAfterSale: number }
+  | { kind: "projectMonth"; monthIndex: number }
+  | { kind: "evenSpread"; fromMonthsAfterSale: number; toMonthsAfterSale: number }
+  | { kind: "constructionProgress"; cumulativeProgress: number }
+  | { kind: "handover" };
+
 interface PaymentTranche {
-  cumulativePercent: number;   // אחוז מצטבר מהתמורה שנגבה עד סוף התקופה (0-1)
-  label: string;               // לתצוגה בלבד, למשל "בחתימה" / "בהתקדמות" / "במסירה"
+  percent: number;         // לא מצטבר
+  timing: PaymentTiming;
+  label: string;
 }
 
 type SaleScheduleModel = "explicitSchedule" | "legacyConstructionLinked";
 
 interface SalesScheduleAssumptions {
   model: SaleScheduleModel;
-  byCategory: Partial<Record<UnitCategory, PaymentTranche[]>>;   // הלוח בפועל, כשמודל=explicitSchedule
-  saleMonthByCategory: Partial<Record<UnitCategory, number>>;    // מועד חתימת חוזה, נפרד ממועד תשלום
+  byCategory: Partial<Record<UnitCategory, PaymentTranche[]>>;
+  saleMonthByCategory: Partial<Record<UnitCategory, number>>;
 }
 
-type ConstructionCurveModel = "linear" | "sCurve" | "legacy";
-interface ConstructionCurveAssumptions {
-  model: ConstructionCurveModel;
-  cumulativePercentByMonth: number[];
-}
+// --- עקומת בנייה (§7) ---
+type ConstructionCurveAssumptions =
+  | { model: "linear" }
+  | { model: "sCurve"; shapeParameter?: number }
+  | { model: "legacy" }
+  | { model: "custom"; cumulativePercentByMonth: number[] };
 
-type InterestBalanceBasis = "closing" | "averageOpeningClosing";
+// --- מימון (§4) ---
+type InterestBalanceBasis = "closingDebtBeforeInterest" | "averageOpeningAndPreInterestClosing";
 type EquityInjectionMode = "asNeededUpToCap" | "proRata";
 
+// --- ערבויות (§6) ---
 type GuaranteeMechanism =
   | { kind: "buyerSaleLaw"; ratePct: number }
   | { kind: "kombinatsiaOwner"; ratePct: number; durationYears: number }
   | { kind: "unitCompensationOwner"; ratePct: number | "requiresVerification" };
+
+// --- עיתוי עלויות (§2) ---
+type CashFlowCostItemId =
+  | "landPurchase" | "bettermentLevy"
+  | "brokerage" | "purchaseTax" | "electricConnection" | "planningFlat"
+  | "planningConsultants" | "engineeringInspection" | "marketing" | "legal"
+  | "legalRefund" | "financialSupervision" | "overhead" | "managementFee"
+  | "contingency" | "municipalFees" | "organizerFee" | "relocationRent"
+  | "demolition" | "constructionResidential" | "constructionResidentialPremium"
+  | "constructionCommercial" | "constructionOffice" | "constructionPublicBuilding"
+  | "constructionExistingStructure" | "constructionUnderground" | "constructionDevelopment"
+  | "accountOpeningCommission";
 
 type CostTimingRuleKind =
   | "landPurchaseMonth" | "permitMonth" | "escortStart" | "constructionStart"
@@ -293,31 +437,40 @@ type CostTimingRuleKind =
   | "spreadOverRelocation" | "salesCurve" | "requiresProjectAgreement";
 
 interface CostTimingRule {
-  rule: CostTimingRuleKind;   // גלוי תמיד למשתמש, לא קבור בנוסחה
-  note?: string;              // הסבר חופשי, בעיקר לסעיפים "דורש התאמה לפרויקט"
+  rule: CostTimingRuleKind;
+  note?: string;
 }
 
 interface CashFlowAssumptions {
   schemaVersion: number;                     // = CASH_FLOW_SCHEMA_VERSION
   salesSchedule: SalesScheduleAssumptions;
   constructionCurve: ConstructionCurveAssumptions;
-  interestBalanceBasis: InterestBalanceBasis;      // ברירת מחדל "closing", מוצג בדוח
-  equityInjectionMode: EquityInjectionMode;        // ברירת מחדל "asNeededUpToCap"
-  equityCapNis: number;                            // = CostInputs.equityNis היום
-  guarantees: GuaranteeMechanism[];                // רק מנגנונים עם בסיס+שיעור מוגדרים
-  costTimingOverrides?: Partial<Record<keyof CostInputs, CostTimingRule>>;
+  interestBalanceBasis: InterestBalanceBasis;         // ברירת מחדל "closingDebtBeforeInterest"
+  equityInjectionMode: EquityInjectionMode;           // ברירת מחדל "asNeededUpToCap"
+  equityCapNis: number;                               // = CostInputs.equityNis היום
+  minimumCashBalanceNis: number;                       // ברירת מחדל 0
+  creditFacilityLimitNis: number | "auto";             // ר' §4.6, "0" ל-purchaseGroup כברירת מחדל
+  guarantees: GuaranteeMechanism[];
+  costTimingOverrides?: Partial<Record<CashFlowCostItemId, CostTimingRule>>;  // לא keyof CostInputs!
 }
 
 interface CashFlowMonth {
   monthIndex: number;
   phase: "permit" | "demolition" | "construction" | "marketing" | "handover";
-  inflowsNis: number;
-  outflowsNis: number;
+
+  // יתרות (חדש - היה חסר לגמרי)
+  openingCashBalanceNis: number;
+  openingDebtBalanceNis: number;
+  closingCashBalanceNis: number;
+  closingDebtBalanceNis: number;
+
+  operatingInflowsNis: number;
+  operatingOutflowsNis: number;
   equityInjectionNis: number;
   creditDrawNis: number;
   creditRepaymentNis: number;
-  closingDebtBalanceNis: number;
   interestNis: number;
+
   buyerGuaranteeCommissionNis: number;
   kombinatsiaOwnerGuaranteeCommissionNis: number;
   unitCompensationGuaranteeCommissionNis: number;
@@ -332,13 +485,18 @@ interface FinancingSummary {
   totalKombinatsiaOwnerGuaranteeCommissionNis: number;
   totalUnitCompensationGuaranteeCommissionNis: number;
   totalUnusedCreditCommissionNis: number;
-  interestBalanceBasisUsed: InterestBalanceBasis;   // לתצוגה בדוח - "איזו שיטה נבחרה"
-  missingGuaranteeData: string[];                   // רשימת ערבויות שלא חושבו כי חסר בסיס/שיעור
+  interestBalanceBasisUsed: InterestBalanceBasis;
+  creditFacilityLimitNisUsed: number;
+  peakFacilityUtilizationRatio: number | null;
 }
 
+// --- פלט כולל (חדש - שקיפות שלמות) ---
 interface CashFlowResult {
   months: CashFlowMonth[];
   financing: FinancingSummary;
+  warnings: string[];             // למשל: "מסגרת אשראי הוערכה אוטומטית (auto), לא מהסכם ליווי בפועל"
+  missingAssumptions: string[];   // למשל: "שיעור ערבות תמורה לא סופק ליחידה X, לא חושבה ערבות"
+  isComplete: boolean;            // false אם missingAssumptions לא ריק - סימון גלוי, לא הצגת תזרים "שלם" כשחסר
 }
 ```
 
@@ -350,27 +508,25 @@ interface CashFlowResult {
 |---|---|---|
 | `ProjectInputs`/`ProjectResult` (הקיימים) | ללא שינוי | **ללא שינוי** - `computeProject` ממשיך לחשב בדיוק כמו היום |
 | `CashFlowAssumptions` | לא קיים | שדה **חדש ונפרד לגמרי**, לא מצטרף ל-`ProjectInputs` בשלב הזה |
-| `computeCashFlow` | לא קיים | פונקציה **חדשה ונפרדת**, נקראת רק במפורש (לא אוטומטית מ-`computeProject`) |
-| דוח ישן ב-Supabase (jsonb `inputs` בלי נתוני תזרים) | נטען ומחושב היום | ימשיך להיטען ולהיפתח **בדיוק כמו היום** - שום שדה חדש לא נדרש בשביל לפתוח דוח קיים |
+| `computeCashFlow` | לא קיים | פונקציה **חדשה ונפרדת**, נקראת רק במפורש |
+| דוח ישן ב-Supabase (jsonb `inputs` בלי נתוני תזרים) | נטען ומחושב היום | ימשיך להיטען ולהיפתח **בדיוק כמו היום** |
 | השוואה/אימות מול קבצי המקור המקוריים | לא רלוונטי היום | דורש בחירה מפורשת ב-`legacyConstructionLinked` + `constructionCurve.model="legacy"` - **לא** ברירת המחדל |
 
-**מסקנה**: אין סיכון לדוחות קיימים. `computeCashFlow` הוא מודול תוספתי (additive), לא מחליף. `schemaVersion`
-בטיפוס `CashFlowAssumptions` מיועד לשינויי סכמה **עתידיים** בתוך המודול החדש עצמו (אחרי שהוא כבר בשימוש),
-לא לתאימות עם הדוחות הישנים של היום - אלה לא נוגעים במודול הזה בכלל.
+**מסקנה**: אין סיכון לדוחות קיימים. `computeCashFlow` תוספתי (additive), לא מחליף. `schemaVersion` מיועד
+לשינויי סכמה **עתידיים** בתוך המודול החדש עצמו, לא לתאימות עם דוחות ישנים - אלה לא נוגעים במודול הזה בכלל.
 
 ---
 
 ## 11. חלוקה מומלצת ל-commits (ליישום, אחרי אישור לפתיחת ענף)
 
-1. טיפוסים בלבד (§9), בלי לוגיקה - `lib/calc/cashflow-types.ts` חדש.
-2. `ConstructionCurveAssumptions` - בונה `linear`/`sCurve`/`legacy`, כולל הבדיקה שהסכום = 100%.
-3. `SalesScheduleAssumptions` - preset ברירת מחדל (15/70/15) + `legacyConstructionLinked`, עם הפרדת
-   saleMonth/paymentReceiptDates.
-4. `computeCashFlow` - הלולאה החודשית (הון עצמי → אשראי → ריבית), כולל preset של `purchaseGroup` (§5).
-5. שכבת הערבויות (§6) - שלושת המנגנונים, כולל `missingGuaranteeData` לשקיפות כשחסר נתון.
-6. בדיקות vitest לפי §12 (11+ תרחישים, כולל אלה שנוספו בסבב הזה: עקומת בנייה מסכמת 100%, preset קבוצת
-   רכישה, לוח תשלומים explicit מול legacy).
-7. חיווט תצוגתי ראשוני - עמוד/טבלת דיבוג נפרדת לבדיקה ידנית, **לא** משולב בדוח הקיים בשלב הזה.
+1. טיפוסים בלבד (§9), בלי לוגיקה.
+2. `ConstructionCurveAssumptions` - `linear`/`sCurve`/`legacy`/`custom`, כולל בדיקת סכום=100%.
+3. `SalesScheduleAssumptions` + `PaymentTiming` - preset 15/70/15 + `legacyConstructionLinked`.
+4. `computeCashFlow` - ה-waterfall החודשי המלא (§4.2), כולל `minimumCashBalanceNis`/`creditFacilityLimitNis`
+   ו-preset `purchaseGroup` (§5).
+5. שכבת הערבויות (§6), כולל `missingAssumptions`/`warnings`/`isComplete` (§9).
+6. בדיקות vitest לפי §12.
+7. חיווט תצוגתי ראשוני - עמוד/טבלת דיבוג נפרדת, **לא** משולב בדוח הקיים בשלב הזה.
 
 ---
 
@@ -388,26 +544,34 @@ interface CashFlowResult {
 | 8 | אפס חודשי בנייה | לא זורק, לא NaN |
 | 9 | משך חריג | לא איטי לא-סביר, לא חורג מגבולות |
 | 10 | ללא NaN/Infinity בכל תרחיש | `Number.isFinite` בכל נקודת חישוב |
-| 11 | שמירת מאזן בכל חודש | מקורות = שימושים + שינוי במזומן/חוב |
-| 12 | **חדש**: עקומת בנייה מסכמת בדיוק 100% | גם ב-`constructionMonths=1`, גם בערך גדול מאוד |
-| 13 | **חדש**: `purchaseGroup` preset | מימון/ערבות/אי-ניצול = 0 כברירת מחדל, ניתן לדריסה מלאה |
-| 14 | **חדש**: `legacyConstructionLinked` משחזר את דגם המקור | תוצאה זהה לנוסחת 01-תמא-38.md המקורית |
-| 15 | **חדש**: `unitCompensationOwner` בלי שיעור מפורש | לא מחושב (0), מופיע ב-`missingGuaranteeData`, לא זורק |
-| 16 | **חדש**: `interestBalanceBasisUsed` מוצג נכון בפלט | הבחירה בפועל (closing/averageOpeningClosing) לא נסתרת |
+| 11 | שמירת מאזן בכל חודש | `openingCash+inflows+equity+draw = outflows+repayment+closingCash`, בדיוק כמו §4.3 |
+| 12 | עקומת בנייה מסכמת בדיוק 100% | גם `constructionMonths=1`, גם ערך גדול מאוד, בכל ארבעת המודלים |
+| 13 | `purchaseGroup` preset | מימון/ערבות/אי-ניצול = 0 כברירת מחדל, ניתן לדריסה מלאה |
+| 14 | `legacyConstructionLinked` משחזר את דגם המקור | תוצאה זהה לנוסחת 01-תמא-38.md המקורית |
+| 15 | `unitCompensationOwner` בלי שיעור מפורש | לא מחושב (0), מופיע ב-`missingAssumptions`, `isComplete=false`, לא זורק |
+| 16 | `interestBalanceBasisUsed` מוצג נכון בפלט | הבחירה בפועל לא נסתרת |
+| 17 | **חדש**: אין מעגליות ריבית | ריבית מחודש m לא משפיעה על `creditDrawNis[m]` של אותו חודש, ר' §4.4 |
+| 18 | **חדש**: מסגרת אשראי לא נגזרת משיא בדיעבד | `creditFacilityLimitNis="auto"` מייצר ערך שאינו זהה תמיד לשיא המדויק שחושב |
+| 19 | **חדש**: `PaymentTranche[]` תקין | סך `percent`=100% לכל קטגוריה, אין `percent` שלילי, כל `timing` בתוך ציר הפרויקט |
+| 20 | **חדש**: `costTimingOverrides` ללא כפילות/אובדן | סכום סעיפי העלות המתוזמנים = סכום `computeCosts` הקיים, בדיוק |
 
 ---
 
 ## סיכום עבור אישור פתיחת ענף יישום
 
-**סטטוס: מסמך זה מאושר. עדיין לא נפתח ענף יישום, עדיין לא נכתב קוד מנוע התזרים.**
+**סטטוס: מסמך זה מאושר (גרסה 3). עדיין לא נפתח ענף יישום, עדיין לא נכתב קוד מנוע התזרים.**
 
-- diff מעודכן: קובץ `GEN2_CASHFLOW_DESIGN.md` הוחלף במלואו (גרסה שנייה, משלבת את 8 ההחלטות). שום קובץ קוד
-  לא שונה.
-- מבנה הטיפוסים הסופי: §9.
-- מפת תאימות לדוחות קיימים: §10.
-- חלוקת commits: §11.
-- הנחות שעדיין דורשות אימות מקצועי (לא הוכרעו, מסומנות במפורש בטבלאות למעלה):
-  1. `bettermentLevyNis` - עיתוי מדויק תלוי-פרויקט, אין ברירת מחדל אחידה.
-  2. שיעור ערבות `unitCompensationOwner` - אין ברירת מחדל, קלט מפורש בלבד או "דורש אימות".
-  3. `averageOpeningClosing` כאפשרות שנייה לבסיס הריבית - ייושם רק "אם פשוט", לא מובטח בגרסה הראשונה.
-  4. עקומת S-curve - נוסחה מוצעת (לא ממקור), דורשת אישור הצורה המדויקת לפני יישום.
+- diff עיקרי מול הגרסה הקודמת: §3 (טיפוס `PaymentTiming` חדש + דוגמת תרגום), §4 (יתרת מזומן חודשית מלאה,
+  waterfall מפורש, בסיס ריבית ללא מעגליות ושם שדה מתוקן, מסגרת אשראי מוגדרת), §7 (union מבחין לעקומת בנייה,
+  לא שני שדות סותרים), §9 (טיפוסים מעודכנים בהתאם לכל האמור, כולל `CashFlowCostItemId` חדש ו-`CashFlowResult`
+  עם `warnings`/`missingAssumptions`/`isComplete`), §12 (4 בדיקות חדשות: מעגליות ריבית, מסגרת לא-בדיעבד, ולידציית
+  PaymentTranche, ולידציית costTimingOverrides).
+- דוגמה מספרית מלאה של חודש אחד עם משיכת אשראי, מוכיחה את משוואת המאזן: §4.3.
+- תרגום preset 15/70/15 לחודשי תקבול בפועל: §3.3.
+- רשימת `CashFlowCostItemId` מלאה עם מיפוי לנתוני המנוע הקיים: §2.
+- הנחות שעדיין דורשות אימות מקצועי (לא הוכרעו):
+  1. `bettermentLevy` - עיתוי מדויק תלוי-פרויקט, אין ברירת מחדל אחידה.
+  2. שיעור ערבות `unitCompensationOwner` - אין ברירת מחדל, קלט מפורש או "דורש אימות".
+  3. `averageOpeningAndPreInterestClosing` כבסיס ריבית חלופי - ייושם רק "אם פשוט".
+  4. נוסחת ה-S-curve המדויקת (`shapeParameter`) - מוצעת, לא ממקור, דורשת אישור צורה.
+  5. נוסחת ברירת המחדל ל-`creditFacilityLimitNis="auto"` בתרחישי דמו (שיא+רווח ביטחון 15%, הצעה בלבד).
