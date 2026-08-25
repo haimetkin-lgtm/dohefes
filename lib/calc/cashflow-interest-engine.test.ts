@@ -106,7 +106,12 @@ describe("המסגרת מגבילה מראש את המשיכה כדי להשאי
     // אחרי הריבית, יתרת הסגירה בדיוק שווה למסגרת (לא חורגת, גם לא משאירה רזרבה מיותרת)
     expect(m0.closingDebtBalanceNis).toBeCloseTo(facilityLimit, 6);
     expect(m0.creditDrawNis).toBeLessThan(facilityLimit); // המשיכה עצמה קטנה מהמסגרת הגולמית
-    expect(m0.facilityBreachNis).toBeCloseTo(0, 6); // עלול לצבור שארית זניחה מנקודה צפה, לא חריגה אמיתית
+    // commit 5b: יתרת החוב המתמטית קרובה מאוד למסגרת (יכולה לצבור שארית נקודה-צפה כמו
+    // 5.8e-11) אך אחרי נירמול השדה חייב לצאת בדיוק 0, לא toBeCloseTo
+    expect(m0.facilityBreachNis).toBe(0);
+    // (facilityExceeded עצמו לא נבדק כאן כ-false: בתרחיש הזה כבר יש גירעון מזומן אמיתי בגלל
+    // התזרים היוצא הגדול שהמסגרת לא מכסה - הבדיקה המבודדת ל-facilityExceeded===false בלי שום
+    // גירעון אמיתי נמצאת בבלוק "commit 5b" למטה)
   });
 });
 
@@ -143,6 +148,9 @@ describe("ריבית על חוב פתיחה קרוב מדי למסגרת -> חר
     expect(m1.interestExpenseNis).toBeGreaterThan(0);
     expect(m1.closingDebtBalanceNis).toBeGreaterThan(300_000);
     expect(m1.facilityBreachNis).toBeGreaterThan(0);
+    // commit 5b: זו חריגה כלכלית אמיתית (כ-1,500 ₪), גדולה בהרבה מ-MONEY_EPSILON_NIS (0.01) -
+    // הנירמול לא בולע אותה
+    expect(m1.facilityBreachNis).toBeGreaterThan(0.01);
     expect(result.facilityExceeded).toBe(true);
     // לא NaN, לא "מוצג כתקין" - הערך חשוף וסופי
     expect(Number.isFinite(m1.facilityBreachNis)).toBe(true);
@@ -231,5 +239,63 @@ describe("משוואות ההתאמה נשארות תקינות אחרי הוס�
       { equityCapNis: 200_000, minimumCashBalanceNis: 10_000, creditFacilityLimitNis: 300_000, annualInterestRate: 0.06 }
     );
     assertReconciliation(result.months);
+  });
+});
+
+describe("commit 5b: נירמול שאריות נקודה-צפה סביב אפס (facilityBreachNis / fundingDeficitBalanceNis)", () => {
+  // 3*0.3 בפועל שווה ל-0.8999999999999999 (רק ב-JS, לא מתמטית) - קטן מ-0.9 בכ-1.1e-16.
+  // בלי הון עצמי ובלי מסגרת אשראי, זה גלישת המזומן היחידה בחודש הזה: גירעון מתמטי-בלבד, לא אמיתי.
+  const deficitResidueAssumptions: InterestCashFlowAssumptions = {
+    equityCapNis: 0,
+    minimumCashBalanceNis: 0.9,
+    creditFacilityLimitNis: 0,
+    annualInterestRate: 0.06,
+  };
+  const deficitResidueMonths: InterestCashFlowMonthInput[] = [month(0, 3 * 0.3, 0)];
+
+  it("גירעון מימון זניח (שארית נקודה-צפה, לא גירעון אמיתי) מנורמל לאפס בחודש עצמו", () => {
+    const result = computeInterestCashFlow(deficitResidueMonths, deficitResidueAssumptions);
+    expect(result.months[0].fundingDeficitBalanceNis).toBe(0);
+  });
+
+  it("אינו מסומן כגירעון אמיתי בשיאים המצטברים", () => {
+    const result = computeInterestCashFlow(deficitResidueMonths, deficitResidueAssumptions);
+    expect(result.peakFundingDeficitNis).toBe(0);
+    expect(result.firstFundingDeficitMonthIndex).toBeNull();
+    expect(result.facilityExceeded).toBe(false);
+  });
+
+  it("גירעון מימון אמיתי (מעל האפסילון) עדיין מדווח, לא נבלע יחד עם הזניח", () => {
+    // בלי תזרים יוצא/נכנס כלל, בלי הון/מסגרת: המזומן נשאר 0, מתחת למינימום הנדרש 5,000 -
+    // גירעון אמיתי ומדויק של 5,000, לא כפול (שלא כמו תרחיש עם תזרים יוצא שגם צריך מימון)
+    const result = computeInterestCashFlow([month(0, 0, 0)], {
+      equityCapNis: 0,
+      minimumCashBalanceNis: 5_000,
+      creditFacilityLimitNis: 0,
+      annualInterestRate: 0.06,
+    });
+    expect(result.months[0].fundingDeficitBalanceNis).toBeCloseTo(5_000, 6);
+    expect(result.months[0].fundingDeficitBalanceNis).toBeGreaterThan(0.01);
+    expect(result.peakFundingDeficitNis).toBeGreaterThan(0.01);
+    expect(result.firstFundingDeficitMonthIndex).toBe(0);
+    expect(result.facilityExceeded).toBe(true);
+  });
+
+  it("משוואות ההתאמה עדיין תקינות (toBeCloseTo) גם בתרחיש עם שארית נקודה-צפה זניחה", () => {
+    const result = computeInterestCashFlow(deficitResidueMonths, deficitResidueAssumptions);
+    assertReconciliation(result.months);
+  });
+
+  it("אין NaN/Infinity ואין מוטציה של הקלט בתרחיש השארית", () => {
+    const inputsSnapshot = JSON.parse(JSON.stringify(deficitResidueMonths));
+    const assumptionsSnapshot = JSON.parse(JSON.stringify(deficitResidueAssumptions));
+
+    const result = computeInterestCashFlow(deficitResidueMonths, deficitResidueAssumptions);
+
+    for (const value of Object.values(result.months[0])) {
+      if (typeof value === "number") expect(Number.isFinite(value)).toBe(true);
+    }
+    expect(deficitResidueMonths).toEqual(inputsSnapshot);
+    expect(deficitResidueAssumptions).toEqual(assumptionsSnapshot);
   });
 });

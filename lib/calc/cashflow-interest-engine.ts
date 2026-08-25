@@ -77,6 +77,19 @@ function validateFiniteNonNegative(value: number, name: string): void {
 
 const MAX_PLAUSIBLE_ANNUAL_INTEREST_RATE = 1; // 100% שנתי - תקרה נדיבה שעדיין תופסת טעות אחוז-במקום-שבר (6 במקום 0.06)
 
+/**
+ * commit 5b: שיעורי ריבית לא-עגולים (למשל 0.005) יוצרים שאריות נקודה-צפה זניחות (כגון 5.8e-11)
+ * סביב גבולות המסגרת/המינימום. MONEY_EPSILON_NIS אינו עיגול כללי של יתרות (שהיה צובר סטייה) -
+ * הוא סף לנטרול רעש חישוב זניח רק בשדות שמשמשים כבדיקת סף מול 0 (facilityBreachNis,
+ * fundingDeficitBalanceNis, availableCreditFacilityNis). 0.01 ש"ח (אגורה) קטן בהרבה מכל חריגה
+ * כלכלית אמיתית, ולכן לא עלול להסתיר בעיה אמיתית.
+ */
+const MONEY_EPSILON_NIS = 0.01;
+
+function normalizeMoney(value: number): number {
+  return Math.abs(value) < MONEY_EPSILON_NIS ? 0 : value;
+}
+
 function validateAssumptions(assumptions: InterestCashFlowAssumptions): void {
   validateFiniteNonNegative(assumptions.equityCapNis, "equityCapNis");
   validateFiniteNonNegative(assumptions.minimumCashBalanceNis, "minimumCashBalanceNis");
@@ -187,10 +200,10 @@ export function computeInterestCashFlow(
 
     // הריבית לא יוצאת כמזומן - התאמת המזומן זהה ל-commit 4, בלי מרכיב הריבית
     const closingCashBalanceNis = cashAfterAvailableFunding - creditRepaymentNis;
-    const fundingDeficitBalanceNis = Math.max(0, assumptions.minimumCashBalanceNis - closingCashBalanceNis);
+    const fundingDeficitBalanceNis = normalizeMoney(Math.max(0, assumptions.minimumCashBalanceNis - closingCashBalanceNis));
 
-    const availableCreditFacilityNis = Math.max(0, assumptions.creditFacilityLimitNis - closingDebtBalanceNis);
-    const facilityBreachNis = Math.max(0, closingDebtBalanceNis - assumptions.creditFacilityLimitNis);
+    const availableCreditFacilityNis = normalizeMoney(Math.max(0, assumptions.creditFacilityLimitNis - closingDebtBalanceNis));
+    const facilityBreachNis = normalizeMoney(Math.max(0, closingDebtBalanceNis - assumptions.creditFacilityLimitNis));
 
     months.push({
       monthIndex: input.monthIndex,
