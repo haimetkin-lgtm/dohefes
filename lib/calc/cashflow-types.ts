@@ -61,10 +61,15 @@ export type EquityInjectionMode = "asNeededUpToCap" | "proRata";
 
 // --- ערבויות (מפרט §6) ---
 
+/**
+ * annualRateFraction, לא ratePct: אחיד עם שאר המנוע (guaranteeCommissionRate וכו' ב-CostInputs
+ * הקיים, וגם PaymentTranche.fraction) - ערך 0-1, למשל 0.0085 = 0.85%. שם "ratePct" קודם היה עמום
+ * (85 או 0.85?), בדיוק אותה סכנה שכבר תוקנה ב-PaymentTranche.fraction.
+ */
 export type GuaranteeMechanism =
-  | { kind: "buyerSaleLaw"; ratePct: number }
-  | { kind: "kombinatsiaOwner"; ratePct: number; durationYears: number }
-  | { kind: "unitCompensationOwner"; ratePct: number | "requiresVerification" };
+  | { kind: "buyerSaleLaw"; annualRateFraction: number }
+  | { kind: "kombinatsiaOwner"; annualRateFraction: number; durationMonths: number }
+  | { kind: "unitCompensationOwner"; annualRateFraction: number | "requiresVerification" };
 
 // --- עיתוי עלויות (מפרט §2) ---
 
@@ -73,35 +78,39 @@ export type GuaranteeMechanism =
  * (תיווך, מס רכישה) שאינם שדה קלט גולמי. במפורש לא כולל guaranteeCommission, unusedCreditCommission,
  * interest - אלה תוצרי הלולאה החודשית עצמה, אין להם timing חיצוני.
  */
-export type CashFlowCostItemId =
-  | "landPurchase"
-  | "bettermentLevy"
-  | "brokerage"
-  | "purchaseTax"
-  | "electricConnection"
-  | "planningFlat"
-  | "planningConsultants"
-  | "engineeringInspection"
-  | "marketing"
-  | "legal"
-  | "legalRefund"
-  | "financialSupervision"
-  | "overhead"
-  | "managementFee"
-  | "contingency"
-  | "municipalFees"
-  | "organizerFee"
-  | "relocationRent"
-  | "demolition"
-  | "constructionResidential"
-  | "constructionResidentialPremium"
-  | "constructionCommercial"
-  | "constructionOffice"
-  | "constructionPublicBuilding"
-  | "constructionExistingStructure"
-  | "constructionUnderground"
-  | "constructionDevelopment"
-  | "accountOpeningCommission";
+/** מקור האמת היחיד למזהי העלות - הטיפוס נגזר מהמערך, לא מוגדר בנפרד (מונע סטייה בין השניים) */
+export const CASH_FLOW_COST_ITEM_IDS = [
+  "landPurchase",
+  "bettermentLevy",
+  "brokerage",
+  "purchaseTax",
+  "electricConnection",
+  "planningFlat",
+  "planningConsultants",
+  "engineeringInspection",
+  "marketing",
+  "legal",
+  "legalRefund",
+  "financialSupervision",
+  "overhead",
+  "managementFee",
+  "contingency",
+  "municipalFees",
+  "organizerFee",
+  "relocationRent",
+  "demolition",
+  "constructionResidential",
+  "constructionResidentialPremium",
+  "constructionCommercial",
+  "constructionOffice",
+  "constructionPublicBuilding",
+  "constructionExistingStructure",
+  "constructionUnderground",
+  "constructionDevelopment",
+  "accountOpeningCommission",
+] as const;
+
+export type CashFlowCostItemId = (typeof CASH_FLOW_COST_ITEM_IDS)[number];
 
 export type CostTimingRuleKind =
   | "landPurchaseMonth"
@@ -145,9 +154,14 @@ export interface CashFlowAssumptions {
 
 // --- תוצאה חודשית ---
 
+/** בשונה מ-CashFlowMonth.phase (יחיד) הקודם: חודש בפועל יכול להשתייך למספר שלבים בו-זמנית -
+ *  שיווק חופף לבנייה, שכירות לדיירים חופפת להיתר/ביצוע, ליווי בנקאי חוצה כמה שלבים */
+export type ProjectPhase = "permit" | "demolition" | "construction" | "marketing" | "handover";
+
 export interface CashFlowMonth {
   monthIndex: number;
-  phase: "permit" | "demolition" | "construction" | "marketing" | "handover";
+  /** לפחות שלב אחד, בלי כפילויות - ר' validatePhases */
+  phases: ProjectPhase[];
 
   openingCashBalanceNis: number;
   openingDebtBalanceNis: number;
