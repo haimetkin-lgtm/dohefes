@@ -25,20 +25,29 @@ function legacyCumulativePercentByMonth(constructionMonths: number): number[] {
   return linearCumulativePercentByMonth(constructionMonths);
 }
 
+/** מתחת ל-1, הענף (2t)^k/(2(1-t))^k הופך קעור במקום קמור בכל חצי - מייצר האצה בקצוות והאטה
+ *  יחסית באמצע (הפוך מהתנהגות "התחלה/סיום איטיים" שהמודל מתעד ומבטיח). ר' הוכחה בתיעוד הפונקציה. */
+const MIN_S_CURVE_SHAPE_PARAMETER = 1;
+
 /**
  * S-curve סימטרית ומונוטונית: פונקציית "ease in/out" מבוססת חזקה, סטנדרטית וידועה (משפחת
  * smoothstep מוכללת). לכל t ב-[0,1] (זמן יחסי מתחילת הבנייה):
  *
  *   cumulative(t) = t<0.5 ? 0.5*(2t)^k : 1-0.5*(2*(1-t))^k
  *
- * כאשר k=shapeParameter (ברירת מחדל 2). k=1 שקול ל-linear בדיוק. k>1 מייצר עקומת S בולטת יותר
- * (התחלה/סיום איטיים יותר, אמצע תלול יותר) - ככל ש-k גדול יותר, האפקט חזק יותר. הפונקציה סימטרית
- * נקודתית סביב (0.5, 0.5) לכל k>0 (הוכחה: cumulative(1-t) = 1-cumulative(t)), ורציפה ב-t=0.5
- * (שני הענפים נותנים 0.5 בדיוק שם). cumulative(1)=1 בדיוק לכל k>0 (הענף השני נותן 1-0.5*0^k=1).
+ * כאשר k=shapeParameter (ברירת מחדל 2), נתמך לכל k>=1 בלבד. k=1 שקול ל-linear בדיוק. k>1 מייצר
+ * עקומת S בולטת יותר (התחלה/סיום איטיים יותר, אמצע תלול יותר) - ככל ש-k גדול יותר, האפקט חזק יותר,
+ * וערכים גדולים מאוד יוצרים ריכוז ביצוע חריג באמצע (כמעט כל הבנייה בחודשי האמצע בלבד). **k<1 נדחה
+ * במפורש**: לדוגמה k=0.5 נותן f'(t)→∞ כש-t→0 (התחלה תלולה מאוד) ונגזרת יורדת עד t=0.5 - בדיוק
+ * ההפך מהמודל המתועד (התחלה איטית, האצה לקראת האמצע). בטווח הנתמך (k>=1) הפונקציה סימטרית נקודתית
+ * סביב (0.5, 0.5) (הוכחה: cumulative(1-t) = 1-cumulative(t)), רציפה ב-t=0.5 (שני הענפים נותנים 0.5
+ * בדיוק שם), ומסתיימת ב-cumulative(1)=1 בדיוק.
  */
 function sCurveCumulativePercentByMonth(constructionMonths: number, shapeParameter: number = DEFAULT_S_CURVE_SHAPE_PARAMETER): number[] {
-  if (!Number.isFinite(shapeParameter) || shapeParameter <= 0) {
-    throw new Error(`sCurve.shapeParameter חייב להיות מספר סופי חיובי (התקבל ${shapeParameter})`);
+  if (!Number.isFinite(shapeParameter) || shapeParameter < MIN_S_CURVE_SHAPE_PARAMETER) {
+    throw new Error(
+      `sCurve.shapeParameter חייב להיות מספר סופי >= ${MIN_S_CURVE_SHAPE_PARAMETER} (התקבל ${shapeParameter}) - ערכים קטנים מ-1 הופכים את כיוון העקומה (האצה בקצוות במקום באמצע)`
+    );
   }
   const k = shapeParameter;
   const cumulativeAt = (t: number): number => (t < 0.5 ? 0.5 * Math.pow(2 * t, k) : 1 - 0.5 * Math.pow(2 * (1 - t), k));
@@ -74,7 +83,7 @@ export function resolveConstructionCurve(constructionMonths: number, assumptions
           `custom.cumulativePercentByMonth אורכו ${provided.length}, אמור להתאים בדיוק ל-constructionMonths (${constructionMonths}) - אין חיתוך/השלמה אוטומטיים`
         );
       }
-      curve = provided;
+      curve = [...provided]; // עותק, לא alias - הקוראה לא אמורה להיות מסוגלת לשנות את הפלט דרך המערך המקורי
       break;
     }
   }

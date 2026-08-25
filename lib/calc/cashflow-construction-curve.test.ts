@@ -84,12 +84,32 @@ describe("sCurve: סימטריה, shapeParameter מתועד", () => {
     expect(() => resolveConstructionCurve(12, { model: "sCurve", shapeParameter: -1 })).toThrow();
     expect(() => resolveConstructionCurve(12, { model: "sCurve", shapeParameter: NaN })).toThrow();
   });
+
+  it("דוחה shapeParameter בין 0 ל-1 (למשל 0.5) - הופך את כיוון העקומה", () => {
+    expect(() => resolveConstructionCurve(12, { model: "sCurve", shapeParameter: 0.5 })).toThrow();
+  });
+
+  it("shapeParameter=1 מותר (גבול תחתון, שקול ל-linear)", () => {
+    expect(() => resolveConstructionCurve(12, { model: "sCurve", shapeParameter: 1 })).not.toThrow();
+  });
 });
 
 describe("custom: אורך חייב להתאים בדיוק, בלי חיתוך/השלמה שקטים", () => {
   it("אורך תואם עובר", () => {
     const curve = resolveConstructionCurve(3, { model: "custom", cumulativePercentByMonth: [0.2, 0.6, 1] });
     expect(curve).toEqual([0.2, 0.6, 1]);
+  });
+
+  it("הפלט הוא עותק, לא alias של מערך הקלט - שינוי בפלט לא פוגע בקלט ולהיפך", () => {
+    const input = [0.2, 0.6, 1];
+    const inputSnapshot = [...input];
+    const curve = resolveConstructionCurve(3, { model: "custom", cumulativePercentByMonth: input });
+
+    expect(curve).toEqual(inputSnapshot);
+    expect(curve).not.toBe(input); // לא אותו reference
+
+    curve[0] = 0.99;
+    expect(input).toEqual(inputSnapshot); // שינוי בפלט לא השפיע על הקלט המקורי
   });
 
   it("נכשל במפורש כשהמערך קצר מדי, לא חותך/משלים", () => {
