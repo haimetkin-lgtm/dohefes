@@ -70,6 +70,25 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["רווחיות"],
     ["רווח שוטף (₪)", round(result.profitability.currentProfitNis)],
     ["רווח לעלות (%)", Number((result.profitability.profitToCostRatio * 100).toFixed(1))],
+    ["רווח למחזור (%)", Number((result.profitability.profitToRevenueRatio * 100).toFixed(1))],
+    ...(result.profitability.cashOnCashAnnualRatio !== 0
+      ? [["תשואה על ההון העצמי לשנה (%)", Number((result.profitability.cashOnCashAnnualRatio * 100).toFixed(1))]]
+      : []),
+    [],
+    ["ניתוח רגישות"],
+    ["תרחיש", "רווח (₪)", "רווח לעלות (%)"],
+    ...[
+      { label: "לפי התחזית", revenueFactor: 1, costFactor: 1 },
+      { label: "עלויות +10%", revenueFactor: 1, costFactor: 1.1 },
+      { label: "הכנסות -10%", revenueFactor: 0.9, costFactor: 1 },
+      { label: "עלויות +10%, הכנסות -10%", revenueFactor: 0.9, costFactor: 1.1 },
+    ].map((scenario) => {
+      const scenarioRevenueNis = result.profitability.revenueNis * scenario.revenueFactor;
+      const scenarioCostNis = result.profitability.totalCostNis * scenario.costFactor;
+      const scenarioProfitNis = scenarioRevenueNis - scenarioCostNis;
+      const scenarioRatio = scenarioCostNis !== 0 ? scenarioProfitNis / scenarioCostNis : 0;
+      return [scenario.label, round(scenarioProfitNis), Number((scenarioRatio * 100).toFixed(1))];
+    }),
   ];
   const wsResults = XLSX.utils.aoa_to_sheet(resultRows);
   wsResults["!cols"] = [{ wch: 30 }, { wch: 18 }];

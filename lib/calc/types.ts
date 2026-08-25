@@ -228,6 +228,13 @@ export interface ProfitabilitySummary {
   currentProfitNis: number;
   /** רווח לעלות, % */
   profitToCostRatio: number;
+  /** רווח למחזור (רווח/הכנסה), % - מדד שני, נפוץ בדוחות אמיתיים לצד רווח לעלות */
+  profitToRevenueRatio: number;
+  /**
+   * תשואה על ההון העצמי לשנה (Cash on Cash), % - רווח חלקי הון עצמי, מחולק במשך הפרויקט בשנים
+   * (תקופת היתר+בנייה). 0 אם לא הוזן הון עצמי (equityNis=0), אין על מה לחשב תשואה.
+   */
+  cashOnCashAnnualRatio: number;
 }
 
 export interface ProjectResult {

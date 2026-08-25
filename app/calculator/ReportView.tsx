@@ -275,6 +275,55 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
           </div>
         </div>
 
+        {/* מדדי רווחיות נוספים */}
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500 mb-7 px-1">
+          <span>
+            רווח למחזור: <strong className="text-[#123640] tabular-nums">{fmt(result.profitability.profitToRevenueRatio * 100, 1)}%</strong>
+          </span>
+          {result.profitability.cashOnCashAnnualRatio !== 0 && (
+            <span>
+              תשואה על ההון העצמי לשנה:{" "}
+              <strong className="text-[#123640] tabular-nums">{fmt(result.profitability.cashOnCashAnnualRatio * 100, 1)}%</strong>
+            </span>
+          )}
+        </div>
+
+        {/* ניתוח רגישות */}
+        <div className="mb-7">
+          <SectionTitle>ניתוח רגישות</SectionTitle>
+          <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <table className="w-full text-xs border-collapse min-w-[420px]">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500">
+                  <th className="text-right py-2 px-2">תרחיש</th>
+                  <th className="text-right py-2 px-2">רווח</th>
+                  <th className="text-right py-2 px-2">רווח לעלות</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "לפי התחזית", revenueFactor: 1, costFactor: 1 },
+                  { label: "עלויות +10%", revenueFactor: 1, costFactor: 1.1 },
+                  { label: "הכנסות -10%", revenueFactor: 0.9, costFactor: 1 },
+                  { label: "עלויות +10%, הכנסות -10%", revenueFactor: 0.9, costFactor: 1.1 },
+                ].map((scenario) => {
+                  const scenarioRevenueNis = result.profitability.revenueNis * scenario.revenueFactor;
+                  const scenarioCostNis = result.profitability.totalCostNis * scenario.costFactor;
+                  const scenarioProfitNis = scenarioRevenueNis - scenarioCostNis;
+                  const scenarioRatio = scenarioCostNis !== 0 ? scenarioProfitNis / scenarioCostNis : 0;
+                  return (
+                    <tr key={scenario.label} className="border-t border-gray-100 tabular-nums">
+                      <td className="py-1.5 px-2">{scenario.label}</td>
+                      <td className="py-1.5 px-2">{nis(scenarioProfitNis)}</td>
+                      <td className={`py-1.5 px-2 ${scenarioRatio >= 0 ? "" : "text-red-600"}`}>{fmt(scenarioRatio * 100, 1)}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div className="mt-4">
           <ConsultationCTA />
         </div>

@@ -258,12 +258,17 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   };
 }
 
-export function computeProfitability(revenue: RevenueSummary, costs: CostBreakdown): ProfitabilitySummary {
+export function computeProfitability(revenue: RevenueSummary, costs: CostBreakdown, rawCosts: ProjectInputs["costs"]): ProfitabilitySummary {
   const revenueNis = revenue.developerRevenueExclVatNis;
   const totalCostNis = costs.totalInclFinancingNis;
   const currentProfitNis = revenueNis - totalCostNis;
   const profitToCostRatio = totalCostNis !== 0 ? currentProfitNis / totalCostNis : 0;
-  return { revenueNis, totalCostNis, currentProfitNis, profitToCostRatio };
+  const profitToRevenueRatio = revenueNis !== 0 ? currentProfitNis / revenueNis : 0;
+  // תשואה שנתית על ההון העצמי (Cash on Cash), ר' "דוגמא לדוח כלכלי.xls". 0 אם לא הוזן הון עצמי.
+  const projectYears = (rawCosts.constructionMonths + rawCosts.permitMonths) / 12;
+  const cashOnCashAnnualRatio =
+    rawCosts.equityNis > 0 && projectYears > 0 ? currentProfitNis / rawCosts.equityNis / projectYears : 0;
+  return { revenueNis, totalCostNis, currentProfitNis, profitToCostRatio, profitToRevenueRatio, cashOnCashAnnualRatio };
 }
 
 export function computeProject(inputs: ProjectInputs): ProjectResult {
@@ -289,7 +294,7 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   const areas = computeAreas(inputs);
   const revenue = computeRevenue(inputs, areas);
   const costs = computeCosts(inputs, areas, revenue);
-  const profitability = computeProfitability(revenue, costs);
+  const profitability = computeProfitability(revenue, costs, inputs.costs);
 
   return { areas, revenue, costs, profitability, warnings };
 }
