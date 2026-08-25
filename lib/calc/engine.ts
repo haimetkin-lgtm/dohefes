@@ -7,6 +7,7 @@ import type {
   MunicipalFeeInputs,
   ProfitabilitySummary,
   ProjectResult,
+  UnitAllocationRow,
   UnitCategory,
   DealType,
 } from "./types";
@@ -52,6 +53,18 @@ export function landMechanism(dealType: DealType): LandMechanism {
 
 function unitCategory(category: UnitCategory | undefined): UnitCategory {
   return category ?? "residential";
+}
+
+/**
+ * בנצ'מרק "רווח לעלות" מקובל לתצוגה בדוח, לצורך השוואה בלבד (לא אכיפה). פינוי בינוי: מעל 25%,
+ * מאומת מ-Calculator-Pinui-Binui.xlsm (כלי שיווקי מהשוק). שאר סוגי העסקה: 20%, כלל אצבע מקובל
+ * לסף התכנות פרויקט התחדשות עירונית. null בקבוצת רכישה - שם המדד מייצג חיסכון לחברי הקבוצה,
+ * לא רווח יזמי, ולא ניתן להשוואה ישירה לאותו סף.
+ */
+export function profitToCostBenchmark(dealType: DealType): number | null {
+  if (dealType === "purchaseGroup") return null;
+  if (dealType === "pinuyBinui") return 0.25;
+  return 0.2;
 }
 
 export function computeAreas(inputs: ProjectInputs): AreaSummary {
@@ -301,6 +314,55 @@ export function computeProfitability(revenue: RevenueSummary, costs: CostBreakdo
   return { revenueNis, totalCostNis, currentProfitNis, profitToCostRatio, profitToRevenueRatio, cashOnCashAnnualRatio };
 }
 
+/**
+ * בדיקת הקצאה והוגנות ליחידה (נספח א.xlsx): מחלקת את שווי הקרקע ועלות ההקמה+כלליות בין כל
+ * היחידות (יזם+דיירים קיימים גם יחד, יחד באותה טבלה) לפי שטח משוקלל יחסי, ומשווה לשווי השוק
+ * שלהן - בודקת שהפער (רווח גלום) דומה בין כל סוגי היחידות, לא רק בממוצע. מוציאה יחידות מבנה
+ * קיים (isExistingStructure, לא חלק מהבניין החדש שמחולק) ומב"צ (אין להן שווי שוק להשוואה).
+ * לא רלוונטי בעסקת מזומן טהורה (אין חלוקת קרקע/תמורה בכלל, ר' landMechanism).
+ */
+export function computeUnitAllocation(inputs: ProjectInputs, costs: CostBreakdown): UnitAllocationRow[] {
+  if (landMechanism(inputs.dealType) === "cash") return [];
+
+  const eligible = inputs.units.filter((u) => !u.isExistingStructure && unitCategory(u.category) !== "publicBuilding");
+  if (eligible.length < 2) return [];
+
+  const { balconyWeight } = inputs.costs;
+  const weightedAreaByUnit = eligible.map(
+    (u) => u.areaSqm + u.mamadSqm + (u.balconySqm + u.roofBalconySqm) * balconyWeight
+  );
+  const totalWeightedAreaSqm = eligible.reduce((sum, u, i) => sum + u.count * weightedAreaByUnit[i], 0);
+  if (totalWeightedAreaSqm === 0) return [];
+
+  const landTotal = costs.landNis;
+  const constructionTotal = costs.totalExclFinancingNis - costs.landNis;
+
+  return eligible.map((u, i) => {
+    const rowWeightedTotal = u.count * weightedAreaByUnit[i];
+    const sharePercent = rowWeightedTotal / totalWeightedAreaSqm;
+    const landShareNis = sharePercent * landTotal;
+    const constructionShareNis = sharePercent * constructionTotal;
+    const costBasisPerUnitNis = (landShareNis + constructionShareNis) / u.count;
+    const cat = unitCategory(u.category);
+    const isResidential = cat === "residential" || cat === "residentialPremium";
+    const marketValuePerUnitNis = isResidential ? u.priceNis / VAT_FACTOR : u.priceNis;
+    const gapPerUnitNis = marketValuePerUnitNis - costBasisPerUnitNis;
+    const gapRatio = costBasisPerUnitNis !== 0 ? gapPerUnitNis / costBasisPerUnitNis : 0;
+    return {
+      name: u.name,
+      count: u.count,
+      weightedAreaSqm: weightedAreaByUnit[i],
+      sharePercent,
+      landShareNis,
+      constructionShareNis,
+      costBasisPerUnitNis,
+      marketValuePerUnitNis,
+      gapPerUnitNis,
+      gapRatio,
+    };
+  });
+}
+
 export function computeProject(inputs: ProjectInputs): ProjectResult {
   const warnings: string[] = [];
 
@@ -325,6 +387,7 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   const revenue = computeRevenue(inputs, areas);
   const costs = computeCosts(inputs, areas, revenue);
   const profitability = computeProfitability(revenue, costs, inputs.costs);
+  const unitAllocation = computeUnitAllocation(inputs, costs);
 
-  return { areas, revenue, costs, profitability, warnings };
+  return { areas, revenue, costs, profitability, unitAllocation, warnings };
 }

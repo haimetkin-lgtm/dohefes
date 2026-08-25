@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { isCashLandDeal, landMechanism } from "@/lib/calc/engine";
+import { isCashLandDeal, landMechanism, profitToCostBenchmark } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import Logo from "@/app/components/Logo";
 import ConsultationCTA from "@/app/components/ConsultationCTA";
@@ -74,6 +74,7 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
     residentialIsCompensationTier && inputs.units.some((u) => u.category === "residentialPremium");
   const usesUnitCompensation = landMechanism(inputs.dealType) === "unitCompensation";
   const hasReinforcement = inputs.units.some((u) => u.isExistingStructure);
+  const benchmark = profitToCostBenchmark(inputs.dealType);
   const dateStr = new Date().toLocaleDateString("he-IL");
   const dealTypeSubtitle =
     inputs.dealType === "tama38" ? (hasReinforcement ? "חיזוק ותוספת" : "הריסה ובנייה מחדש") : undefined;
@@ -278,6 +279,13 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
             >
               {fmt(result.profitability.profitToCostRatio * 100, 1)}%
             </div>
+            {!isGroup && benchmark !== null && (
+              <div className={`text-xs mt-0.5 ${result.profitability.profitToCostRatio >= benchmark ? "text-[#1D6F42]" : "text-amber-700"}`}>
+                {result.profitability.profitToCostRatio >= benchmark
+                  ? `מעל הסף המקובל בשוק (${fmt(benchmark * 100, 0)}%)`
+                  : `מתחת לסף המקובל בשוק (${fmt(benchmark * 100, 0)}%)`}
+              </div>
+            )}
           </div>
         </div>
 
@@ -329,6 +337,43 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
             </table>
           </div>
         </div>
+
+        {/* בדיקת הקצאה והוגנות ליחידה, ר' נספח א.xlsx: מוצגת רק כשיש חלוקת קרקע/תמורה בין שני צדדים */}
+        {result.unitAllocation.length > 0 && (
+          <div className="mb-7">
+            <SectionTitle>בדיקת הקצאה והוגנות בין דיירים/שותפים</SectionTitle>
+            <p className="text-xs text-gray-500 mb-2">
+              חלוקת שווי הקרקע ועלות ההקמה בין סוגי היחידות לפי שטח משוקלל יחסי, מול שווי השוק שלהן.
+              יחס הפער-לעלות אמור להיות דומה בין כל סוגי היחידות, כבדיקת הוגנות שלא סוג אחד נהנה על חשבון אחר.
+            </p>
+            <div className="overflow-x-auto rounded-lg border border-gray-100">
+              <table className="w-full text-xs border-collapse min-w-[640px]">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500">
+                    <th className="text-right py-2 px-2">טיפוס</th>
+                    <th className="text-right py-2 px-2">אחוז יחסי</th>
+                    <th className="text-right py-2 px-2">עלות ליחידה</th>
+                    <th className="text-right py-2 px-2">שווי שוק ליחידה</th>
+                    <th className="text-right py-2 px-2">פער ליחידה</th>
+                    <th className="text-right py-2 px-2">יחס פער-לעלות</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.unitAllocation.map((row) => (
+                    <tr key={row.name} className="border-t border-gray-100 tabular-nums">
+                      <td className="py-1.5 px-2">{row.name}</td>
+                      <td className="py-1.5 px-2">{fmt(row.sharePercent * 100, 1)}%</td>
+                      <td className="py-1.5 px-2">{nis(row.costBasisPerUnitNis)}</td>
+                      <td className="py-1.5 px-2">{nis(row.marketValuePerUnitNis)}</td>
+                      <td className={`py-1.5 px-2 ${row.gapPerUnitNis >= 0 ? "" : "text-red-600"}`}>{nis(row.gapPerUnitNis)}</td>
+                      <td className={`py-1.5 px-2 ${row.gapRatio >= 0 ? "" : "text-red-600"}`}>{fmt(row.gapRatio * 100, 1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="mt-4">
           <ConsultationCTA />

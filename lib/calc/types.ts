@@ -255,10 +255,38 @@ export interface ProfitabilitySummary {
   cashOnCashAnnualRatio: number;
 }
 
+/**
+ * שורת בדיקת הקצאה והוגנות ליחידה, לפי נספח א.xlsx: מחלקת את שווי הקרקע+עלות ההקמה בין
+ * כל היחידות (יזם+דיירים קיימים גם יחד) לפי שטח משוקלל יחסי, ומשווה לשווי השוק שלהן - כלי
+ * QA שמוודא שהפער (רווח גלום) דומה בין כל סוגי היחידות, לא רק בין היזם לדיירים בממוצע.
+ * רלוונטי רק כשיש חלוקת קרקע/תמורה (לא בעסקת מזומן טהורה), ר' computeUnitAllocation.
+ */
+export interface UnitAllocationRow {
+  name: string;
+  count: number;
+  /** שטח משוקלל ליחידה בודדת, מ"ר (עיקרי+ממ"ד+מרפסות*מקדם משקל) */
+  weightedAreaSqm: number;
+  /** אחוז יחסי מהעסקה, לפי שטח משוקלל (0-1) */
+  sharePercent: number;
+  /** חלק בשווי הקרקע, ₪, סה"כ לכל היחידות מהסוג הזה */
+  landShareNis: number;
+  /** חלק בעלות ההקמה+כלליות, ₪, סה"כ לכל היחידות מהסוג הזה */
+  constructionShareNis: number;
+  /** עלות מיוחסת ליחידה בודדת (קרקע+הקמה), ₪ */
+  costBasisPerUnitNis: number;
+  /** שווי שוק ליחידה בודדת, לא כולל מע"מ, ₪ */
+  marketValuePerUnitNis: number;
+  /** פער (רווח גלום) ליחידה בודדת, ₪ */
+  gapPerUnitNis: number;
+  /** יחס פער-לעלות ליחידה בודדת (0-1+) */
+  gapRatio: number;
+}
+
 export interface ProjectResult {
   areas: AreaSummary;
   revenue: RevenueSummary;
   costs: CostBreakdown;
   profitability: ProfitabilitySummary;
+  unitAllocation: UnitAllocationRow[];
   warnings: string[];
 }

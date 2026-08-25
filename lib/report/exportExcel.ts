@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { isCashLandDeal } from "@/lib/calc/engine";
+import { isCashLandDeal, profitToCostBenchmark } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 
 const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
@@ -80,6 +80,9 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["רווחיות"],
     ["רווח שוטף (₪)", round(result.profitability.currentProfitNis)],
     ["רווח לעלות (%)", Number((result.profitability.profitToCostRatio * 100).toFixed(1))],
+    ...(profitToCostBenchmark(inputs.dealType) !== null
+      ? [["סף מקובל בשוק, להשוואה (%)", Number((profitToCostBenchmark(inputs.dealType)! * 100).toFixed(1))]]
+      : []),
     ["רווח למחזור (%)", Number((result.profitability.profitToRevenueRatio * 100).toFixed(1))],
     ...(result.profitability.cashOnCashAnnualRatio !== 0
       ? [["תשואה על ההון העצמי לשנה (%)", Number((result.profitability.cashOnCashAnnualRatio * 100).toFixed(1))]]
@@ -99,6 +102,21 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
       const scenarioRatio = scenarioCostNis !== 0 ? scenarioProfitNis / scenarioCostNis : 0;
       return [scenario.label, round(scenarioProfitNis), Number((scenarioRatio * 100).toFixed(1))];
     }),
+    ...(result.unitAllocation.length > 0
+      ? [
+          [],
+          ["בדיקת הקצאה והוגנות בין דיירים/שותפים"],
+          ["טיפוס", "אחוז יחסי (%)", "עלות ליחידה (₪)", "שווי שוק ליחידה (₪)", "פער ליחידה (₪)", "יחס פער-לעלות (%)"],
+          ...result.unitAllocation.map((row) => [
+            row.name,
+            Number((row.sharePercent * 100).toFixed(1)),
+            round(row.costBasisPerUnitNis),
+            round(row.marketValuePerUnitNis),
+            round(row.gapPerUnitNis),
+            Number((row.gapRatio * 100).toFixed(1)),
+          ]),
+        ]
+      : []),
   ];
   const wsResults = XLSX.utils.aoa_to_sheet(resultRows);
   wsResults["!cols"] = [{ wch: 30 }, { wch: 18 }];
