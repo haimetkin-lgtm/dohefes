@@ -87,20 +87,36 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ...(result.profitability.cashOnCashAnnualRatio !== 0
       ? [["תשואה על ההון העצמי לשנה (%)", Number((result.profitability.cashOnCashAnnualRatio * 100).toFixed(1))]]
       : []),
+    ...(() => {
+      const showResidualLandValue = isCashLandDeal(inputs.dealType) && profitToCostBenchmark(inputs.dealType) !== null;
+      if (result.feasibility.breakEven.averagePricePerSqmNis === null && !showResidualLandValue) return [];
+      return [
+        [],
+        ["מדדי היתכנות (מדדי עזר, לא שומה)"],
+        ...(result.feasibility.breakEven.averagePricePerSqmNis !== null
+          ? [
+              ["מחיר ממוצע למ\"ר בנקודת האיזון (₪)", round(result.feasibility.breakEven.averagePricePerSqmNis)],
+              ["מרווח ביטחון בהכנסות (%)", Number((result.feasibility.breakEven.marginOfSafetyRatio! * 100).toFixed(1))],
+            ]
+          : []),
+        ...(showResidualLandValue
+          ? [["שווי קרקע שיורי, ליעד רווח-לעלות מקובל (₪)", result.feasibility.residualLandValueNis !== null ? round(result.feasibility.residualLandValueNis) : "לא מושג בטווח שנבדק"]]
+          : []),
+      ];
+    })(),
     [],
     ["ניתוח רגישות"],
     ["תרחיש", "רווח (₪)", "רווח לעלות (%)"],
     ...[
       { label: "לפי התחזית", revenueFactor: 1, costFactor: 1 },
-      { label: "עלויות +10%", revenueFactor: 1, costFactor: 1.1 },
+      { label: "עלויות בנייה +10%", revenueFactor: 1, costFactor: 1.1 },
       { label: "הכנסות -10%", revenueFactor: 0.9, costFactor: 1 },
-      { label: "עלויות +10%, הכנסות -10%", revenueFactor: 0.9, costFactor: 1.1 },
+      { label: "עלויות בנייה +10%, הכנסות -10%", revenueFactor: 0.9, costFactor: 1.1 },
     ].map((scenario) => {
-      const scenarioRevenueNis = result.profitability.revenueNis * scenario.revenueFactor;
-      const scenarioCostNis = result.profitability.totalCostNis * scenario.costFactor;
-      const scenarioProfitNis = scenarioRevenueNis - scenarioCostNis;
-      const scenarioRatio = scenarioCostNis !== 0 ? scenarioProfitNis / scenarioCostNis : 0;
-      return [scenario.label, round(scenarioProfitNis), Number((scenarioRatio * 100).toFixed(1))];
+      const cell = result.feasibility.sensitivityMatrix.find(
+        (c) => c.revenueFactor === scenario.revenueFactor && c.costFactor === scenario.costFactor
+      )!;
+      return [scenario.label, round(cell.profitNis), Number((cell.profitToCostRatio * 100).toFixed(1))];
     }),
     ...(result.unitAllocation.length > 0
       ? [

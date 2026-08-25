@@ -282,11 +282,43 @@ export interface UnitAllocationRow {
   gapRatio: number;
 }
 
+/**
+ * נקודת איזון בהכנסות: המכפיל האחיד על מחירי המכירה שבו הרווח מתאפס, מחושב באמצעות הרצה מלאה
+ * וחוזרת של שרשרת המנוע (לא חלוקה חשבונאית פשוטה, כי חלק מהעלויות - עמלות, מימון - תלויות
+ * בהכנסה בעצמן). null כשאין בסיס הכנסה לחשב ממנו (כל מחירי היחידות 0, כמו בשלד טרי).
+ */
+export interface BreakEvenResult {
+  /** מכפיל מחירי המכירה שבו הרווח מתאפס, ביחס למחירי הבסיס שהוזנו */
+  priceMultiplier: number | null;
+  /** מחיר ממוצע למ"ר בנקודת האיזון, ₪ */
+  averagePricePerSqmNis: number | null;
+  /** מרווח ביטחון: כמה אחוזים ההכנסה יכולה לרדת מתרחיש הבסיס עד לנקודת האיזון (1-priceMultiplier). שלילי אם הפרויקט כבר הפסדי בתרחיש הבסיס */
+  marginOfSafetyRatio: number | null;
+}
+
+/** תא במטריצת רגישות 5x5 (הכנסות × עלויות בנייה), מחושב על ידי הרצה מלאה של שרשרת המנוע לכל תא */
+export interface SensitivityMatrixCell {
+  revenueFactor: number;
+  costFactor: number;
+  profitNis: number;
+  profitToCostRatio: number;
+}
+
+export interface FeasibilityMetrics {
+  breakEven: BreakEvenResult;
+  /** שווי קרקע מרבי שמאפשר לעמוד ביעד הרווח-לעלות המקובל (ר' profitToCostBenchmark), ₪.
+   *  רלוונטי רק בעסקאות מזומן (isCashLandDeal); null בכל שאר סוגי העסקה, וגם אם אין שווי שמשיג את היעד */
+  residualLandValueNis: number | null;
+  /** מטריצת רגישות מלאה, 25 תאים (5 רמות הכנסה × 5 רמות עלויות בנייה, -10%..+10%) */
+  sensitivityMatrix: SensitivityMatrixCell[];
+}
+
 export interface ProjectResult {
   areas: AreaSummary;
   revenue: RevenueSummary;
   costs: CostBreakdown;
   profitability: ProfitabilitySummary;
   unitAllocation: UnitAllocationRow[];
+  feasibility: FeasibilityMetrics;
   warnings: string[];
 }
