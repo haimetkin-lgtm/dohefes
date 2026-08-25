@@ -126,7 +126,9 @@ export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): Reven
     const isResidential = cat === "residential" || cat === "residentialPremium";
     const exclVat = isResidential ? inclVat / VAT_FACTOR : inclVat;
     totalRevenueExclVatNis += exclVat;
-    if (mechanism === "unitCompensation" && !u.isCompensationUnit) {
+    // בתמ"א 38 "חיזוק ותוספת" הדיירים הקיימים משמרים את הדירה המחוזקת שלהם בלי תמורה חדשה,
+    // בדיוק כמו יחידת תמורה: אין ליזם הכנסה משורה זו, ר' isExistingStructure ב-computeAreas.
+    if (mechanism === "unitCompensation" && !u.isCompensationUnit && !u.isExistingStructure) {
       nonCompensationRevenueExclVatNis += exclVat;
     }
   }
@@ -312,11 +314,11 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   if (mechanism === "cash" && inputs.land.landPurchaseNis <= 0) {
     warnings.push("לא הוזנה עלות רכישת קרקע.");
   }
-  if (mechanism === "unitCompensation" && !inputs.units.some((u) => u.isCompensationUnit)) {
-    warnings.push('לא סומנה אף יחידת "תמורה" בטבלת התמהיל, כמעט תמיד יש דיירים קיימים שמקבלים דירת תמורה בסוג עסקה זה.');
+  if (mechanism === "unitCompensation" && !inputs.units.some((u) => u.isCompensationUnit || u.isExistingStructure)) {
+    warnings.push('לא סומנה אף יחידת "תמורה" או "מבנה קיים" בטבלת התמהיל, כמעט תמיד יש דיירים קיימים שמקבלים תמורה בסוג עסקה זה.');
   }
-  if (inputs.dealType === "pinuyBinui" && inputs.costs.relocationUnitsCount <= 0) {
-    warnings.push('לא הוזן מספר יחידות קיימות לדמי שכירות לתקופת הבנייה, כמעט תמיד רלוונטי בפינוי בינוי.');
+  if ((inputs.dealType === "pinuyBinui" || inputs.dealType === "tama38") && inputs.costs.relocationUnitsCount <= 0) {
+    warnings.push('לא הוזן מספר יחידות קיימות לדמי שכירות לתקופת הבנייה, כמעט תמיד רלוונטי בפינוי בינוי ובתמ"א 38.');
   }
 
   const areas = computeAreas(inputs);

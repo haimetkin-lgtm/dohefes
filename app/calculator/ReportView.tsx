@@ -64,9 +64,14 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   // מבוסס על הנתונים בפועל ולא על סוג העסקה, כל סוג עסקה שהקרקע בו משולמת באחוז חלוקה
   // יכול לכלול יחידות ממספר קטגוריות (למשל פינוי בינוי עם מסחר בקומת קרקע)
   const isMixed = new Set(inputs.units.map((u) => u.category ?? "residential")).size > 1;
+  // "residential" מתויג "דירות תמורה" בפירוט הבנייה רק כשהוא בפועל משמש כדרגת התמורה
+  // (מסומן isCompensationUnit), לא סתם כי יש גם residentialPremium באותו פרויקט - למשל
+  // בחיזוק ותוספת יש residential חדש שנמכר בשוק לצד residentialPremium, בלי קשר לתמורה כלל.
+  const residentialIsCompensationTier = inputs.units.some(
+    (u) => (u.category ?? "residential") === "residential" && u.isCompensationUnit
+  );
   const hasBothResidentialTiers =
-    inputs.units.some((u) => (u.category ?? "residential") === "residential") &&
-    inputs.units.some((u) => u.category === "residentialPremium");
+    residentialIsCompensationTier && inputs.units.some((u) => u.category === "residentialPremium");
   const usesUnitCompensation = landMechanism(inputs.dealType) === "unitCompensation";
   const hasReinforcement = inputs.units.some((u) => u.isExistingStructure);
   const dateStr = new Date().toLocaleDateString("he-IL");

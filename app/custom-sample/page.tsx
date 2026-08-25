@@ -36,6 +36,7 @@ const SKELETON_UNITS: SkeletonUnit[] = [
   { name: "חנות מסחר, קומת קרקע", category: "commercial", count: 12, areaSqm: 60, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0 },
   { name: "משרד, קומות תעסוקה", category: "office", count: 20, areaSqm: 90, mamadSqm: 0, balconySqm: 6, roofBalconySqm: 0 },
   { name: "מסעדת גג יוקרתית", category: "commercial", count: 1, areaSqm: 450, mamadSqm: 0, balconySqm: 120, roofBalconySqm: 0 },
+  { name: 'מתנ"ס ציבורי, מועבר ללא תמורה לרשות המקומית', category: "publicBuilding", count: 1, areaSqm: 600, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0 },
 ];
 
 const CATEGORY_LABEL: Record<UnitCategory, string> = {
@@ -60,6 +61,7 @@ const FINAL_INPUTS: ProjectInputs = {
       "חנות מסחר, קומת קרקע": 1400000,
       "משרד, קומות תעסוקה": 1650000,
       "מסעדת גג יוקרתית": 10500000,
+      'מתנ"ס ציבורי, מועבר ללא תמורה לרשות המקומית': 0,
     }[u.name]!,
   })),
   costs: {
@@ -68,7 +70,7 @@ const FINAL_INPUTS: ProjectInputs = {
     premiumConstructionCostPerSqm: 15500,
     commercialConstructionCostPerSqm: 9200,
     officeConstructionCostPerSqm: 10200,
-    publicBuildingConstructionCostPerSqm: 0,
+    publicBuildingConstructionCostPerSqm: 8800,
     reinforcementCostPerSqm: 0,
     undergroundConstructionCostPerSqm: 5600,
     balconyConstructionCostRatio: 0.5,
