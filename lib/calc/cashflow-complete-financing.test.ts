@@ -235,7 +235,7 @@ describe("תרחיש מכוון שאינו מתכנס (maxIterations לבדיק�
   });
 });
 
-describe("התאמות מזומן וחוב מתקיימות בתוצאה הסופית", () => {
+describe("התאמות מזומן וחוב מתקיימות בתוצאה הסופית (דיוק floating-point רגיל, לא סבילות התכנסות)", () => {
   it("closingCash/closingDebt לפי הנוסחאות המלאות (כולל totalFinancingFeeExpenseNis), opening נגזר מהחודש הקודם", () => {
     const complete = computeCompleteFinancing({
       operatingMonths: OPERATING_MONTHS,
@@ -247,23 +247,149 @@ describe("התאמות מזומן וחוב מתקיימות בתוצאה הסו�
       },
     });
 
-    // סבילות 0.01 ש"ח (לא 6 ספרות אחרי הנקודה): המספרים המדווחים באיטרציית ההתכנסות האחרונה
-    // מגיעים משילוב של העמלה שהוזנה בפועל (fed-in, איטרציה קודמת) לעומת העמלה המדווחת (fresh,
-    // מחושבת מחדש מהחוב של האיטרציה הזו) - אלה תואמות זו לזו רק בגבול MONEY_EPSILON_NIS של המנוע
-    // (ר' isConverged), לא לדיוק מכונה - זו בדיוק המשמעות של "מתכנס", לא "זהה לחלוטין".
+    // commit 6f: כל השדות המוחזרים מגיעים מאותה איטרציה קוהרנטית (financed + appliedFeeSchedule
+    // שהזין אותו) - הנוסחאות מתקיימות עד דיוק floating-point רגיל, לא רק בגבול MONEY_EPSILON_NIS.
     let openingCash = 0;
     let openingDebt = 0;
     for (const m of complete.months) {
       const expectedClosingCash =
         openingCash + m.operatingInflowsNis + m.equityInjectionNis + m.creditDrawNis - m.operatingOutflowsNis - m.guaranteeExpenseNis - m.totalFinancingFeeExpenseNis - m.creditRepaymentNis;
-      expect(Math.abs(m.closingCashBalanceNis - expectedClosingCash)).toBeLessThanOrEqual(0.01);
+      expect(m.closingCashBalanceNis).toBeCloseTo(expectedClosingCash, 8);
 
       const expectedClosingDebt = openingDebt + m.creditDrawNis + m.interestExpenseNis - m.creditRepaymentNis;
-      expect(Math.abs(m.closingDebtBalanceNis - expectedClosingDebt)).toBeLessThanOrEqual(0.01);
+      expect(m.closingDebtBalanceNis).toBeCloseTo(expectedClosingDebt, 8);
 
       openingCash = m.closingCashBalanceNis;
       openingDebt = m.closingDebtBalanceNis;
     }
+  });
+});
+
+/**
+ * הוכחת קוהרנטיות כללית: אם מזינים מחדש את totalFinancingFeeExpenseNis המדווח (per-month) ישירות
+ * ל-computeFinancedCashFlow, מקבלים בדיוק (לא בסבילות) את אותם שדות תזרים כמו ב-`complete.months` -
+ * מוכיח ש-`financed` המוחזר אכן הופק ע"י `appliedFeeSchedule` המדווח, לא ע"י לוח אחר ("ערבוב איטרציות").
+ */
+function assertCoherentWithReappliedFee(
+  complete: ReturnType<typeof computeCompleteFinancing>,
+  guaranteeSchedule: GuaranteeScheduleResult,
+  interestAssumptions: InterestCashFlowAssumptions
+) {
+  const reappliedOperatingMonths: OperatingMonthInput[] = complete.months.map((m) => ({
+    monthIndex: m.monthIndex,
+    operatingInflowsNis: m.operatingInflowsNis,
+    operatingOutflowsNis: m.operatingOutflowsNis + m.totalFinancingFeeExpenseNis,
+    phases: ["construction"],
+  }));
+  const reapplied = computeFinancedCashFlow({ operatingMonths: reappliedOperatingMonths, guaranteeSchedule, interestAssumptions });
+
+  complete.months.forEach((m, i) => {
+    const r = reapplied.months[i];
+    expect(m.equityInjectionNis).toBeCloseTo(r.equityInjectionNis, 8);
+    expect(m.creditDrawNis).toBeCloseTo(r.creditDrawNis, 8);
+    expect(m.creditRepaymentNis).toBeCloseTo(r.creditRepaymentNis, 8);
+    expect(m.interestExpenseNis).toBeCloseTo(r.interestExpenseNis, 8);
+    expect(m.closingCashBalanceNis).toBeCloseTo(r.closingCashBalanceNis, 8);
+    expect(m.closingDebtBalanceNis).toBeCloseTo(r.closingDebtBalanceNis, 8);
+    expect(m.fundingDeficitBalanceNis).toBeCloseTo(r.fundingDeficitBalanceNis, 8);
+    expect(m.facilityBreachNis).toBeCloseTo(r.facilityBreachNis, 8);
+  });
+}
+
+describe("עמלה קבועה: העמלה המוצגת היא בדיוק זו שהוזנה לתזרים הסופי", () => {
+  it("הזנה חוזרת של totalFinancingFeeExpenseNis המדווח משחזרת בדיוק את שדות התזרים המדווחים", () => {
+    const guaranteeSchedule = zeroGuaranteeSchedule();
+    const complete = computeCompleteFinancing({
+      operatingMonths: OPERATING_MONTHS,
+      guaranteeSchedule,
+      interestAssumptions: BASE_ASSUMPTIONS,
+      financingFeeAssumptions: { openingFee: { kind: "fixedAmount", amountNis: 20_000, chargeMonthIndex: 0 } },
+    });
+    expect(complete.isConverged).toBe(true);
+    assertCoherentWithReappliedFee(complete, guaranteeSchedule, BASE_ASSUMPTIONS);
+  });
+});
+
+describe("עמלת אי-ניצול: יתרות החוב, בסיס העמלה והעמלה המוחלת שייכים לאותו מעבר", () => {
+  it("שלושת הבסיסים - הזנה חוזרת משחזרת בדיוק את שדות התזרים המדווחים", () => {
+    const guaranteeSchedule = zeroGuaranteeSchedule();
+    const bases: UnusedFacilityBalanceBasis[] = ["openingAvailableFacility", "closingAvailableFacility", "averageOpeningClosingAvailableFacility"];
+    for (const basis of bases) {
+      const complete = computeCompleteFinancing({
+        operatingMonths: OPERATING_MONTHS,
+        guaranteeSchedule,
+        interestAssumptions: BASE_ASSUMPTIONS,
+        financingFeeAssumptions: {
+          unusedFacilityCommission: { annualRateFraction: 0.01, balanceBasis: basis, startMonthIndex: 0, endMonthIndexExclusive: 6 },
+        },
+      });
+      expect(complete.isConverged).toBe(true);
+      assertCoherentWithReappliedFee(complete, guaranteeSchedule, BASE_ASSUMPTIONS);
+    }
+  });
+});
+
+describe("מקרה עמלה קטנה מהסף (fixed-point residual)", () => {
+  it("עמלה חיובית וזעירה (<0.01) שמחושבת באיטרציה הראשונה לא מוחלת בשקט ולא נעלמת בשקט", () => {
+    const guaranteeSchedule = zeroGuaranteeSchedule();
+    const complete = computeCompleteFinancing({
+      operatingMonths: OPERATING_MONTHS,
+      guaranteeSchedule,
+      interestAssumptions: BASE_ASSUMPTIONS,
+      financingFeeAssumptions: { openingFee: { kind: "fixedAmount", amountNis: 0.005, chargeMonthIndex: 0 } },
+    });
+
+    expect(complete.isConverged).toBe(true);
+    expect(complete.iterationsUsed).toBe(1); // מתכנס מיד: 0.005 קטן מהסף מול appliedFeeSchedule=0
+
+    // לא "מחילה בשקט": שדות התזרים חייבים לשקף בדיוק את מה שהוחל (0), לא את מה שחושב-מחדש (0.005)
+    expect(complete.months[0].openingFeeExpenseNis).toBe(0);
+    expect(complete.months[0].totalFinancingFeeExpenseNis).toBe(0);
+    expect(complete.totalOpeningFeeExpenseNis).toBe(0);
+
+    // לא "נעלמת בשקט": השארית עדיין גלויה בשדה ייעודי, לא מוסתרת לגמרי
+    expect(complete.fixedPointResidualFeeNis).toBeCloseTo(0.005, 6);
+    expect(complete.fixedPointResidualFeeNis).toBeGreaterThan(0);
+
+    // ועדיין קוהרנטי: financed המוחזר תואם בדיוק להזנה חוזרת של מה שבאמת הוחל (0)
+    assertCoherentWithReappliedFee(complete, guaranteeSchedule, BASE_ASSUMPTIONS);
+  });
+});
+
+describe("אי-התכנסות מחזירה את האיטרציה האחרונה הקוהרנטית, לא שילוב של שתי איטרציות", () => {
+  it("גם ב-isConverged=false, הזנה חוזרת של הלוח המדווח משחזרת בדיוק את שדות התזרים המדווחים", () => {
+    const guaranteeSchedule = zeroGuaranteeSchedule();
+    const complete = computeCompleteFinancing({
+      operatingMonths: OPERATING_MONTHS,
+      guaranteeSchedule,
+      interestAssumptions: BASE_ASSUMPTIONS,
+      financingFeeAssumptions: {
+        unusedFacilityCommission: { annualRateFraction: 0.01, balanceBasis: "closingAvailableFacility", startMonthIndex: 0, endMonthIndexExclusive: 6 },
+      },
+      maxIterations: 1,
+    });
+    expect(complete.isConverged).toBe(false);
+    assertCoherentWithReappliedFee(complete, guaranteeSchedule, BASE_ASSUMPTIONS);
+  });
+});
+
+describe("סיכומי העמלות שווים לפירוט שהוחל בפועל", () => {
+  it("total*Nis = סכום השדות המקבילים על פני כל החודשים, עד דיוק floating-point רגיל", () => {
+    const complete = computeCompleteFinancing({
+      operatingMonths: OPERATING_MONTHS,
+      guaranteeSchedule: zeroGuaranteeSchedule(),
+      interestAssumptions: BASE_ASSUMPTIONS,
+      financingFeeAssumptions: {
+        openingFee: { kind: "fixedAmount", amountNis: 12_000, chargeMonthIndex: 0 },
+        unusedFacilityCommission: { annualRateFraction: 0.01, balanceBasis: "averageOpeningClosingAvailableFacility", startMonthIndex: 0, endMonthIndexExclusive: 6 },
+      },
+    });
+    const sumOpening = complete.months.reduce((acc, m) => acc + m.openingFeeExpenseNis, 0);
+    const sumUnused = complete.months.reduce((acc, m) => acc + m.unusedFacilityCommissionNis, 0);
+    const sumTotal = complete.months.reduce((acc, m) => acc + m.totalFinancingFeeExpenseNis, 0);
+    expect(complete.totalOpeningFeeExpenseNis).toBeCloseTo(sumOpening, 8);
+    expect(complete.totalUnusedFacilityCommissionNis).toBeCloseTo(sumUnused, 8);
+    expect(complete.totalFinancingFeeExpenseNis).toBeCloseTo(sumTotal, 8);
   });
 });
 

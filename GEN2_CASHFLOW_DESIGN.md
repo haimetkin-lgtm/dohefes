@@ -332,6 +332,34 @@ type UnusedFacilityBalanceBasis =
 - שדה זה שייך לתוצאה הזמנית של `computeFinancingFeeSchedule` בלבד; כאן, מכוח הלולאה עד התכנסות, אין עוד
 "צורך בחישוב חוזר" לבטא.
 
+**עדכון (commit 6f) - "עמלה שהוחלה" מול "עמלה שחושבה מחדש לבדיקת fixed point", שני מושגים נפרדים.**
+בכל איטרציה נוצרים שני לוחות עמלה שונים, **בכוונה לא זהים**:
+
+- **`appliedFeeSchedule`** - לוח העמלות שבאמת הוזן ל-`computeFinancedCashFlow` באיטרציה הזו, והפיק את
+  `financed` (יתרות המזומן/החוב/משיכת האשראי/הריבית) של אותה איטרציה בדיוק.
+- **`recalculatedFeeSchedule`** - לוח עמלות שמחושב **טרי** מיתרות ה-`financed` שהתקבלו, כדי לבדוק אם
+  הן עדיין מצדיקות עמלה שונה (בדיקת fixed point/התכנסות בלבד).
+
+אלה **אינם** תמיד שווים - `recalculatedFeeSchedule` הוא בהגדרה תוצר של איטרציה מאוחרת יותר מ-`appliedFeeSchedule`
+(מבוסס על היתרות שה-`appliedFeeSchedule` עצמו יצר). **תקלה אמיתית שנמצאה ותוקנה (6f)**: גרסה מוקדמת של
+הלולאה בנתה את התוצאה הסופית משילוב `financed` (מהאיטרציה שהתכנסה) עם `recalculatedFeeSchedule` (מאותה
+איטרציה) - לכאורה סביר, אך `recalculatedFeeSchedule` אינו מה שבאמת הוזן ל-`financed`; זה בדיוק מה שהוזן
+באיטרציה ה**קודמת**. שני האובייקטים תיארו שתי איטרציות שונות, לא מצב קוהרנטי אחד - וזו הסיבה שבדיקת
+ההתאמה הפנימית (`totalCashOutflowsNis`, `closingCash`, `closingDebt`) נדרשה תחילה לסבילות מלאכותית של
+0.01 ₪ במקום לדיוק floating-point רגיל.
+
+**התיקון**: התוצאה הסופית (`months`, כל שדה `total*Nis`) בנויה **אך ורק** מ-`appliedFeeSchedule` - לעולם לא
+מ-`recalculatedFeeSchedule`. כשמתגלה התכנסות, `financed` ו-`appliedFeeSchedule` **נשארים כפי שהם** מאותה
+איטרציה, לא מוחלפים. `recalculatedFeeSchedule` משמש **רק** לחישוב `maxFeeDifferenceNis`/`maxDebtDifferenceNis`
+(הכרעת ההתכנסות) ול-`fixedPointResidualFeeNis` החדש - ההפרש הפרויקטלי הכולל בין שני הלוחות, לתיעוד/שקיפות
+בלבד, **לעולם לא** מוזן לשדות הכספיים המוחזרים. תקלה נלווית שנמצאה באותו תיקון: אותו ערבוב-איטרציות חזר
+גם בנתיב **אי-ההתכנסות** (`maxIterations` הושג) - עדכון `appliedFeeSchedule` ל"צעד הבא" קרה גם כשלא היה
+עוד איטרציה שתשתמש בו; תוקן כך שהעדכון קורה רק כש-`iteration < maxIterations`.
+
+מכוח התיקון, `totalCashOutflowsNis = operatingOutflowsNis + guaranteeExpenseNis + totalFinancingFeeExpenseNis`
+ומשוואות `closingCash`/`closingDebt` מתקיימות **תמיד עד דיוק floating-point רגיל**, גם ב-`isConverged=false` -
+לא רק בסבילות ה-0.01 ₪ שנשארת רק כתנאי ההתכנסות עצמו.
+
 ### 4.5 הזרמת הון עצמי
 
 **ברירת מחדל `asNeededUpToCap`**: מוזרם רק כשנדרש (שלב 5), עד לתקרה `equityCapNis`. **לא** מוזרם כולו בחודש
