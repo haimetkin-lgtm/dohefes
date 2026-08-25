@@ -386,6 +386,9 @@ const BISECTION_TOLERANCE_NIS = 1;
 function bisectRoot(fn: (x: number) => number, lo: number, hi: number): number | null {
   let fLo = fn(lo);
   const fHi = fn(hi);
+  // הגנה: fn יכולה לצאת NaN/Infinity בקצה טווח קיצוני (חלוקה ב-0 בנוסחה כלשהי בהמשך). במקום
+  // לתת לזה לזהם את lo/hi ולקרוס בלי לזרוק, יוצאים בבטחה עם null.
+  if (!Number.isFinite(fLo) || !Number.isFinite(fHi)) return null;
   if (Math.abs(fLo) < BISECTION_TOLERANCE_NIS) return lo;
   if (Math.abs(fHi) < BISECTION_TOLERANCE_NIS) return hi;
   if ((fLo < 0) === (fHi < 0)) return null;
@@ -393,6 +396,7 @@ function bisectRoot(fn: (x: number) => number, lo: number, hi: number): number |
   for (let i = 0; i < BISECTION_ITERATIONS && hi - lo > 1e-9; i++) {
     const mid = (lo + hi) / 2;
     const fMid = fn(mid);
+    if (!Number.isFinite(fMid)) return null;
     if (Math.abs(fMid) < BISECTION_TOLERANCE_NIS) return mid;
     if ((fMid < 0) === (fLo < 0)) {
       lo = mid;
@@ -423,6 +427,27 @@ function scaleConstructionRates(costs: ProjectInputs["costs"], factor: number): 
   };
 }
 
+/** יחידות שהיזם בפועל מוכר בשוק: לא תמורה (isCompensationUnit), לא מבנה קיים מחוזק
+ *  (isExistingStructure, אף פעם לא נמכר), ולא מב"צ (publicBuilding, תמיד הכנסה 0 במוסכמה) */
+function marketSaleUnits(units: ProjectInputs["units"]): ProjectInputs["units"] {
+  return units.filter((u) => !u.isCompensationUnit && !u.isExistingStructure && unitCategory(u.category) !== "publicBuilding");
+}
+
+/**
+ * מחיר מכירה ממוצע למ"ר, לפי יחידות הנמכרות בשוק בלבד (ר' marketSaleUnits) - לא לפי כלל שטחי
+ * הפרויקט. חשוב במיוחד ב-unitCompensation: יחידות תמורה תורמות שטח לפרויקט אבל אינן נמכרות
+ * ואינן צריכות לדלל את המחיר הממוצע שמוצג ליזם. null אם אין יחידה נמכרת עם שטח.
+ */
+function averageSalePricePerSqm(units: ProjectInputs["units"], balconyWeight: number): number | null {
+  let areaSqm = 0;
+  let revenueInclVatNis = 0;
+  for (const u of marketSaleUnits(units)) {
+    areaSqm += u.count * (u.areaSqm + u.mamadSqm + (u.balconySqm + u.roofBalconySqm) * balconyWeight);
+    revenueInclVatNis += u.count * u.priceNis;
+  }
+  return areaSqm > 0 ? revenueInclVatNis / areaSqm : null;
+}
+
 function profitAtPriceMultiplier(inputs: ProjectInputs, multiplier: number): number {
   const scaled: ProjectInputs = { ...inputs, units: scaleUnitPrices(inputs.units, multiplier) };
   const areas = computeAreas(scaled);
@@ -444,12 +469,10 @@ export function computeBreakEven(inputs: ProjectInputs, baseRevenueNis: number):
   if (multiplier === null) {
     return { priceMultiplier: null, averagePricePerSqmNis: null, marginOfSafetyRatio: null };
   }
-  const scaled: ProjectInputs = { ...inputs, units: scaleUnitPrices(inputs.units, multiplier) };
-  const areas = computeAreas(scaled);
-  const revenue = computeRevenue(scaled, areas);
+  const scaledUnits = scaleUnitPrices(inputs.units, multiplier);
   return {
     priceMultiplier: multiplier,
-    averagePricePerSqmNis: revenue.averagePricePerSqmNis,
+    averagePricePerSqmNis: averageSalePricePerSqm(scaledUnits, inputs.costs.balconyWeight),
     marginOfSafetyRatio: 1 - multiplier,
   };
 }

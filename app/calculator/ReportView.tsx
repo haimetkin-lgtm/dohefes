@@ -75,7 +75,8 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   const usesUnitCompensation = landMechanism(inputs.dealType) === "unitCompensation";
   const hasReinforcement = inputs.units.some((u) => u.isExistingStructure);
   const benchmark = profitToCostBenchmark(inputs.dealType);
-  const hasFeasibilityMetrics = result.feasibility.breakEven.averagePricePerSqmNis !== null || isCashLandDeal(inputs.dealType);
+  const showResidualLandValue = isCashLandDeal(inputs.dealType) && benchmark !== null;
+  const hasFeasibilityMetrics = result.feasibility.breakEven.averagePricePerSqmNis !== null || showResidualLandValue;
   const dateStr = new Date().toLocaleDateString("he-IL");
   const dealTypeSubtitle =
     inputs.dealType === "tama38" ? (hasReinforcement ? "חיזוק ותוספת" : "הריסה ובנייה מחדש") : undefined;
@@ -325,11 +326,11 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
                 </strong>
               </span>
             )}
-            {isCashLandDeal(inputs.dealType) && (
+            {showResidualLandValue && (
               <span>
                 שווי קרקע שיורי (ליעד רווח-לעלות מקובל):{" "}
                 <strong className="text-[#123640] tabular-nums">
-                  {result.feasibility.residualLandValueNis !== null ? nis(result.feasibility.residualLandValueNis) : "לא מושג בטווח סביר"}
+                  {result.feasibility.residualLandValueNis !== null ? nis(result.feasibility.residualLandValueNis) : "לא מושג בטווח שנבדק"}
                 </strong>
               </span>
             )}

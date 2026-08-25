@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeProject, computeResidualLandValue, computeSensitivityMatrix, profitToCostBenchmark } from "./engine";
+import { computeProject, computeResidualLandValue, computeSensitivityMatrix, profitToCostBenchmark, isCashLandDeal } from "./engine";
 import type { CostInputs, LandInputs, ProjectInputs, UnitType } from "./types";
 
 // יחידת עזר: פרויקט "בסיסי" (dealType=basic, קרקע במזומן) מינימלי אבל תקין, עם כל השדות
@@ -207,5 +207,89 @@ describe("אי-מוטציה של הקלט", () => {
     const snapshot = JSON.parse(JSON.stringify(inputs));
     computeProject(inputs);
     expect(inputs).toEqual(snapshot);
+  });
+});
+
+describe("מחיר ממוצע למ\"ר בנקודת האיזון, לפי יחידות נמכרות בלבד", () => {
+  it("מחיר יחידת תמורה אינו גורם מכריע במחיר נקודת האיזון (בניגוד לדילול השטח שתוקן)", () => {
+    // הערה: לא בודקים שוויון מדויק. מחיר יחידת התמורה עדיין נכנס ל-totalRevenueInclVatNis
+    // שמשמש בסיס לעמלת ערבות חוק מכר (guaranteeCommissionNis) - זה מכוון, לא באג: בפועל
+    // היזם נותן ערבות חוק מכר גם לדיירים מקבלי תמורה, לא רק לרוכשים משלמים. ההשפעה הזו
+    // קטנה ומשנית. מה שכן תוקן: השטח של יחידת התמורה כבר לא מדלל את המחיר הממוצע למ"ר -
+    // בדיקה זו מוודאת שההשפעה שנשארה (ערבות בלבד) קטנה בהרבה מהשפעת דילול השטח שהייתה קודם.
+    const build = (compensationPriceNis: number): ProjectInputs => ({
+      dealType: "tama38",
+      projectName: "תמורה מול נמכר",
+      units: [
+        unit({ name: "יחידת תמורה", count: 4, priceNis: compensationPriceNis, isCompensationUnit: true }),
+        unit({ name: "יחידה נמכרת", count: 10, priceNis: 2200000 }),
+      ],
+      costs: baseCosts({ relocationUnitsCount: 4, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3500 }),
+      land: baseLand({ bettermentLevyNis: 200000 }),
+    });
+
+    const withZeroPrice = computeProject(build(0));
+    const withHugePrice = computeProject(build(50000000));
+
+    const a = withZeroPrice.feasibility.breakEven.averagePricePerSqmNis!;
+    const b = withHugePrice.feasibility.breakEven.averagePricePerSqmNis!;
+    expect(Math.abs(a - b) / a).toBeLessThan(0.1);
+  });
+
+  it("בפרויקט עם תמורה, מחיר נקודת האיזון גבוה משמעותית מהממוצע הכולל (שהיה מדולל בשטח התמורה)", () => {
+    const inputs: ProjectInputs = {
+      dealType: "tama38",
+      projectName: "בדיקת דילול",
+      units: [
+        unit({ name: "יחידת תמורה", count: 10, areaSqm: 90, priceNis: 0, isCompensationUnit: true }),
+        unit({ name: "יחידה נמכרת", count: 5, areaSqm: 90, priceNis: 2200000 }),
+      ],
+      costs: baseCosts({ relocationUnitsCount: 10, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3500 }),
+      land: baseLand({ bettermentLevyNis: 200000 }),
+    };
+    const result = computeProject(inputs);
+    // הממוצע הישן (מדולל בשטח כל 15 היחידות) היה נמוך משמעותית מהמחיר האמיתי של יחידה נמכרת
+    expect(result.feasibility.breakEven.averagePricePerSqmNis).not.toBeNull();
+    expect(result.revenue.averagePricePerSqmNis).toBeLessThan(result.feasibility.breakEven.averagePricePerSqmNis! * 0.6);
+  });
+});
+
+describe("שווי קרקע שיורי, רלוונטיות בקבוצת רכישה", () => {
+  it("קבוצת רכישה: isCashLandDeal אמת, אבל אין בנצ'מרק, ולכן לוגיקת הרלוונטיות מחזירה false", () => {
+    expect(isCashLandDeal("purchaseGroup")).toBe(true);
+    expect(profitToCostBenchmark("purchaseGroup")).toBeNull();
+    const showResidualLandValue = isCashLandDeal("purchaseGroup") && profitToCostBenchmark("purchaseGroup") !== null;
+    expect(showResidualLandValue).toBe(false);
+  });
+
+  it("computeResidualLandValue מחזיר null בפועל לקבוצת רכישה", () => {
+    const inputs: ProjectInputs = {
+      dealType: "purchaseGroup",
+      projectName: "קבוצת רכישה",
+      units: [unit()],
+      costs: baseCosts({ organizerFeeNis: 400000 }),
+      land: baseLand({ landPurchaseNis: 3000000 }),
+    };
+    expect(computeResidualLandValue(inputs)).toBeNull();
+  });
+});
+
+describe("הקשחת bisectRoot מפני NaN/Infinity", () => {
+  it("פרויקט בלי יחידות כלל: מדדי ההיתכנות סופיים או null, אף פעם לא NaN/Infinity, לא זורק", () => {
+    const inputs: ProjectInputs = {
+      dealType: "basic",
+      projectName: "בלי יחידות",
+      units: [],
+      costs: baseCosts(),
+      land: baseLand({ landPurchaseNis: 3000000 }),
+    };
+    expect(() => computeProject(inputs)).not.toThrow();
+    const result = computeProject(inputs);
+    expect(result.feasibility.breakEven.priceMultiplier).toBeNull();
+    expect(result.feasibility.residualLandValueNis === null || Number.isFinite(result.feasibility.residualLandValueNis)).toBe(true);
+    for (const cell of result.feasibility.sensitivityMatrix) {
+      expect(Number.isFinite(cell.profitNis)).toBe(true);
+      expect(Number.isFinite(cell.profitToCostRatio)).toBe(true);
+    }
   });
 });
