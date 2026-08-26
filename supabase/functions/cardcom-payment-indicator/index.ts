@@ -18,6 +18,24 @@
 //
 // **לעולם לא נכתב/נרשם כאן**: מספר כרטיס, תוקף כרטיס, שם בעל הכרטיס, ת"ז, טלפון, ה-payload
 // הגולמי המלא של תגובת Cardcom, או טוקן כרטיס - רק המזהים ההכרחיים לאימות/ביקורת.
+//
+// --- דרישת פריסה עתידית (ממצא ביקורת, מתועד כאן - לא מבוצע, אין פריסה בשלב הזה בכלל) ---
+//
+// **הפונקציה הזו, ורק היא, חייבת להיפרס עם אימות JWT מבוטל** (Supabase CLI: `supabase functions
+// deploy cardcom-payment-indicator --no-verify-jwt`, או `verify_jwt = false` תחת
+// `[functions.cardcom-payment-indicator]` ב-supabase/config.toml אם ייווצר בעתיד) - הסיבה:
+// הקורא כאן הוא **Cardcom עצמה** (שרת חיצוני), לא דפדפן/לקוח של הפרויקט - אין לה אפשרות לצרף
+// שום JWT/מפתח Supabase לבקשת ה-webhook שלה (לא anon key, לא session token - היא לא מכירה
+// אותם בכלל). ברירת המחדל של Supabase Edge Functions (`verify_jwt=true`) הייתה דוחה כל בקשה
+// כזו לפני שהקוד כאן בכלל רץ.
+//
+// **אזהרה מפורשת - לא לגזור מכך מסקנה כללית**: `create-payment-order` וה-`get-product-access`
+// העתידית **לא** צריכות (ולא אמורות לקבל) את אותו פטור - הן נקראות מהדפדפן של הפרויקט, שתמיד
+// מצרף את מפתח ה-anon כ-Authorization header, וזהו כשלעצמו JWT תקין (חתום באותו secret של
+// הפרויקט) שעובר את בדיקת verify_jwt הרגילה בהצלחה - אין כאן שום בעיה מקבילה לזו של Cardcom,
+// כי אין בפרויקט הזה מערכת login נפרדת שדורשת session-JWT ספציפי למשתמש (ר' "Supabase ללא
+// Auth"). ביטול verify_jwt על כל פונקציה **אחרת** מלבד זו דורש החלטה מפורשת ונפרדת - לא נגזרת
+// אוטומטית מהעובדה שהפונקציה הזו זקוקה לו.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { createCardcomClient } from "../_shared/cardcom-client.ts";
