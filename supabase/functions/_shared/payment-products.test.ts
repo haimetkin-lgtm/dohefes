@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRODUCTS, getProduct, isProductType } from "./payment-products";
+import { MAX_PRODUCT_NAME_LENGTH, PRODUCTS, getProduct, isProductType } from "./payment-products";
 
 describe("isProductType", () => {
   it("מוצר חוקי: baseReport/cashFlowAnalysis מזוהים", () => {
@@ -20,8 +20,23 @@ describe("isProductType", () => {
 describe("getProduct - מקור אמת יחיד למחיר, לא מגיע מהלקוח", () => {
   it("getProduct לא מקבלת שום פרמטר סכום/מטבע - מבנית לא ניתן להשפיע על המחיר מבחוץ", () => {
     // הבדיקה עצמה היא על החתימה: getProduct(productType) בלבד, בלי amount/currency אפשריים בקריאה.
-    expect(getProduct("baseReport")).toEqual({ amountAgorot: 98_000, currencyCode: 1 });
-    expect(getProduct("cashFlowAnalysis")).toEqual({ amountAgorot: 98_000, currencyCode: 1 });
+    expect(getProduct("baseReport")).toEqual({
+      amountAgorot: 98_000,
+      currencyCode: 1,
+      productName: "דוח אפס - בדיקת כדאיות כלכלית",
+    });
+    expect(getProduct("cashFlowAnalysis")).toEqual({
+      amountAgorot: 98_000,
+      currencyCode: 1,
+      productName: "ניתוח תזרים ומימון מתקדם",
+    });
+  });
+
+  it("productName בתוך המגבלה של Cardcom (MAX_PRODUCT_NAME_LENGTH) לשני המוצרים", () => {
+    for (const product of Object.values(PRODUCTS)) {
+      expect(product.productName.length).toBeLessThanOrEqual(MAX_PRODUCT_NAME_LENGTH);
+      expect(product.productName.length).toBeGreaterThan(0);
+    }
   });
 
   it("PRODUCTS קפוא (Object.freeze) - שינוי בזמן ריצה נכשל בשקט (strict mode) או נזרק", () => {

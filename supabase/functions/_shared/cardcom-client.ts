@@ -1,122 +1,170 @@
-// שכבת בידוד יחידה לכל הידע הספציפי ל-Cardcom (LowProfile API, v11). כל שם שדה/endpoint שתלוי
-// בספק חי כאן ורק כאן - אם/כשיתברר ששם שדה שגוי (ר' אזהרה למטה), התיקון מתומצת לקובץ הזה בלבד,
-// לא מפוזר בתוך create-payment-order/index.ts.
+// Cardcom LowProfile API client - שכבת בידוד יחידה לכל הידע הספציפי ל-Cardcom.
 //
-// ╔═══════════════════════════════════════════════════════════════════════════════════════════╗
-// ║ אזהרה מתועדת - קריאה חובה לפני שהקוד הזה מופעל על תנועה אמיתית:                             ║
-// ║                                                                                               ║
-// ║ שמות השדות/endpoints כאן (TerminalNumber/ApiName/ApiPassword/ReturnValue/Amount/              ║
-// ║ SuccessRedirectUrl/FailedRedirectUrl/WebHookUrl/LowProfileId, /api/v11/LowProfile/Create,     ║
-// ║ /api/v11/LowProfile/GetLpResult) מבוססים על מחקר רשת (חיפוש + WebFetch) שבוצע בזמן כתיבת      ║
-// ║ הקוד הזה - **לא על גישה ישירה, מאומתת ומלאה לתיעוד הרשמי או לחשבון Cardcom בפועל**. ניסיונות  ║
-// ║ לגשת ישירות ל-Zendesk/kb.cardcom.co.il/swagger.json נחסמו (403/404/ECONNREFUSED) בסביבת       ║
-// ║ הכתיבה הזו. זו בדיוק ההחלטה הפתוחה שכבר מתועדת ב-GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §8        ║
-// ║ ("אימות שם ה-API המדויק... מול תיעוד Cardcom/תמיכה") - עדיין לא נסגרה, לא נסגרת כאן.          ║
-// ║                                                                                               ║
-// ║ **חובה לאמת את כל השדות למטה מול תיעוד Cardcom החי (או תמיכה) בסביבת sandbox, לפני שה-        ║
-// ║ Edge Function הזו נפרסת ומופעלת על תנועה אמיתית.** זו בדיוק הסיבה שה-commit הזה לא כולל       ║
-// ║ פריסה (deploy) בפועל.                                                                         ║
-// ╚═══════════════════════════════════════════════════════════════════════════════════════════╝
+// **אומת מול תיעוד רשמי** (סופק על ידי המשתמש, לא מחקר רשת):
+// https://support.cardcom.solutions/hc/he/articles/360021519340-Low-profile-interface-EN-Step-1-2
+// גרסה קודמת של הקובץ הזה הסתמכה על מחקר רשת חלקי ("api/v11/...", CARDCOM_API_PASSWORD) -
+// **כל ההנחות שלא אומתו הוסרו** - הממשק כאן הוא Name-To-Value, API Level 10, לא v11 JSON.
 //
-// ממצא נוסף לדיווח: רשימת ה-secrets שסופקה (CARDCOM_TERMINAL_NUMBER, CARDCOM_API_USERNAME,
-// CARDCOM_INDICATOR_URL, CARDCOM_SUCCESS_URL, CARDCOM_ERROR_URL) **אינה כוללת סיסמה/מפתח API**
-// (ApiPassword או מקביל) - בכל מקור שנבדק (כולל תיעוד ישן וחדש כאחד), האימות מול Cardcom דורש
-// גם משתמש/שם API **וגם** סיסמה/מפתח, לא רק שם. הקוד כאן קורא ל-`CARDCOM_API_PASSWORD` בתור שם
-// secret חסר סביר - **שם בלבד, שם ה-secret הזה לא סופק ברשימה המקורית ולא הונח שום ערך** - יש
-// לאשר/להגדיר אותו לפני שהקוד הזה יכול לפעול בפועל.
+// קובץ טהור, בלי ייבוא ספציפי ל-Deno (רק fetch/URL/URLSearchParams הגלובליים - זמינים זהה
+// ב-Deno וב-Node) - נבדק ישירות ב-cardcom-client.test.ts דרך mock ל-fetch הגלובלי.
+
+import { agorotToShekelString } from "./money.ts";
+
+const LOW_PROFILE_CREATE_URL = "https://secure.cardcom.solutions/Interface/LowProfile.aspx";
+
+/** host מאושר יחיד ל-checkout_url שחוזר מ-Cardcom - לא בונים את הכתובת בעצמנו (לפי ההוראה),
+ *  רק מוודאים שמה שהספק החזיר הוא באמת שלו, לא URL שרירותי (תגובה מזוייפת/proxy נגוע וכו') */
+const ALLOWED_CHECKOUT_HOSTS = new Set(["secure.cardcom.solutions"]);
 
 export interface CardcomCredentials {
   terminalNumber: string;
-  apiUsername: string;
-  /** ר' אזהרת ה-secret החסר למעלה - לא בטוח שזה שם ה-secret הנכון בפועל */
-  apiPassword: string;
+  /** UserName בתיעוד הרשמי - **אין סיסמה נפרדת** ב-API Level 10 של יצירת LowProfile (ר' §4 בדוח) */
+  userName: string;
 }
 
 export interface CreateLowProfileRequest {
+  /** אגורות, integer - מומר למחרוזת שקלים דו-ספרתית (agorotToShekelString) לפני השליחה */
   amountAgorot: number;
-  currencyCode: number;
-  /** ה-provider_order_reference שלנו - Cardcom מחזירה אותו בחזרה כדי שנוכל לקשר את ה-callback להזמנה שלנו */
+  /** נחתך ל-50 תווים (מגבלת Cardcom) - מגיע מה-registry (payment-products.ts), לעולם לא מהלקוח */
+  productName: string;
+  /** ה-provider_order_reference שלנו - Cardcom מחזירה אותו כ-ReturnValue כדי שנוכל לקשר callback להזמנה */
   returnValue: string;
   successRedirectUrl: string;
-  failedRedirectUrl: string;
-  /** webhook - כתובת קבועה מ-secret/config השרת, לעולם לא מהלקוח */
+  errorRedirectUrl: string;
+  /** webhook - כתובת קבועה מ-config/secrets השרת, לעולם לא מהלקוח */
   indicatorUrl: string;
 }
 
 export interface CreateLowProfileResult {
   lowProfileCode: string;
+  /** בדיוק מה ש-Cardcom החזירה תחת `url` - לא נבנה בעצמנו, רק מאומת (HTTPS + host מאושר) */
   checkoutUrl: string;
 }
 
-/** תוצאה שלילית - לא נזרקת כ-exception (הכשל הוא תרחיש צפוי, לא שגיאת קוד) */
+/** תוצאה שלילית - לא נזרקת כ-exception (הכשל הוא תרחיש צפוי, לא שגיאת קוד). failureCode תמיד
+ *  קוד כללי - **לעולם לא** ה-Description החופשי שחוזר מ-Cardcom, ולא ה-body המלא של התגובה. */
 export type CardcomCreateOutcome =
   | { ok: true; result: CreateLowProfileResult }
   | { ok: false; failureCode: string };
 
-const CARDCOM_BASE_URL = "https://secure.cardcom.solutions";
-const CREATE_LOW_PROFILE_PATH = "/api/v11/LowProfile/Create";
-
-/**
- * יוצרת "דף תשלום" (LowProfile session) חדש אצל Cardcom. **הצלחה כאן פירושה אך ורק "נוצר דף
- * תשלום"** - לא "שולם"/"אושר". אין קריאה כלשהי כאן שמסמנת תשלום כמאושר - זה תפקידה הבלעדי
- * של cardcom-payment-indicator (Edge Function נפרדת, עתידית, שקוראת ל-GetLpResult) אחרי חזרת
- * המשתמש/הגעת ה-webhook, לא של הפונקציה הזו.
- */
-export async function createLowProfile(
-  credentials: CardcomCredentials,
-  request: CreateLowProfileRequest
-): Promise<CardcomCreateOutcome> {
-  let response: Response;
+function isHttpsUrl(value: string): boolean {
   try {
-    response = await fetch(`${CARDCOM_BASE_URL}${CREATE_LOW_PROFILE_PATH}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isApprovedCheckoutUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ALLOWED_CHECKOUT_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+const MAX_PRODUCT_NAME_LENGTH = 50;
+
+export function createCardcomClient(credentials: CardcomCredentials) {
+  return {
+    /**
+     * יוצרת "דף תשלום" (LowProfile session, API Level 10) אצל Cardcom. **הצלחה כאן פירושה אך
+     * ורק "נוצר דף תשלום"** - לא "שולם"/"אושר". אין קריאה כלשהי כאן שמסמנת תשלום כמאושר - זה
+     * תפקידה הבלעדי של cardcom-payment-indicator (Edge Function נפרדת, עתידית, לא נכתבת כאן -
+     * ר' תיעוד הממשק המאומת שלה בתחתית הקובץ הזה) אחרי חזרת המשתמש/הגעת ה-IndicatorUrl.
+     *
+     * **בכוונה בלי `AutoRedirect=true`** - אנחנו צריכים את ה-url בתגובה כדי להחזיר אותו ללקוח
+     * (checkoutUrl), לא redirect מתוך ה-fetch עצמו (אין למי להפנות בצד שרת).
+     */
+    async createLowProfile(request: CreateLowProfileRequest): Promise<CardcomCreateOutcome> {
+      // כתובות ה-callback מגיעות מ-config/secrets השרת בלבד (לעולם לא מהלקוח) - עדיין נבדקות
+      // HTTPS כאן, כהגנת-שפיות מול קונפיגורציה שגויה (למשל secret ריק/http בטעות), לא מול קלט לקוח.
+      if (!isHttpsUrl(request.successRedirectUrl) || !isHttpsUrl(request.errorRedirectUrl) || !isHttpsUrl(request.indicatorUrl)) {
+        return { ok: false, failureCode: "invalid_callback_url_config" };
+      }
+
+      let sumToBill: string;
+      try {
+        sumToBill = agorotToShekelString(request.amountAgorot);
+      } catch {
+        return { ok: false, failureCode: "invalid_amount" };
+      }
+
+      const productName = request.productName.slice(0, MAX_PRODUCT_NAME_LENGTH);
+
+      // כל הערכים מקודדים אוטומטית על ידי URLSearchParams - אין צורך ב-encodeURIComponent ידני.
+      const params = new URLSearchParams({
+        Operation: "1",
         TerminalNumber: credentials.terminalNumber,
-        ApiName: credentials.apiUsername,
-        ApiPassword: credentials.apiPassword,
-        Amount: request.amountAgorot / 100,
-        ISOCoinId: request.currencyCode,
-        ReturnValue: request.returnValue,
+        UserName: credentials.userName,
+        SumToBill: sumToBill,
+        CoinId: "1",
+        Language: "he",
+        ProductName: productName,
+        APILevel: "10",
+        Codepage: "65001",
         SuccessRedirectUrl: request.successRedirectUrl,
-        FailedRedirectUrl: request.failedRedirectUrl,
-        WebHookUrl: request.indicatorUrl,
-      }),
-    });
-  } catch {
-    // תקלת רשת/חיבור - לא תקלת קוד. failureCode כללי, בלי לחשוף פרטי חיבור/כתובות פנימיות.
-    return { ok: false, failureCode: "provider_unreachable" };
-  }
+        ErrorRedirectUrl: request.errorRedirectUrl,
+        IndicatorUrl: request.indicatorUrl,
+        ReturnValue: request.returnValue,
+      });
 
-  if (!response.ok) {
-    // **לא** קוראים/מחזירים את גוף התגובה המלא - עלול להכיל פרטי כישלון של הספק שלא נועדו
-    // לצאת ללקוח (ר' דרישה "אל תחזיר credentials או תגובת ספק מלאה").
-    return { ok: false, failureCode: `provider_http_${response.status}` };
-  }
+      let responseText: string;
+      try {
+        const response = await fetch(LOW_PROFILE_CREATE_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+        });
+        if (!response.ok) {
+          return { ok: false, failureCode: `provider_http_${response.status}` };
+        }
+        responseText = await response.text();
+      } catch {
+        // תקלת רשת/חיבור - לא תקלת קוד.
+        return { ok: false, failureCode: "provider_unreachable" };
+      }
 
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    return { ok: false, failureCode: "provider_invalid_response" };
-  }
+      // תגובת Name-To-Value: key=value&key2=value2..., לא JSON - נפרסת עם URLSearchParams.
+      const parsed = new URLSearchParams(responseText);
+      const responseCode = parsed.get("ResponseCode");
+      const lowProfileCode = parsed.get("LowProfileCode");
+      const checkoutUrl = parsed.get("url");
 
-  const lowProfileCode = extractString(payload, ["LowProfileId", "LowProfileCode"]);
-  const checkoutUrl = extractString(payload, ["Url", "RedirectUrl", "LowProfileUrl"]);
+      // Description (הטקסט החופשי שמסביר כשל, אם קיים) **לא נקרא בכלל** - נשאר בגוף התגובה
+      // ולא מגיע לשום מקום שאנחנו נוגעים בו, כדי שלא ידלוף ל-failure_code/ללוגים.
+      if (responseCode !== "0") {
+        return { ok: false, failureCode: "provider_rejected" };
+      }
+      if (!lowProfileCode || !checkoutUrl) {
+        return { ok: false, failureCode: "provider_missing_fields" };
+      }
+      if (!isApprovedCheckoutUrl(checkoutUrl)) {
+        return { ok: false, failureCode: "provider_untrusted_checkout_url" };
+      }
 
-  if (!lowProfileCode || !checkoutUrl) {
-    return { ok: false, failureCode: "provider_missing_fields" };
-  }
-
-  return { ok: true, result: { lowProfileCode, checkoutUrl } };
+      return { ok: true, result: { lowProfileCode, checkoutUrl } };
+    },
+  };
 }
 
-function extractString(payload: unknown, keys: readonly string[]): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
-  const record = payload as Record<string, unknown>;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return null;
-}
+export type CardcomClient = ReturnType<typeof createCardcomClient>;
+
+// ╔═══════════════════════════════════════════════════════════════════════════════════════════╗
+// ║ תיעוד הכנה ל-Indicator העתידי (cardcom-payment-indicator) - לא ממומש כאן, לא נקרא משום מקום. ║
+// ║ אומת מול אותו תיעוד רשמי (הקישור בראש הקובץ).                                               ║
+// ║                                                                                               ║
+// ║   GET/POST https://secure.cardcom.solutions/Interface/BillGoldGetLowProfileIndicator.aspx    ║
+// ║   פרמטרים: TerminalNumber, UserName, LowProfileCode, codepage=65001                          ║
+// ║                                                                                               ║
+// ║ תשלום ייחשב תקין (ורק אז ייכתב entitlement) בעתיד רק אם **כל** התנאים הבאים מתקיימים:        ║
+// ║   - OperationResponse = 0                                                                     ║
+// ║   - DealResponse = 0                                                                          ║
+// ║   - InternalDealNumber קיים (לא ריק)                                                          ║
+// ║   - הסכום/המטבע/ה-ReturnValue שחוזרים תואמים בדיוק ל-payment_order שכבר קיים אצלנו            ║
+// ║     (לא רק "יש תשובה חיובית" - השוואה מפורשת מול מה שאנחנו כבר יודעים על ההזמנה)             ║
+// ║                                                                                               ║
+// ║ **השדות האלה לא נקראים היום בשום קוד** - cardcom-payment-indicator עדיין לא נכתבת. תיעוד      ║
+// ║ בלבד, לפי ההוראה המפורשת "אין להשתמש כרגע בשדות אלה כדי לסמן paid".                          ║
+// ╚═══════════════════════════════════════════════════════════════════════════════════════════╝

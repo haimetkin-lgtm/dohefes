@@ -7,11 +7,16 @@
 
 export type ProductType = "baseReport" | "cashFlowAnalysis";
 
+/** Cardcom LowProfile API 10 (ProductName) מגביל את השדה הזה - ר' cardcom-client.ts */
+export const MAX_PRODUCT_NAME_LENGTH = 50;
+
 export interface ProductDefinition {
   /** אגורות כמספר שלם - תואם expected_amount_agorot ב-supabase/payment-schema.sql, לא numeric/float */
   readonly amountAgorot: number;
   /** 1 = ש"ח, לפי ממשק Cardcom המתוכנן - ר' payment-schema.sql להערה המלאה על currency_code */
   readonly currencyCode: number;
+  /** נשלח ל-Cardcom כ-ProductName - עד MAX_PRODUCT_NAME_LENGTH תווים, נקבע כאן בלבד, לעולם לא מהלקוח */
+  readonly productName: string;
 }
 
 /**
@@ -19,8 +24,8 @@ export interface ProductDefinition {
  * (GEN2_CASHFLOW_UI_DESIGN.md §0.1) - אין שום קשר בין שני הערכים כאן מעבר לכך שהם שווים היום.
  */
 export const PRODUCTS: Readonly<Record<ProductType, ProductDefinition>> = Object.freeze({
-  baseReport: Object.freeze({ amountAgorot: 98_000, currencyCode: 1 }),
-  cashFlowAnalysis: Object.freeze({ amountAgorot: 98_000, currencyCode: 1 }),
+  baseReport: Object.freeze({ amountAgorot: 98_000, currencyCode: 1, productName: "דוח אפס - בדיקת כדאיות כלכלית" }),
+  cashFlowAnalysis: Object.freeze({ amountAgorot: 98_000, currencyCode: 1, productName: "ניתוח תזרים ומימון מתקדם" }),
 });
 
 const PRODUCT_TYPES: readonly ProductType[] = Object.freeze(["baseReport", "cashFlowAnalysis"]);
