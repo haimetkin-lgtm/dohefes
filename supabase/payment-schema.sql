@@ -3,10 +3,21 @@
 -- קובץ נפרד מ-schema.sql (לא נוגע בו כלל) — אותו דפוס בדיוק כמו hetel-hasbaha/supabase/stage2-schema.sql
 -- (סכמה נפרדת לפיצ'ר/שלב נוסף באותו פרויקט Supabase, במקום להוסיף לקובץ הראשי).
 --
--- שלב זה (commit יחיד, ענף secure-payment-foundation): schema + constraints + RLS בלבד.
+-- שלב זה (branch secure-payment-foundation, שני commits): schema + constraints + RLS בלבד.
 -- אין Edge Functions עדיין, ואין חיבור מה-UI. הריצה בפועל (SQL Editor, כמו כל migration קודם
 -- בפרויקט) מתוזמנת רק כשה-rollout המדורג (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2) מגיע לשלב 1 -
--- לא הורצה כאן, לא כחלק מה-commit הזה.
+-- לא הורצה כאן, לא כחלק מה-commits האלה.
+--
+-- commit שני (hardening): מוסיף עוד שכבת הגנה **ברמת מסד הנתונים עצמו**, לא רק ברמת קוד ה-Edge
+-- Function העתידי - כדי שאפילו קוד שרת תקין-אבל-עם-באג לא יוכל ליצור entitlement לא-חוקי. שתי
+-- הגנות משלימות, לא חופפות לגמרי - ר' פירוט מלא ליד ה-trigger עצמו לגבי סדר ההפעלה בפועל:
+-- (1) trigger (BEFORE INSERT/UPDATE) שדוחה entitlement שההזמנה המקושרת שלו לא paid ומאומתת
+-- במלואה, או שלא תואמת report_id/product_type - זו שכבת ההגנה הראשונה שנבדקת בפועל בכל insert.
+-- (2) FK מורכב (payment_order_id, report_id, product_type) - אותה הגנה על אי-התאמת דוח/מוצר,
+-- אך ברמת מבנה הטבלה עצמה - עדיין פעילה גם אם ה-trigger אי-פעם יבוטל/יימחק בטעות (למשל בזמן
+-- טעינת נתונים עם triggers מושבתים) - לא ניתן "לפתוח" מוצר בדוח B בעזרת הזמנה שנוצרה לדוח A,
+-- או לפתוח cashFlowAnalysis בעזרת הזמנת baseReport, בשום נסיבות.
+-- (3) check constraint שאוכף עקביות status='paid' מול השדות שאמורים להתמלא יחד איתו.
 --
 -- שינויים ל-dohefes_reports: אין. RLS על dohefes_reports: אין שינוי בשלב הזה (ר' §6.2 שלב 5 -
 -- סגירת ה-policies הפתוחות שם מתוכננת רק בסוף ה-rollout, לא כאן).
@@ -24,6 +35,10 @@ create extension if not exists "pgcrypto";
 -- מאפס, בשם ייחודי (קידומת dohefes_payment_) כדי לא להתנגש עם פונקציה בשם דומה שאולי כבר קיימת
 -- בפרויקט ה-Supabase המשותף (insure-vda/rami/hetel-hasbaha/dohefes) - לא ניתן לאמת מהריפו הזה
 -- בלבד שהשם פנוי, ר' GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §3.
+--
+-- security invoker (ברירת המחדל, לא מוגדר security definer במפורש): לא נוגעת בשום טבלה מלבד
+-- השורה שמופעלת עליה (new.updated_at בלבד) - אין לה צורך בהרשאות מוגברות, ולכן גם לא ב-search_path
+-- קבוע. EXECUTE מוסר מ-PUBLIC בכל זאת (למטה) - אין סיבה שאף תפקיד יקרא לה ישירות מחוץ להקשר trigger.
 create or replace function dohefes_payment_touch_updated_at()
 returns trigger as $$
 begin
@@ -31,6 +46,8 @@ begin
   return new;
 end;
 $$ language plpgsql;
+
+revoke execute on function dohefes_payment_touch_updated_at() from public;
 
 -- --- payment_orders: "ניסיון תשלום" - נוצר לפני שהעסקה בהכרח הצליחה ---
 --
@@ -68,6 +85,17 @@ $$ language plpgsql;
 --   - get-product-access מאמתת את הטוקן שמגיע מהלקוח מול ה-hash השמור **לפני** שהיא נוגעת
 --     בטבלאות עם ה-service_role שלה.
 -- אין יצירת token בפועל ב-commit הזה - רק העמודה + הכלל המתועד. ר' GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §5.2.
+--
+-- unique(id, report_id, product_type) (בנוסף ל-primary key(id)): לא לצורך ייחודיות נוספת -
+-- id כבר ייחודי לבדו - אלא כי Postgres דורש שהעמודות שמפנה אליהן foreign key מורכב יהיו
+-- מכוסות ב-unique constraint על **בדיוק** אותו שילוב עמודות. זה מה שמאפשר ל-entitlements
+-- (למטה) להפנות (payment_order_id, report_id, product_type) לשלישייה הזו - לא ניתן להשתמש
+-- ב-id של הזמנה בלי שגם report_id וגם product_type יתאימו בדיוק לאותה הזמנה.
+--
+-- check constraint על עקביות status='paid': כשההזמנה מסומנת "שולמה", ארבעת השדות שמעידים
+-- על כך בפועל (מתי אומתה, מתי שולמה, ושני מזהי Cardcom) חייבים כולם להיות מלאים - לא ניתן
+-- לסמן paid "יבש" בלי העדות שמאחוריו. סטטוסים אחרים (created/pending/failed/cancelled/refunded)
+-- לא כפופים לדרישה הזו - יכולים להיות עם/בלי השדות האלה לפי הצורך.
 create table if not exists dohefes_payment_orders (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -85,7 +113,19 @@ create table if not exists dohefes_payment_orders (
   access_token_hash text not null unique,
   verified_at timestamptz,
   paid_at timestamptz,
-  failure_code text
+  failure_code text,
+  unique (id, report_id, product_type),
+  constraint dohefes_payment_orders_paid_requires_evidence check (
+    status <> 'paid'
+    or (
+      verified_at is not null
+      and paid_at is not null
+      and cardcom_low_profile_code is not null
+      and cardcom_internal_deal_number is not null
+    )
+  ),
+  constraint dohefes_payment_orders_paid_at_after_created check (paid_at is null or paid_at >= created_at),
+  constraint dohefes_payment_orders_verified_at_after_created check (verified_at is null or verified_at >= created_at)
 );
 
 create trigger dohefes_payment_orders_touch_updated_at
@@ -105,15 +145,27 @@ create index if not exists idx_dohefes_payment_orders_status on dohefes_payment_
 -- התשלום עצמו חי אך ורק ב-payment_orders.status. שלושה ערכים: active (יש גישה כרגע), revoked
 -- (גישה בוטלה, לא בהכרח בגלל refund - למשל טעות אדמין), refunded (בוטלה ספציפית עקב זיכוי כספי).
 -- אין ערך "pending" כאן במפורש: שורת entitlement נוצרת רק **אחרי** ש-cardcom-payment-indicator
--- כבר אימתה תשלום מוצלח (ר' §4.2) - אם התשלום עוד לא אומת, פשוט אין עדיין שורת entitlement כלל.
+-- כבר אימתה תשלום מוצלח (ר' §4.2) - אם התשלום עוד לא אומת, ה-trigger למטה חוסם את היצירה לגמרי,
+-- לא רק "לא ממליץ עליה". granted_at not null default now(): entitlement לא קיים כטיוטה - הוא
+-- נוצר רק ברגע שכבר עבר את ה-trigger, כלומר רק אחרי תשלום מאומת - אין מצב "ממתין למענק".
 --
--- payment_order_id: not null ו-unique - כל entitlement מקושרת בדיוק להזמנה אחת שאומתה (לא null,
--- "entitlement קשורה להזמנה מאומתת"), ואותה הזמנה לא יכולה להעניק יותר מ-entitlement אחד
--- (unique) - מונע את התרחיש של אותה עסקת תשלום "מוכפלת" ליותר מהרשאה אחת בטעות.
+-- payment_order_id: not null - כל entitlement מקושרת בדיוק להזמנה אחת. הקשר עצמו **לא** FK
+-- פשוט ל-id בלבד יותר - ר' foreign key מורכב למטה.
 --
 -- unique(report_id, product_type) נשאר (לא partial index): שורת הרשאה אחת בלבד לכל זוג
 -- (דוח, מוצר) לכל החיים - entitlement_status עצמו עובר מצבים (active -> revoked/refunded, ואולי
 -- active מחדש ברכישה חוזרת אחרי refund) בתוך אותה שורה, לא על ידי הוספת שורה נוספת.
+--
+-- foreign key מורכב (payment_order_id, report_id, product_type) -> dohefes_payment_orders
+-- (id, report_id, product_type): מפני "פתיחת מוצר בדוח B בעזרת הזמנה שנוצרה בפועל לדוח A", או
+-- "פתיחת cashFlowAnalysis בעזרת הזמנת baseReport" - ברמת **מבנה הטבלה עצמו**, לא רק כהנחה על
+-- קוד ה-Edge Function העתידי. **הערה על סדר בדיקה בפועל**: ה-trigger למטה (BEFORE INSERT/UPDATE)
+-- רץ *לפני* שה-foreign key נבדק בכלל (כך עובד סדר האכיפה הרגיל ב-Postgres - BEFORE triggers
+-- קודמים לבדיקת constraints) - כלומר בזרימה הרגילה, אי-ההתאמה נתפסת קודם בהודעת ה-trigger, לא
+-- בהודעת "violates foreign key constraint". ה-foreign key הוא בכל זאת קו הגנה נפרד וחשוב: הוא
+-- ממשיך לחסום את אותה אי-התאמה גם בתרחיש שבו ה-trigger הזה אי-פעם מבוטל/מושבת/נמחק בטעות
+-- (למשל טעינת נתונים עם `session_replication_role=replica`, שמשביתה triggers רגילים) - הוא לא
+-- תלוי בכך שה-trigger קיים ותקין כדי לספק את ההגנה הזו.
 create table if not exists dohefes_product_entitlements (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -122,14 +174,80 @@ create table if not exists dohefes_product_entitlements (
   product_type text not null check (product_type in ('baseReport', 'cashFlowAnalysis')),
   entitlement_status text not null default 'active'
     check (entitlement_status in ('active', 'revoked', 'refunded')),
-  granted_at timestamptz,
-  payment_order_id uuid not null references dohefes_payment_orders(id) on delete restrict unique,
-  unique (report_id, product_type)
+  granted_at timestamptz not null default now(),
+  payment_order_id uuid not null,
+  unique (payment_order_id),
+  unique (report_id, product_type),
+  foreign key (payment_order_id, report_id, product_type)
+    references dohefes_payment_orders (id, report_id, product_type)
+    on delete restrict
 );
 
 create trigger dohefes_product_entitlements_touch_updated_at
   before update on dohefes_product_entitlements
   for each row execute function dohefes_payment_touch_updated_at();
+
+-- --- trigger הגנתי: entitlement לא נוצר/מתעדכן בלי הזמנה משולמת ומאומתת במלואה ---
+--
+-- לא מסתמך על כך ש-Edge Function עתידית "תזכור" לבדוק את זה - זו אכיפה ברמת מסד הנתונים,
+-- חוסמת כל insert/update על השורה, גם אם קוד השרת שכתב אותה תקין-במבנהו אך יש בו טעות לוגית.
+--
+-- בודקת גם, במפורש, התאמת report_id/product_type בין ה-entitlement להזמנה המקושרת - זו בפועל
+-- שכבת הבדיקה **הראשונה** שנתקלים בה (BEFORE trigger רץ לפני שה-foreign key המורכב על הטבלה
+-- נבדק בכלל, ר' הערה ליד הגדרת ה-foreign key למעלה) - לא כפילות מיותרת: ה-foreign key נשאר קו
+-- הגנה נפרד ועצמאי בתרחיש שבו ה-trigger הזה אי-פעם מבוטל/מושבת/נמחק בטעות, לא מסתמך על כך
+-- ששניהם תמיד קיימים יחד.
+--
+-- security definer + search_path קבוע ובטוח (pg_catalog, public בלבד - לא כולל שום סכימה
+-- שמשתמש יכול ליצור/לשנות): מבטיח שהבדיקה מול dohefes_payment_orders עובדת בעקביות בלי תלות
+-- בהרשאות הקריאה של התפקיד שמבצע את ה-insert/update בפועל, ומונע search_path hijacking
+-- (טכניקת התקפה סטנדרטית מול פונקציות security definer עם search_path לא-קבוע).
+-- EXECUTE על הפונקציה מוסר במפורש מ-PUBLIC (כולל anon) - היא מיועדת להיקרא רק על ידי מנגנון
+-- ה-trigger עצמו, לא כקריאת פונקציה ישירה מאף תפקיד.
+--
+-- אינה מקבלת שום ערך מהלקוח (טריגר, לא קוראת פרמטרים חיצוניים), אינה משתמשת ב-dynamic SQL
+-- (שאילתה סטטית קבועה בלבד), ואינה כוללת מזהים (UUID של ההזמנה וכו') בהודעת השגיאה - רק תיאור
+-- כללי של מה שנכשל, כדי לא לחשוף פרטי הזמנה מעבר לנדרש.
+create or replace function dohefes_payment_entitlement_requires_verified_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  matched_order dohefes_payment_orders%rowtype;
+begin
+  select *
+  into matched_order
+  from dohefes_payment_orders o
+  where o.id = new.payment_order_id
+  for share;
+
+  if not found then
+    raise exception 'dohefes_product_entitlements: linked payment order not found';
+  end if;
+
+  -- כפילות מכוונת מול ה-foreign key המורכב על הטבלה - ר' הערה למעלה
+  if matched_order.report_id is distinct from new.report_id
+     or matched_order.product_type is distinct from new.product_type then
+    raise exception 'dohefes_product_entitlements: linked payment order does not match report/product';
+  end if;
+
+  if matched_order.status <> 'paid'
+     or matched_order.verified_at is null
+     or matched_order.paid_at is null then
+    raise exception 'dohefes_product_entitlements: linked payment order is not a fully verified paid order';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function dohefes_payment_entitlement_requires_verified_order() from public;
+
+create trigger dohefes_product_entitlements_require_verified_order
+  before insert or update on dohefes_product_entitlements
+  for each row execute function dohefes_payment_entitlement_requires_verified_order();
 
 create index if not exists idx_dohefes_product_entitlements_report_id on dohefes_product_entitlements(report_id);
 create index if not exists idx_dohefes_product_entitlements_product_type on dohefes_product_entitlements(product_type);
@@ -158,13 +276,74 @@ alter table dohefes_product_entitlements enable row level security;
 
 -- --- Rollback (מתועד בלבד, לא מבוצע) ---
 --
+-- drop trigger if exists dohefes_product_entitlements_require_verified_order on dohefes_product_entitlements;
 -- drop trigger if exists dohefes_product_entitlements_touch_updated_at on dohefes_product_entitlements;
 -- drop trigger if exists dohefes_payment_orders_touch_updated_at on dohefes_payment_orders;
 -- drop table if exists dohefes_product_entitlements;
 -- drop table if exists dohefes_payment_orders;
+-- drop function if exists dohefes_payment_entitlement_requires_verified_order();
 -- drop function if exists dohefes_payment_touch_updated_at();
 --
 -- בטוח לביצוע בכל שלב: אין foreign key בכיוון ההפוך (dohefes_reports לא מפנה לשתי הטבלאות
 -- האלה), ואין קוד קיים (React/Edge Function) שתלוי בהן - הן לא נצרכות על ידי שום דבר עד commit
--- עתידי. הסדר למעלה (triggers -> entitlements -> orders -> function) חשוב: entitlements תלויה
--- ב-orders דרך foreign key, וה-function נמחקת רק אחרי ששני ה-triggers שמשתמשים בה כבר לא קיימים.
+-- עתידי. הסדר למעלה (triggers -> entitlements -> orders -> functions) חשוב: entitlements תלויה
+-- ב-orders דרך foreign key, וכל פונקציה נמחקת רק אחרי שה-trigger/ים שמשתמשים בה כבר לא קיימים.
+
+-- --- תרחישי בדיקה ידניים (מתועדים בלבד - לא מבוצעים אוטומטית, לא כחלק מה-commit הזה) ---
+--
+-- להרצה ידנית ב-SQL Editor **אחרי** שה-migration הזו כבר רצה בפועל (לא כאן, לא כעת - ר' §6.2),
+-- בתוך טרנזקציה עם rollback כדי לא להשאיר נתוני בדיקה: `begin; ... בדיקות ... ; rollback;`.
+-- כל השאילתות למטה הן דוגמאות מלאות - יש להחליף placeholders (<...>) בערכים אמיתיים מתוך דוח
+-- קיים לפני הרצה. אף אחת מהן לא נועדה לרוץ כפי שהיא מ-CI/סקריפט אוטומטי.
+--
+-- הכנה (בהנחה ש-<report-A>/<report-B> הם uuid קיימים ב-dohefes_reports):
+--
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash)
+--   values ('<report-A>', 'cashFlowAnalysis', 98000, 1, 'idem-test-1', 'order-ref-test-1', 'hash-test-1')
+--   returning id;  -- שמור כ-<pending-order-id>
+--
+-- 1. entitlement להזמנה pending -> נכשל (ה-trigger בודק status='paid'):
+--   insert into dohefes_product_entitlements (report_id, product_type, payment_order_id)
+--   values ('<report-A>', 'cashFlowAnalysis', '<pending-order-id>');
+--   -- צפוי: EXCEPTION "...is not a fully verified paid order"
+--
+-- 2. entitlement לדוח אחר מזה שבהזמנה -> נכשל. ה-trigger (BEFORE) רץ ראשון ותופס את זה -
+--    ה-foreign key המורכב לא מגיע להיבדק בזרימה הרגילה (ר' הערה ליד ה-trigger), אך ממשיך
+--    לחסום את אותו תרחיש בדיוק גם אם ה-trigger אי-פעם מבוטל:
+--   insert into dohefes_product_entitlements (report_id, product_type, payment_order_id)
+--   values ('<report-B>', 'cashFlowAnalysis', '<pending-order-id>');
+--   -- צפוי: EXCEPTION "...does not match report/product" (מה-trigger)
+--
+-- 3. entitlement למוצר אחר מזה שבהזמנה -> נכשל, אותה סיבה כמו #2:
+--   insert into dohefes_product_entitlements (report_id, product_type, payment_order_id)
+--   values ('<report-A>', 'baseReport', '<pending-order-id>');
+--   -- צפוי: EXCEPTION "...does not match report/product" (מה-trigger)
+--
+-- 4. סימון ההזמנה כ-paid באופן תקין ומלא, ואז entitlement תואם -> מצליח:
+--   update dohefes_payment_orders
+--   set status = 'paid', verified_at = now(), paid_at = now(),
+--       cardcom_low_profile_code = 'lpc-test-1', cardcom_internal_deal_number = 'deal-test-1'
+--   where id = '<pending-order-id>';
+--
+--   insert into dohefes_product_entitlements (report_id, product_type, payment_order_id)
+--   values ('<report-A>', 'cashFlowAnalysis', '<pending-order-id>');
+--   -- צפוי: מצליח, שורה אחת נוצרת עם entitlement_status='active'
+--
+-- 5. אותה הזמנה פעם שנייה (entitlement נוסף לאותו payment_order_id) -> נכשל (unique(payment_order_id)):
+--   insert into dohefes_product_entitlements (report_id, product_type, payment_order_id)
+--   values ('<report-A>', 'cashFlowAnalysis', '<pending-order-id>');
+--   -- צפוי: EXCEPTION duplicate key value violates unique constraint ".../payment_order_id"
+--
+-- 6. אותו (report_id, product_type) פעם שנייה, דרך הזמנה שנייה ונפרדת שגם היא paid כחוק -> נכשל
+--    (unique(report_id, product_type), למרות שההזמנה עצמה תקינה ושונה):
+--   -- (יוצרים הזמנה שנייה תקינה ומאומתת לאותו report_id/product_type בדיוק, ואז:)
+--   insert into dohefes_product_entitlements (report_id, product_type, payment_order_id)
+--   values ('<report-A>', 'cashFlowAnalysis', '<second-paid-order-id>');
+--   -- צפוי: EXCEPTION duplicate key value violates unique constraint ".../report_id_product_type"
+--
+-- 7. הזמנה מסומנת paid בלי timestamps/מזהי Cardcom -> נכשל כבר ב-UPDATE של ההזמנה עצמה, לפני
+--    שמגיעים בכלל לשלב entitlement (check constraint על payment_orders):
+--   update dohefes_payment_orders set status = 'paid' where id = '<some-other-created-order-id>';
+--   -- צפוי: EXCEPTION violates check constraint "dohefes_payment_orders_paid_requires_evidence"
