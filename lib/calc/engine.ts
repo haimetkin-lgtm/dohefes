@@ -26,7 +26,17 @@ import type {
 // זו לא טעות, זו החלטת היקף מתועדת ב-01-תמא-38.md: "אפשר וכדאי להתחיל MVP עם גרסה
 // מפושטת... ולשדרג לגרסה המדויקת בשלב מאוחר יותר".
 
-const VAT_FACTOR = 1.17;
+export const VAT_FACTOR = 1.17;
+
+/**
+ * תבנית חוזרת בתוך computeCosts: סכום מבוסס הכנסת יזם לא-כולל-מע"מ, מוכפל במע"מ ואז בשיעור
+ * (legalNis, presaleInflowNis, accountOpeningCommissionNis - שלושתם באותה צורה בדיוק). מיוצא
+ * כ-helper טהור כדי שאפשר יהיה לחשב את אותם סכומים גם מחוץ ל-computeCosts (ר' commit 8c,
+ * cashflow-project-adapter.ts) בלי לשכפל את הנוסחה/את VAT_FACTOR במקום שני.
+ */
+export function computeVatInclusiveRevenueBasedAmount(developerRevenueExclVatNis: number, rate: number): number {
+  return developerRevenueExclVatNis * VAT_FACTOR * rate;
+}
 
 // basic/purchaseGroup: קרקע נרכשת/משולמת במזומן, קלט ישיר (היזם רוכש/כבר בעלים).
 // שאר סוגי העסקה: קרקע "משולמת" בעין, בלי תשלום כספי נפרד, בשתי שיטות שונות (ר' landMechanism):
@@ -239,7 +249,7 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const planningConsultantsNis = directConstructionNis * costs.planningConsultantsRate;
   const engineeringInspectionNis = costs.engineeringInspectionFlatNis;
   const marketingNis = revenue.developerRevenueExclVatNis * costs.marketingRate;
-  const legalNis = revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.legalRate;
+  const legalNis = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.legalRate);
   const legalRefundNis = areas.unitCount * costs.legalRefundPerUnitNis;
   const overheadNis = directConstructionNis * costs.overheadRate;
   const managementFeeNis = directConstructionNis * costs.managementFeeRate;
@@ -282,11 +292,11 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const guaranteeCommissionNis = revenue.totalRevenueInclVatNis * costs.guaranteeCommissionRate * 0.5;
 
   const totalDirectAndIndirect = directConstructionNis + indirectNis + landNis;
-  const presaleInflowNis = revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.presaleRate;
+  const presaleInflowNis = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.presaleRate);
   const creditFacilityNis = Math.max(0, totalDirectAndIndirect - costs.equityNis - presaleInflowNis);
   const unusedCreditCommissionNis = creditFacilityNis * costs.unusedCreditCommissionRate * 0.5;
   // עמלת פתיחת תיק, % מהכנסות היזם כולל מע"מ (לא מהתזרים כמו שתי העמלות האחרות)
-  const accountOpeningCommissionNis = revenue.developerRevenueExclVatNis * VAT_FACTOR * costs.accountOpeningCommissionRate;
+  const accountOpeningCommissionNis = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.accountOpeningCommissionRate);
 
   const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis + accountOpeningCommissionNis;
 
