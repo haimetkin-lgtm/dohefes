@@ -3,10 +3,14 @@
 -- קובץ נפרד מ-schema.sql (לא נוגע בו כלל) — אותו דפוס בדיוק כמו hetel-hasbaha/supabase/stage2-schema.sql
 -- (סכמה נפרדת לפיצ'ר/שלב נוסף באותו פרויקט Supabase, במקום להוסיף לקובץ הראשי).
 --
--- שלב זה (branch secure-payment-foundation, שני commits): schema + constraints + RLS בלבד.
--- אין Edge Functions עדיין, ואין חיבור מה-UI. הריצה בפועל (SQL Editor, כמו כל migration קודם
--- בפרויקט) מתוזמנת רק כשה-rollout המדורג (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2) מגיע לשלב 1 -
--- לא הורצה כאן, לא כחלק מה-commits האלה.
+-- שלב זה (branch secure-payment-foundation): schema + constraints + RLS בלבד. אין חיבור מה-UI.
+-- הריצה בפועל (SQL Editor, כמו כל migration קודם בפרויקט) מתוזמנת רק כשה-rollout המדורג
+-- (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2) מגיע לשלב 1 - לא הורצה כאן, לא כחלק מהעבודה הזו.
+--
+-- commit שלישי (schema tweak): הוספת checkout_url ל-dohefes_payment_orders - התגלה חסר תוך כדי
+-- כתיבת create-payment-order (Edge Function ראשונה, ר' supabase/functions/create-payment-order) -
+-- retry עם אותו Idempotency-Key על הזמנה pending חייב להחזיר את אותו קישור תשלום, לא ליצור
+-- session שני ב-Cardcom. ר' הערה מלאה ליד השדה עצמו.
 --
 -- commit שני (hardening): מוסיף עוד שכבת הגנה **ברמת מסד הנתונים עצמו**, לא רק ברמת קוד ה-Edge
 -- Function העתידי - כדי שאפילו קוד שרת תקין-אבל-עם-באג לא יוכל ליצור entitlement לא-חוקי. שתי
@@ -74,6 +78,13 @@ revoke execute on function dohefes_payment_touch_updated_at() from public;
 -- כל השדות עם unique נפרד (לא unique משותף) - מזהה כפול בכל אחד מהם, בנפרד, נדחה על ידי
 -- Postgres ולא יוצר entitlement כפול (ר' §4.1 "idempotency ל-callback/webhook").
 --
+-- checkout_url: **נוסף במהלך יישום create-payment-order** (לא היה בסכמה המקורית שאושרה) - שדה
+-- הכרחי שהתגלה חסר, לא עוקף: כש-idempotency-key חוזר על הזמנה שכבר ב-status='pending' (המשתמש
+-- לא הגיע ל-Cardcom בזמן, למשל טאב נסגר), הפונקציה חייבת להחזיר לו את אותו קישור תשלום מקורי -
+-- **לא** ליצור session תשלום שני ב-Cardcom (שהיה מייצר שני LowProfileCode לאותה הזמנה, נגד כל
+-- עקרון ה-idempotency). ללא השדה הזה אין שום דרך לשחזר את הקישור בלי לקרוא ל-Cardcom שוב. nullable
+-- (ריק עד ש-Cardcom מחזירה אותו בהצלחה, בדיוק כמו cardcom_low_profile_code).
+--
 -- access_token_hash: **חובה גם כש-RLS לא מעניקה שום גישה ל-anon** - ה-Edge Function עצמה
 -- (cardcom-payment-indicator/get-product-access) פועלת עם service_role וכך עוקפת RLS לגמרי;
 -- בלי login במערכת, זו חייבת לאמת בעצמה שמי שפונה אליה מחזיק את הסוד המתאים לאותה הזמנה/דוח,
@@ -110,6 +121,7 @@ create table if not exists dohefes_payment_orders (
   provider_order_reference text not null unique,
   cardcom_low_profile_code text unique,
   cardcom_internal_deal_number text unique,
+  checkout_url text,
   access_token_hash text not null unique,
   verified_at timestamptz,
   paid_at timestamptz,
