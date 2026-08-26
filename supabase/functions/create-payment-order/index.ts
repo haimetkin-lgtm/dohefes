@@ -24,6 +24,7 @@ import {
   MAX_REQUEST_BODY_BYTES,
   byteLength,
 } from "../_shared/payment-security.ts";
+import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { isProductType, type ProductType } from "../_shared/payment-products.ts";
 import { createCardcomClient } from "../_shared/cardcom-client.ts";
 import { createPaymentOrder } from "../_shared/payment-order-service.ts";
@@ -40,28 +41,9 @@ const CARDCOM_INDICATOR_URL = Deno.env.get("CARDCOM_INDICATOR_URL") ?? "";
 const CARDCOM_SUCCESS_URL = Deno.env.get("CARDCOM_SUCCESS_URL") ?? "";
 const CARDCOM_ERROR_URL = Deno.env.get("CARDCOM_ERROR_URL") ?? "";
 const ALLOWED_ORIGINS = parseAllowedOrigins(Deno.env.get("ALLOWED_ORIGINS"));
-
-function jsonResponse(body: unknown, status: number, origin: string | null): Response {
-  const headers = new Headers({ "Content-Type": "application/json" });
-  // CORS: רק origin מפורש מתוך ALLOWED_ORIGINS, לעולם לא "*". בלי Allow-Credentials - לא נדרש,
-  // אין cookies/session בזרימה הזו.
-  if (origin && isAllowedOrigin(origin, ALLOWED_ORIGINS)) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Vary", "Origin");
-  }
-  return new Response(JSON.stringify(body), { status, headers });
-}
-
-function corsPreflightResponse(origin: string | null): Response {
-  const headers = new Headers();
-  if (origin && isAllowedOrigin(origin, ALLOWED_ORIGINS)) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, Idempotency-Key");
-    headers.set("Vary", "Origin");
-  }
-  return new Response(null, { status: 204, headers });
-}
+const ALLOWED_REQUEST_HEADERS = "Content-Type, Idempotency-Key";
+// jsonResponse/corsPreflightResponse: חולצו ל-_shared/cors.ts (משותף גם עם get-product-access
+// העתידית) - אותה התנהגות בדיוק כמו קודם, רק לא משוכפלת בקובץ הזה יותר.
 
 interface RequestBody {
   reportId: string;
@@ -170,47 +152,47 @@ Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
 
   if (req.method === "OPTIONS") {
-    return corsPreflightResponse(origin);
+    return corsPreflightResponse(origin, ALLOWED_ORIGINS, ALLOWED_REQUEST_HEADERS);
   }
 
   if (!origin || !isAllowedOrigin(origin, ALLOWED_ORIGINS)) {
-    return jsonResponse({ error: "origin_not_allowed" }, 403, origin);
+    return jsonResponse({ error: "origin_not_allowed" }, 403, origin, ALLOWED_ORIGINS);
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, 405, origin);
+    return jsonResponse({ error: "method_not_allowed" }, 405, origin, ALLOWED_ORIGINS);
   }
 
   const idempotencyKey = req.headers.get("Idempotency-Key");
   if (!isUuid(idempotencyKey)) {
-    return jsonResponse({ error: "missing_or_invalid_idempotency_key" }, 400, origin);
+    return jsonResponse({ error: "missing_or_invalid_idempotency_key" }, 400, origin, ALLOWED_ORIGINS);
   }
 
   const contentLengthHeader = req.headers.get("Content-Length");
   if (contentLengthHeader && Number(contentLengthHeader) > MAX_REQUEST_BODY_BYTES) {
-    return jsonResponse({ error: "body_too_large" }, 413, origin);
+    return jsonResponse({ error: "body_too_large" }, 413, origin, ALLOWED_ORIGINS);
   }
 
   const rawBody = await req.text();
   if (byteLength(rawBody) > MAX_REQUEST_BODY_BYTES) {
     // בדיקה חוזרת על הגודל בפועל, לא רק על Content-Length (שניתן לזייף/להשמיט).
-    return jsonResponse({ error: "body_too_large" }, 413, origin);
+    return jsonResponse({ error: "body_too_large" }, 413, origin, ALLOWED_ORIGINS);
   }
 
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(rawBody);
   } catch {
-    return jsonResponse({ error: "invalid_json" }, 400, origin);
+    return jsonResponse({ error: "invalid_json" }, 400, origin, ALLOWED_ORIGINS);
   }
 
   const parsed = parseRequestBody(parsedJson);
   if (!parsed.ok) {
-    return jsonResponse({ error: parsed.error }, 400, origin);
+    return jsonResponse({ error: parsed.error }, 400, origin, ALLOWED_ORIGINS);
   }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return jsonResponse({ error: "internal_error" }, 500, origin);
+    return jsonResponse({ error: "internal_error" }, 500, origin, ALLOWED_ORIGINS);
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
@@ -229,9 +211,9 @@ Deno.serve(async (req: Request) => {
       },
       { reportId: parsed.body.reportId, productType: parsed.body.productType, idempotencyKey }
     );
-    return jsonResponse(result.body, result.status, origin);
+    return jsonResponse(result.body, result.status, origin, ALLOWED_ORIGINS);
   } catch {
     // תקלת DB/רשת בלתי-צפויה - לא חושפים פרטים פנימיים ללקוח.
-    return jsonResponse({ error: "internal_error" }, 500, origin);
+    return jsonResponse({ error: "internal_error" }, 500, origin, ALLOWED_ORIGINS);
   }
 });
