@@ -286,8 +286,184 @@ create index if not exists idx_dohefes_product_entitlements_entitlement_status o
 alter table dohefes_payment_orders enable row level security;
 alter table dohefes_product_entitlements enable row level security;
 
+-- --- commit רביעי (RPC אטומי): dohefes_finalize_verified_payment ---
+--
+-- זו נקודת הכתיבה **היחידה** שמותר ל-Edge Function עתידית (cardcom-payment-indicator) לקרוא לה
+-- אחרי שהיא כבר אימתה תשלום מול Cardcom בעצמה (server-to-server, GetLowProfileIndicator) - אסור
+-- לה לבצע UPDATE על payment_orders ו-INSERT על product_entitlements כשתי פעולות נפרדות משלה.
+-- הסיבה: בלי RPC אטומי יחיד, כשל בין שתי הפעולות (קריסת תהליך, timeout רשת בין הקריאות) עלול
+-- להשאיר הזמנה עם status='paid' בלי entitlement תואמת - בדיוק המצב שאסור שיקרה. כאן, שתי
+-- הפעולות (עדכון ההזמנה + upsert ה-entitlement) קורות בתוך גוף פונקציה אחד, שרץ כטרנזקציה אחת
+-- מובנית (Postgres עוטף כל קריאת פונקציה ברמה העליונה בטרנזקציה מרומזת אם אין אחת כבר פתוחה) -
+-- אם משהו נכשל באמצע, הכל חוזר לאחור, כולל עדכון ההזמנה.
+--
+-- **report_id/product_type/סכום/מטבע אינם פרמטרים של הפונקציה בכלל** - נקראים אך ורק מתוך
+-- השורה שננעלה (`v_order`, למטה). אין דרך לקרוא לפונקציה הזו ולהעביר לה ידנית לאיזה דוח/מוצר
+-- לשייך את ה-entitlement - היא תמיד משייכת אותה בדיוק לדוח/מוצר שכתובים בפועל בהזמנה שזוהתה
+-- לפי cardcom_low_profile_code. שני הפרמטרים היחידים: p_low_profile_code (מזהה איזו הזמנה
+-- לנעול - הערך שה-Edge Function כבר קיבלה מהעיבוד של ה-webhook), ו-p_cardcom_internal_deal_number
+-- (העובדה החדשה היחידה שה-Edge Function הביאה מהאימות מול Cardcom).
+--
+-- נעילה: `for update` (בלעדית, לא `for share` כמו ב-trigger למעלה) - הפונקציה הזו **כותבת**
+-- להזמנה, לכן צריכה נעילה בלעדית; שתי קריאות מקבילות עם אותו p_low_profile_code (למשל webhook
+-- שנשלח פעמיים כמעט בו-זמנית) מסתדרות בתור - הקריאה השנייה ממתינה, ואז רואה את התוצאה המעודכנת
+-- של הראשונה ומגיבה בהתאם (idempotent אם אותה אסמכתה, deal_mismatch אם שונה).
+--
+-- security definer + search_path קבוע (pg_catalog, public) + revoke/grant: אותו דפוס הקשחה
+-- בדיוק כמו dohefes_payment_entitlement_requires_verified_order למעלה, מאותה סיבה - עקביות
+-- ומניעת search_path hijacking. EXECUTE מוסר במפורש גם מ-anon/authenticated (לא רק מ-PUBLIC,
+-- למרות ששניהם ממילא לא יורשים דרך PUBLIC אחרי ה-revoke - הכתיבה המפורשת כאן היא כדי שהכוונה
+-- תהיה חד-משמעית לקורא עתידי, לא תלויה בהיסק על סמנטיקת PUBLIC). EXECUTE מוענק **רק** ל-service_role -
+-- אף תפקיד אחר לא יכול לקרוא לפונקציה הזו בכלל, גם לא בעקיפין.
+--
+-- בלי SQL דינמי בשום מקום (אין EXECUTE של מחרוזת) - כל שאילתה סטטית וקבועה מראש.
+--
+-- ה-outcome המוחזר הוא תמיד שורה אחת עם קוד טקסטואלי כללי (לא PII, לא Description של Cardcom,
+-- לא שום שדה גולמי) - הקוד עצמו (ר' ההסתעפויות למטה) מיועד לשימוש פנימי של ה-Edge Function
+-- כדי להחליט מה להשיב ללקוח/ל-Cardcom (200/5xx וכו') - לא מוחזר כמות שהוא כלפי חוץ.
+--
+-- --- פונקציית עזר: יצירה או הפעלה מחדש של entitlement, idempotent ---
+--
+-- מופרדת מהפונקציה הראשית כי נקראת משני מקומות בתוכה (הנתיב ה"טרי" והנתיב ה-idempotent) - לא
+-- שכפול קוד. `on conflict (report_id, product_type)`: זה המפתח הטבעי היחיד שיכול להתנגש כאן -
+-- ה-foreign key המורכב על הטבלה (ר' הגדרתה למעלה) מבטיח מבנית ש-payment_order_id שמועבר לכאן
+-- כבר קשור בהכרח לאותם report_id/product_type בדיוק (שניהם נלקחים מאותה שורת הזמנה נעולה),
+-- ולכן `unique(payment_order_id)` לא יכול להתנגש כאן בפועל - אין תרחיש שבו אותה הזמנה מקושרת
+-- לזוג (report_id, product_type) שונה מזה שכתוב בה. ריענון granted_at=now() בכל הפעלה/יצירה
+-- (גם כשכבר active) - "reactivation" בכוונה מתעד את הרגע הנוכחי, לא רק את הראשון-אי-פעם.
+create or replace function dohefes_upsert_active_entitlement(
+  p_payment_order_id uuid,
+  p_report_id uuid,
+  p_product_type text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_entitlement_id uuid;
+begin
+  insert into dohefes_product_entitlements (report_id, product_type, entitlement_status, granted_at, payment_order_id)
+  values (p_report_id, p_product_type, 'active', now(), p_payment_order_id)
+  on conflict (report_id, product_type) do update
+    set entitlement_status = 'active',
+        granted_at = now(),
+        payment_order_id = excluded.payment_order_id
+  returning id into v_entitlement_id;
+
+  return v_entitlement_id;
+end;
+$$;
+
+revoke execute on function dohefes_upsert_active_entitlement(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function dohefes_upsert_active_entitlement(uuid, uuid, text) to service_role;
+
+-- --- הפונקציה הראשית ---
+--
+-- outcome אפשריים (כולם מוחזרים כשורה תקינה, לא כ-exception - כשל צפוי אינו שגיאת קוד):
+--   'finalized'            - ההזמנה עברה מ-created/pending ל-paid בהצלחה, entitlement נוצרה/מופעלת.
+--   'already_finalized'    - כבר הייתה paid עם **אותה** אסמכתה בדיוק - idempotent, אין שינוי נוסף
+--                            מעבר לוידוא ש-entitlement קיימת (retry בטוח לחלוטין, אין תופעות לוואי כפולות).
+--   'deal_mismatch'        - כבר הייתה paid, אך עם אסמכתה **שונה** - נתפס כנכשל, ההזמנה לא משתנה
+--                            (חשד לתרחיש לא-תקין: איך יש שתי אסמכתאות Cardcom שונות לאותה הזמנה).
+--   'terminal_state'       - ההזמנה כבר ב-failed/cancelled/refunded - לא נפתחת מחדש בשקט, אין
+--                            מדיניות מוגדרת עדיין ל"תחיית" הזמנה שכבר הגיעה למצב סופי לא-משולם.
+--   'deal_number_conflict' - ה-InternalDealNumber שהתקבל כבר שייך **להזמנה אחרת** (unique constraint
+--                            הקיים כבר על cardcom_internal_deal_number - ר' הגדרת הטבלה למעלה) -
+--                            נתפס ב-EXCEPTION block, לא מוחזר כשגיאת Postgres גולמית ללקוח.
+--   'not_found'            - אין הזמנה עם p_low_profile_code הזה - לא חושפים יותר מזה.
+--   'invalid_input'        - פרמטר חסר (null) - שגיאת קריאה, לא תרחיש Cardcom אמיתי.
+create or replace function dohefes_finalize_verified_payment(
+  p_low_profile_code text,
+  p_cardcom_internal_deal_number text
+)
+returns table (
+  outcome text,
+  order_id uuid,
+  report_id uuid,
+  product_type text,
+  entitlement_id uuid
+)
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_order dohefes_payment_orders%rowtype;
+  v_entitlement_id uuid;
+begin
+  if p_low_profile_code is null or p_cardcom_internal_deal_number is null then
+    return query select 'invalid_input'::text, null::uuid, null::uuid, null::text, null::uuid;
+    return;
+  end if;
+
+  -- שלב 1-2: נעילת ההזמנה המתאימה + אימות שהיא קיימת.
+  select *
+  into v_order
+  from dohefes_payment_orders
+  where cardcom_low_profile_code = p_low_profile_code
+  for update;
+
+  if not found then
+    return query select 'not_found'::text, null::uuid, null::uuid, null::text, null::uuid;
+    return;
+  end if;
+
+  -- שלב 3-4: כבר paid - idempotent אם אותה אסמכתה, נכשל אם אסמכתה אחרת.
+  if v_order.status = 'paid' then
+    if v_order.cardcom_internal_deal_number = p_cardcom_internal_deal_number then
+      v_entitlement_id := dohefes_upsert_active_entitlement(v_order.id, v_order.report_id, v_order.product_type);
+      return query select 'already_finalized'::text, v_order.id, v_order.report_id, v_order.product_type, v_entitlement_id;
+      return;
+    else
+      return query select 'deal_mismatch'::text, v_order.id, v_order.report_id, v_order.product_type, null::uuid;
+      return;
+    end if;
+  end if;
+
+  -- מצב סופי לא-משולם (failed/cancelled/refunded) - לא נפתח מחדש בלי מדיניות מפורשת.
+  if v_order.status <> 'created' and v_order.status <> 'pending' then
+    return query select 'terminal_state'::text, v_order.id, v_order.report_id, v_order.product_type, null::uuid;
+    return;
+  end if;
+
+  -- שלב 5: עדכון ההזמנה עצמה ל-paid, עם כל העדות הנדרשת (ר' dohefes_payment_orders_paid_requires_evidence
+  -- למעלה - חייבים למלא את כל ארבעת השדות יחד, אחרת ה-check constraint הזה כבר יכשיל את ה-UPDATE).
+  -- **חייב לקרות לפני** upsert ה-entitlement (שלב 6) - ה-trigger dohefes_product_entitlements_require_verified_order
+  -- דורש שההזמנה כבר תהיה paid+verified_at+paid_at כשה-entitlement נכתבת; מכיוון ששתי הפעולות
+  -- קורות באותה קריאת פונקציה (=אותה טרנזקציה), ה-UPDATE כאן כבר "נראה" על ידי ה-trigger בשלב הבא.
+  begin
+    update dohefes_payment_orders
+    set status = 'paid',
+        verified_at = now(),
+        paid_at = now(),
+        cardcom_internal_deal_number = p_cardcom_internal_deal_number,
+        failure_code = null
+    where id = v_order.id;
+  exception when unique_violation then
+    -- ה-InternalDealNumber הזה כבר שייך להזמנה אחרת (unique constraint על העמודה) - נתפס כאן,
+    -- לא מוחזר כשגיאת Postgres גולמית. ההזמנה הנוכחית נשארת בדיוק כפי שהייתה (rollback לשלב הזה).
+    return query select 'deal_number_conflict'::text, v_order.id, v_order.report_id, v_order.product_type, null::uuid;
+    return;
+  end;
+
+  -- שלב 6: יצירה/הפעלה מחדש של entitlement - report_id/product_type/payment_order_id כולם
+  -- מגיעים מ-v_order (השורה שננעלה בתחילת הפונקציה), לא מפרמטר חיצוני כלשהו.
+  v_entitlement_id := dohefes_upsert_active_entitlement(v_order.id, v_order.report_id, v_order.product_type);
+
+  -- שלב 7: תוצאה כללית - מזהים בלבד, בלי שום פרט מ-Cardcom (לא Description, לא payload גולמי).
+  return query select 'finalized'::text, v_order.id, v_order.report_id, v_order.product_type, v_entitlement_id;
+end;
+$$;
+
+revoke execute on function dohefes_finalize_verified_payment(text, text) from public, anon, authenticated;
+grant execute on function dohefes_finalize_verified_payment(text, text) to service_role;
+
 -- --- Rollback (מתועד בלבד, לא מבוצע) ---
 --
+-- drop function if exists dohefes_finalize_verified_payment(text, text);
+-- drop function if exists dohefes_upsert_active_entitlement(uuid, uuid, text);
 -- drop trigger if exists dohefes_product_entitlements_require_verified_order on dohefes_product_entitlements;
 -- drop trigger if exists dohefes_product_entitlements_touch_updated_at on dohefes_product_entitlements;
 -- drop trigger if exists dohefes_payment_orders_touch_updated_at on dohefes_payment_orders;
@@ -298,8 +474,9 @@ alter table dohefes_product_entitlements enable row level security;
 --
 -- בטוח לביצוע בכל שלב: אין foreign key בכיוון ההפוך (dohefes_reports לא מפנה לשתי הטבלאות
 -- האלה), ואין קוד קיים (React/Edge Function) שתלוי בהן - הן לא נצרכות על ידי שום דבר עד commit
--- עתידי. הסדר למעלה (triggers -> entitlements -> orders -> functions) חשוב: entitlements תלויה
--- ב-orders דרך foreign key, וכל פונקציה נמחקת רק אחרי שה-trigger/ים שמשתמשים בה כבר לא קיימים.
+-- עתידי. הסדר למעלה (RPC -> triggers -> entitlements -> orders -> functions) חשוב: entitlements
+-- תלויה ב-orders דרך foreign key, שתי פונקציות ה-RPC נמחקות ראשונות כי אינן תלות של אף אובייקט
+-- אחר, וכל טריגר/פונקציה אחרת נמחקת רק אחרי שמי שמשתמש בה כבר לא קיים.
 
 -- --- תרחישי בדיקה ידניים (מתועדים בלבד - לא מבוצעים אוטומטית, לא כחלק מה-commit הזה) ---
 --
@@ -359,3 +536,44 @@ alter table dohefes_product_entitlements enable row level security;
 --    שמגיעים בכלל לשלב entitlement (check constraint על payment_orders):
 --   update dohefes_payment_orders set status = 'paid' where id = '<some-other-created-order-id>';
 --   -- צפוי: EXCEPTION violates check constraint "dohefes_payment_orders_paid_requires_evidence"
+
+-- --- תרחישי בדיקה ל-dohefes_finalize_verified_payment (מתועדים בלבד, אותם כללים כמו למעלה) ---
+--
+-- הכנה (הזמנה חדשה, created, עם cardcom_low_profile_code שכבר נקבע - כאילו create-payment-order
+-- כבר יצרה session אצל Cardcom והזמנה עברה ל-pending, בדיוק כמו שה-Edge Function האמיתית עושה):
+--
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, status, idempotency_key,
+--      provider_order_reference, cardcom_low_profile_code, access_token_hash)
+--   values ('<report-A>', 'cashFlowAnalysis', 98000, 1, 'pending', 'idem-finalize-1', 'order-ref-finalize-1',
+--           'lpc-finalize-1', 'hash-finalize-1')
+--   returning id;  -- שמור כ-<finalize-order-id>
+--
+-- 8. finalize ראשון מצליח:
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-1');
+--   -- צפוי: שורה אחת, outcome='finalized', order_id=<finalize-order-id>, entitlement_id לא null.
+--   -- לוודא גם: dohefes_payment_orders.status='paid' על אותה שורה, ו-dohefes_product_entitlements
+--   -- מכילה בדיוק שורה אחת עם report_id/product_type/payment_order_id תואמים.
+--
+-- 9. callback כפול עם אותה עסקה בדיוק -> מצליח idempotently, בלי תופעות לוואי כפולות:
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-1');
+--   -- צפוי: outcome='already_finalized', אותם order_id/report_id/product_type/entitlement_id
+--   -- כמו בתרחיש #8 - לוודא ש-dohefes_product_entitlements עדיין מכילה **שורה אחת בלבד** (לא
+--   -- שתיים) לאותו report_id/product_type, ו-granted_at התעדכן ל-now() החדש.
+--
+-- 10. callback שני עם InternalDealNumber אחר -> נכשל, ההזמנה לא משתנה:
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-DIFFERENT');
+--   -- צפוי: outcome='deal_mismatch'. לוודא: dohefes_payment_orders.cardcom_internal_deal_number
+--   -- על אותה שורה **נשאר** 'deal-finalize-1' (לא השתנה ל-'deal-finalize-DIFFERENT').
+--
+-- 11. הזמנה במצב סופי (failed/cancelled/refunded) לא נפתחת מחדש בלי מדיניות מפורשת:
+--   -- (יוצרים הזמנה נפרדת עם status='failed' ו-cardcom_low_profile_code='lpc-finalize-failed', ואז:)
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-failed', 'deal-finalize-2');
+--   -- צפוי: outcome='terminal_state'. לוודא: status על אותה שורה נשאר 'failed', לא הפך ל-'paid'.
+--
+-- 12. אותו InternalDealNumber עבור **הזמנה אחרת** -> ה-unique constraint הקיים על
+--     cardcom_internal_deal_number חוסם, לא מאפשר לשייך עסקת Cardcom אחת לשתי הזמנות:
+--   -- (יוצרים הזמנה שנייה, נפרדת, pending, עם cardcom_low_profile_code='lpc-finalize-3'):
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-3', 'deal-finalize-1');
+--   -- ('deal-finalize-1' כבר שייך להזמנה מתרחיש #8) -- צפוי: outcome='deal_number_conflict'.
+--   -- לוודא: ההזמנה השנייה נשארת 'pending' (לא 'paid'), ואין entitlement חדשה שנוצרה עבורה.
