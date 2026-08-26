@@ -9,8 +9,10 @@
 // ב-Deno וב-Node) - נבדק ישירות ב-cardcom-client.test.ts דרך mock ל-fetch הגלובלי.
 
 import { agorotToShekelString } from "./money.ts";
+import { getField, parseNameToValue } from "./name-to-value.ts";
 
 const LOW_PROFILE_CREATE_URL = "https://secure.cardcom.solutions/Interface/LowProfile.aspx";
+const LOW_PROFILE_INDICATOR_URL = "https://secure.cardcom.solutions/Interface/BillGoldGetLowProfileIndicator.aspx";
 
 /** host מאושר יחיד ל-checkout_url שחוזר מ-Cardcom - לא בונים את הכתובת בעצמנו (לפי ההוראה),
  *  רק מוודאים שמה שהספק החזיר הוא באמת שלו, לא URL שרירותי (תגובה מזוייפת/proxy נגוע וכו') */
@@ -65,6 +67,37 @@ function isApprovedCheckoutUrl(value: string): boolean {
 }
 
 const MAX_PRODUCT_NAME_LENGTH = 50;
+
+export interface GetLowProfileIndicatorRequest {
+  lowProfileCode: string;
+}
+
+/** רק העובדות שאומתו מול Cardcom עצמה (Operation/OperationResponse/DealResponse/TerminalNumber/
+ *  LowProfileCode כבר נבדקו כאן, בשכבת cardcom-client) - **לא** מול payment_order שלנו. ההשוואה
+ *  מול ההזמנה עצמה (ReturnValue==provider_order_reference, CoinId==currency_code, amountAgorot==
+ *  expected_amount_agorot) היא תפקיד ה-service layer (_shared/payment-indicator-service.ts) -
+ *  cardcom-client מבודד רק ידע ספציפי ל-Cardcom, לא מכיר את מבנה ה-DB שלנו. */
+export interface VerifiedIndicatorFields {
+  internalDealNumber: string;
+  returnValue: string;
+  coinId: number;
+  amountAgorot: number;
+}
+
+/** failureCode אפשריים:
+ *  - provider_unreachable / provider_http_<status>: תקלת רשת/HTTP - retryable.
+ *  - not_completed: השדות המכריעים (Operation/OperationResponse/DealResponse) חסרים לגמרי
+ *    בתגובה - Cardcom עוד לא רשמה תוצאה סופית לעסקה הזו (webhook מוקדם מדי) - retryable, **לא**
+ *    כשל סופי.
+ *  - operation_failed: Cardcom החזירה תשובה סופית שאינה הצלחה מלאה (Operation!=1, או
+ *    OperationResponse/DealResponse!=0, או InternalDealNumber חסר, או TerminalNumber/LowProfileCode
+ *    שחזרו לא תואמים למה שביקשנו) - לא retryable, אך גם לא "כשל" שדורש mutation כלשהי מצידנו
+ *    (אין RPC ל"סימון failed" - ר' payment-schema.sql - ההזמנה פשוט נשארת כפי שהייתה).
+ *  - malformed_response: המידע הגולמי הנוסף (ReturnValue/CoinId/Sum36) שנדרש להשוואה מול ההזמנה
+ *    חסר/לא ניתן לפענוח, למרות שה-Operation עצמו הצליח - תרחיש לא-צפוי, מטופל כמו operation_failed. */
+export type CardcomIndicatorOutcome =
+  | { ok: true; fields: VerifiedIndicatorFields }
+  | { ok: false; failureCode: string };
 
 export function createCardcomClient(credentials: CardcomCredentials) {
   return {
@@ -146,25 +179,77 @@ export function createCardcomClient(credentials: CardcomCredentials) {
 
       return { ok: true, result: { lowProfileCode, checkoutUrl } };
     },
+
+    /**
+     * מאמתת תשלום אצל Cardcom (server-to-server) - הדרך **היחידה** לדעת אם LowProfileCode
+     * מסוים אכן שולם בפועל. נקראת רק מ-cardcom-payment-indicator, לעולם לא על סמך תוכן ה-webhook
+     * הנכנס עצמו (ר' payment-indicator-service.ts - הפרמטר היחיד שנקרא מה-webhook הוא lowProfileCode,
+     * לא שום "עובדה" אחרת שעשויה להגיע בו).
+     *
+     * GET, לפי התיעוד הרשמי המאומת (הקישור בראש הקובץ) - פרמטרים ב-query string, לא בגוף בקשה.
+     */
+    async getLowProfileIndicator(request: GetLowProfileIndicatorRequest): Promise<CardcomIndicatorOutcome> {
+      const params = new URLSearchParams({
+        TerminalNumber: credentials.terminalNumber,
+        UserName: credentials.userName,
+        LowProfileCode: request.lowProfileCode,
+        codepage: "65001",
+      });
+
+      let responseText: string;
+      try {
+        const response = await fetch(`${LOW_PROFILE_INDICATOR_URL}?${params.toString()}`, { method: "GET" });
+        if (!response.ok) {
+          return { ok: false, failureCode: `provider_http_${response.status}` };
+        }
+        responseText = await response.text();
+      } catch {
+        return { ok: false, failureCode: "provider_unreachable" };
+      }
+
+      // case-insensitive במפורש (בניגוד לפענוח תגובת ה-Create למעלה) - לפי ההוראה המפורשת לגבי
+      // ממשק ה-Indicator, ר' name-to-value.ts.
+      const parsed = parseNameToValue(responseText);
+      const operation = getField(parsed, "Operation");
+      const operationResponse = getField(parsed, "OperationResponse");
+      const dealResponse = getField(parsed, "DealResponse");
+      const internalDealNumber = getField(parsed, "InternalDealNumber");
+      const responseTerminalNumber = getField(parsed, "TerminalNumber");
+      const responseLowProfileCode = getField(parsed, "LowProfileCode");
+      const returnValue = getField(parsed, "ReturnValue");
+      const coinId = getField(parsed, "CoinId");
+      const sum36 = getField(parsed, "ExtShvaParams.Sum36");
+
+      if (operation === undefined || operationResponse === undefined || dealResponse === undefined) {
+        return { ok: false, failureCode: "not_completed" };
+      }
+
+      if (
+        operation !== "1" ||
+        operationResponse !== "0" ||
+        dealResponse !== "0" ||
+        !internalDealNumber ||
+        responseTerminalNumber !== credentials.terminalNumber ||
+        responseLowProfileCode !== request.lowProfileCode
+      ) {
+        return { ok: false, failureCode: "operation_failed" };
+      }
+
+      if (!returnValue || !coinId || !sum36) {
+        return { ok: false, failureCode: "malformed_response" };
+      }
+
+      const coinIdNumber = Number(coinId);
+      // Sum36 כבר באגורות (integer) - **לא** מחרוזת שקלים דו-ספרתית כמו SumToBill בבקשת ה-Create -
+      // אין המרה כאן, השוואה ישירה מול expected_amount_agorot (ר' payment-indicator-service.ts).
+      const amountAgorot = Number(sum36);
+      if (!Number.isFinite(coinIdNumber) || !Number.isInteger(amountAgorot)) {
+        return { ok: false, failureCode: "malformed_response" };
+      }
+
+      return { ok: true, fields: { internalDealNumber, returnValue, coinId: coinIdNumber, amountAgorot } };
+    },
   };
 }
 
 export type CardcomClient = ReturnType<typeof createCardcomClient>;
-
-// ╔═══════════════════════════════════════════════════════════════════════════════════════════╗
-// ║ תיעוד הכנה ל-Indicator העתידי (cardcom-payment-indicator) - לא ממומש כאן, לא נקרא משום מקום. ║
-// ║ אומת מול אותו תיעוד רשמי (הקישור בראש הקובץ).                                               ║
-// ║                                                                                               ║
-// ║   GET/POST https://secure.cardcom.solutions/Interface/BillGoldGetLowProfileIndicator.aspx    ║
-// ║   פרמטרים: TerminalNumber, UserName, LowProfileCode, codepage=65001                          ║
-// ║                                                                                               ║
-// ║ תשלום ייחשב תקין (ורק אז ייכתב entitlement) בעתיד רק אם **כל** התנאים הבאים מתקיימים:        ║
-// ║   - OperationResponse = 0                                                                     ║
-// ║   - DealResponse = 0                                                                          ║
-// ║   - InternalDealNumber קיים (לא ריק)                                                          ║
-// ║   - הסכום/המטבע/ה-ReturnValue שחוזרים תואמים בדיוק ל-payment_order שכבר קיים אצלנו            ║
-// ║     (לא רק "יש תשובה חיובית" - השוואה מפורשת מול מה שאנחנו כבר יודעים על ההזמנה)             ║
-// ║                                                                                               ║
-// ║ **השדות האלה לא נקראים היום בשום קוד** - cardcom-payment-indicator עדיין לא נכתבת. תיעוד      ║
-// ║ בלבד, לפי ההוראה המפורשת "אין להשתמש כרגע בשדות אלה כדי לסמן paid".                          ║
-// ╚═══════════════════════════════════════════════════════════════════════════════════════════╝
