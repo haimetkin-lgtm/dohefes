@@ -17,11 +17,21 @@ export interface OperatingMonthInput {
   monthIndex: number;
   operatingInflowsNis: number;
   /**
-   * תשלומים תפעוליים בלבד. **אין לכלול כאן הוצאות ערבות** - מקור האמת היחיד להוצאות ערבות הוא
-   * guaranteeSchedule (GuaranteeScheduleResult), המתווסף על ידי השכבה הזו בעצמה. הזנת הוצאת ערבות
-   * גם כאן וגם דרך guaranteeSchedule תגרום לחיוב כפול - השכבה הזו אינה יכולה לזהות זאת אוטומטית
-   * (אין לה דרך להבחין בין תשלום תפעולי "אמיתי" לבין הוצאת ערבות שהוזנה כאן בטעות), האחריות על
-   * הקוד הקורא.
+   * operatingOutflowsNis כולל עלויות פרויקט תפעוליות בלבד, ואינו כולל ערבויות, ריבית, עמלת פתיחת
+   * תיק או עמלת אי-ניצול - ארבעתם תוצרי שכבות מימון ייעודיות במורד הזרימה (guaranteeSchedule
+   * כאן; ריבית ב-computeInterestCashFlow; שתי העמלות ב-computeFinancingFeeSchedule, נכנסות רק
+   * דרך computeCompleteFinancing), לא קלט לשכבה הזו. **אין לכלול כאן הוצאות ערבות בפרט** - מקור
+   * האמת היחיד להוצאות ערבות הוא guaranteeSchedule (GuaranteeScheduleResult), המתווסף על ידי
+   * השכבה הזו בעצמה. הזנת הוצאת ערבות גם כאן וגם דרך guaranteeSchedule תגרום לחיוב כפול - השכבה
+   * הזו אינה יכולה לזהות זאת אוטומטית (אין לה דרך להבחין בין תשלום תפעולי "אמיתי" לבין הוצאת
+   * ערבות שהוזנה כאן בטעות), האחריות על הקוד הקורא. באופן דומה, ריבית/עמלות מימון לעולם אינן
+   * מגיעות מכאן - הן תמיד מחושבות במורד הזרימה על בסיס יתרות שהמנוע הזה עצמו מפיק.
+   *
+   * חסימה מבנית תואמת קיימת גם בקצה השני של השרשרת: CashFlowCostItemId (cashflow-types.ts)
+   * מגדיר במפורש אילו סעיפי עלות מותר לתזמן דרך costSchedule - הרשימה **אינה כוללת** guaranteeCommission/
+   * unusedCreditCommission/interest/accountOpeningCommission בשום צורה, ו-computeCostSchedule
+   * זורק שגיאה על כל מפתח שאינו ברשימה. משתמש קצה לא יכול, גם דרך שכבת ה-UI העתידית, להזין רכיב
+   * מימון כלשהו כ"סעיף עלות" בטעות - השדה שהיה מכיל אותו פשוט לא קיים בטיפוס.
    */
   operatingOutflowsNis: number;
   phases: ProjectPhase[];

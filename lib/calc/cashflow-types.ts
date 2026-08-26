@@ -54,19 +54,6 @@ export type ConstructionCurveAssumptions =
   | { model: "legacy" }
   | { model: "custom"; cumulativePercentByMonth: number[] };
 
-// --- מימון (מפרט §4) ---
-
-/**
- * "closingDebtBeforeInterest": ריבית מחושבת על יתרת החוב אחרי משיכה/פירעון של אותו חודש, לפני
- * הוספת הריבית של אותו חודש עצמו - פותר מעגליות (יתרה→ריבית→אשראי→יתרה חדשה).
- */
-export type InterestBalanceBasis = "closingDebtBeforeInterest" | "averageOpeningAndPreInterestClosing";
-
-/** יחיד בגרסה הראשונה: מבוסס על יתרת פתיחת החודש, לא על יתרה אחרי משיכה - פותר מעגליות נפרדת מזו של הריבית */
-export type UnusedCreditCommissionBalanceBasis = "openingDebt";
-
-export type EquityInjectionMode = "asNeededUpToCap" | "proRata";
-
 // --- ערבויות (מפרט §6) ---
 
 /**
@@ -143,106 +130,11 @@ export interface CostTimingRule {
   note?: string;
 }
 
-// --- הנחות מלאות ---
-
-export interface CashFlowAssumptions {
-  schemaVersion: number;
-  salesSchedule: SalesScheduleAssumptions;
-  constructionCurve: ConstructionCurveAssumptions;
-  /** ברירת מחדל "closingDebtBeforeInterest" */
-  interestBalanceBasis: InterestBalanceBasis;
-  /** "openingDebt", יחיד לעת עתה */
-  unusedCreditCommissionBalanceBasis: UnusedCreditCommissionBalanceBasis;
-  /** ברירת מחדל "asNeededUpToCap" */
-  equityInjectionMode: EquityInjectionMode;
-  equityCapNis: number;
-  /** ברירת מחדל 0 */
-  minimumCashBalanceNis: number;
-  /** "auto" מותר רק בתרחישי דמו/דוגמה, ר' §4.1. פרויקט אמיתי מחייב ערך מפורש */
-  creditFacilityLimitNis: number | "auto";
-  guarantees: GuaranteeMechanism[];
-  costTimingOverrides?: Partial<Record<CashFlowCostItemId, CostTimingRule>>;
-}
-
 // --- תוצאה חודשית ---
 
 /** מקור האמת היחיד לשלבי הפרויקט - הטיפוס נגזר מהמערך, בדיוק כמו CASH_FLOW_COST_ITEM_IDS למעלה.
- *  בשונה מ-CashFlowMonth.phase (יחיד) הקודם: חודש בפועל יכול להשתייך למספר שלבים בו-זמנית -
- *  שיווק חופף לבנייה, שכירות לדיירים חופפת להיתר/ביצוע, ליווי בנקאי חוצה כמה שלבים */
+ *  חודש בפועל יכול להשתייך למספר שלבים בו-זמנית (מערך, לא ערך יחיד) - שיווק חופף לבנייה, שכירות
+ *  לדיירים חופפת להיתר/ביצוע, ליווי בנקאי חוצה כמה שלבים */
 export const PROJECT_PHASES = ["permit", "demolition", "construction", "marketing", "handover"] as const;
 
 export type ProjectPhase = (typeof PROJECT_PHASES)[number];
-
-export interface CashFlowMonth {
-  monthIndex: number;
-  /** לפחות שלב אחד, בלי כפילויות - ר' validatePhases */
-  phases: ProjectPhase[];
-
-  openingCashBalanceNis: number;
-  openingDebtBalanceNis: number;
-  closingCashBalanceNis: number;
-  closingDebtBalanceNis: number;
-
-  operatingInflowsNis: number;
-  operatingOutflowsNis: number;
-  equityInjectionNis: number;
-
-  /** מה שנשאר מהמסגרת בפועל, לפני המשיכה של אותו חודש */
-  availableFacilityNis: number;
-  creditDrawNis: number;
-  creditRepaymentNis: number;
-  /** כשל מימון גלוי - כשהמסגרת לא הספיקה. לא מומצא כסף, ר' §4.3 */
-  fundingShortfallNis: number;
-
-  interestNis: number;
-  buyerGuaranteeCommissionNis: number;
-  kombinatsiaOwnerGuaranteeCommissionNis: number;
-  unitCompensationGuaranteeCommissionNis: number;
-  unusedCreditCommissionNis: number;
-}
-
-export interface FinancingSummary {
-  peakDebtBalanceNis: number;
-  peakDebtMonthIndex: number;
-  totalInterestNis: number;
-  totalBuyerGuaranteeCommissionNis: number;
-  totalKombinatsiaOwnerGuaranteeCommissionNis: number;
-  totalUnitCompensationGuaranteeCommissionNis: number;
-  totalUnusedCreditCommissionNis: number;
-  interestBalanceBasisUsed: InterestBalanceBasis;
-  unusedCreditCommissionBalanceBasisUsed: UnusedCreditCommissionBalanceBasis;
-  creditFacilityLimitNisUsed: number;
-  peakFacilityUtilizationRatio: number | null;
-  /** הכי גדול שחסר בחודש בודד כלשהו, 0 אם אין כשל מימון */
-  maximumFundingShortfallNis: number;
-  /** true אם יש חודש כלשהו עם fundingShortfallNis > 0 */
-  facilityExceeded: boolean;
-}
-
-/**
- * שתי התאמות נפרדות לתרחיש הבסיס (ר' §2.1): עלויות תפעוליות (scheduledOperatingCostsNis מול
- * baseOperatingCostsNis, אמור להיות ≈0 הפרש) לעומת עמלות מימון (לא נדרש שוויון לקירוב הסטטי הישן,
- * זה בדיוק מה שדור 2 בא לתקן, לא לשחזר).
- */
-export interface CashFlowReconciliation {
-  scheduledOperatingCostsNis: number;
-  /** = indirectNis + directConstructionNis + landNis, מהמנוע הקיים (computeCosts) */
-  baseOperatingCostsNis: number;
-  /** commit 7-prep: מקורה FacilityOpeningFee (cashflow-financing-fees.ts), לא CashFlowCostItemId
-   *  מתוזמן - השדה עצמו נשאר (סיכום להתאמה), רק המקור שינה */
-  accountOpeningCommissionNis: number;
-  totalGuaranteeCommissionsNis: number;
-  totalUnusedCreditCommissionNis: number;
-  totalInterestNis: number;
-  operatingCostDifferenceNis: number;
-}
-
-export interface CashFlowResult {
-  months: CashFlowMonth[];
-  financing: FinancingSummary;
-  reconciliation: CashFlowReconciliation;
-  warnings: string[];
-  missingAssumptions: string[];
-  /** false אם missingAssumptions לא ריק, או אם financing.facilityExceeded=true */
-  isComplete: boolean;
-}

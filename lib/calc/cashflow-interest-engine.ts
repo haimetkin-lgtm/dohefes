@@ -1,6 +1,8 @@
-// commit 5 של מנוע התזרים: שכבת ריבית בלבד. מרחיבה את הלוגיקה של commit 4 (computeBaseCashFlow,
-// שנשאר ללא שינוי) עם ריבית חודשית מהוונת לחוב. עדיין בלי ערבויות, עמלת אי-ניצול, עמלת פתיחת תיק,
-// IRR/NPV, חיבור ל-ProjectInputs/computeProject/React/Supabase. ר' GEN2_CASHFLOW_DESIGN.md §4.4.
+// commit 5 (עודכן ב-8d): שכבת ריבית - waterfall של הון עצמי/אשראי/פירעון עם ריבית חודשית מהוונת
+// לחוב. מנוע ה-waterfall הבסיסי-בלי-ריבית של commit 4 (computeBaseCashFlow) הוחלף לגמרי על ידי
+// המנוע הזה ולא קיים יותר (הוסר ב-8d, קוד מת - ר' cashflow-financed-engine.ts שמרכיב מעל המנוע
+// הזה ישירות). עדיין בלי ערבויות, עמלת אי-ניצול, עמלת פתיחת תיק, IRR/NPV, חיבור ל-
+// ProjectInputs/computeProject/React/Supabase. ר' GEN2_CASHFLOW_DESIGN.md §4.4.
 
 import { validatePhases } from "./cashflow-validation";
 import type { ProjectPhase } from "./cashflow-types";

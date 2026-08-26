@@ -217,19 +217,21 @@ interface PaymentTranche {
 
 ### 4.1 מסגרת האשראי - הוגדרה ונאכפת (הייתה חסרה לגמרי)
 
+**עדכון (8d) - `"auto"` נדחה, אינו קיים בטיפוסים החיים**: הסעיף הזה (כולל הקוד וההחלטה למטה) הוא
+תיעוד היסטורי של רעיון שנשקל בשלב התכנון המוקדם ולא מומש. במימוש בפועל `creditFacilityLimitNis`
+הוא **תמיד** `number` מפורש - גם ב-`InterestCashFlowAssumptions` (`cashflow-interest-engine.ts`)
+וגם ב-`ProjectCashFlowAssumptions.financing` (`cashflow-project-adapter.ts`, commit 8c). אין נגזרת
+אוטומטית מהקירוב הסטטי או משיא חוב - כשהמסגרת לא סופקה, `prepareCashFlowInput` מחזיר
+`CREDIT_FACILITY_LIMIT_MISSING` ודורש קלט מפורש. `purchaseGroup` נשאר היחיד עם ברירת מחדל (`0`,
+ניתנת לדריסה) - לא כ"auto מחושב" אלא כ-preset קבוע שתועד לפי `dealType`.
+
 ```ts
-creditFacilityLimitNis: number | "auto";
+creditFacilityLimitNis: number | "auto"; // סקיצה היסטורית בלבד - לא קיים היום
 ```
 
-**החלטה סופית לגרסה הראשונה** (לא נשאר פתוח): **פרויקט אמיתי מחייב מסגרת מפורשת** (קלט מהסכם הליווי בפועל).
-`"auto"` **מותר רק בתרחישי דמו/דוגמה**, ומחושב **לפני** הרצת מנוע התזרים (לא נגזר משיא החוב של אותה ריצה עצמה
-- זה היה יוצר מצב שבו עמלת אי-הניצול תמיד קרובה ל-0), מתוך הקירוב הסטטי הקיים היום:
-
-```
-autoFacilityNis = creditFacilityNis(מהמנוע הקיים, computeCosts) * (1 + מרווח קבוע ומתועד, למשל 15%)
-```
-
-עם אזהרה גלויה שזו הערכה בלבד, לא מסגרת אמיתית מהבנק. `purchaseGroup` (preset ברירת מחדל): `0`.
+התכנון המקורי (לא מומש): `"auto"` "מותר רק בתרחישי דמו/דוגמה", מחושב לפני הרצת מנוע התזרים מתוך
+`creditFacilityNis(מהמנוע הקיים, computeCosts) * (1 + מרווח קבוע, למשל 15%)`, עם אזהרה גלויה שזו
+הערכה בלבד.
 
 ### 4.2 Waterfall חודשי מלא (תוקן: אכיפת מסגרת, בלי המצאת כסף)
 
@@ -512,7 +514,11 @@ DSCR מתאים לנכס עם הכנסה תפעולית שוטפת. בפרויק
 בפועל מוגדרים ב-`lib/calc/cashflow-engine.ts` (commit 8a) - לא זהים 1:1 לסקיצה כאן. שכבת הגישור
 מ-`ProjectInputs` הישן (`lib/calc/cashflow-project-adapter.ts`, commit 8b→8c) **אינה** צורכת
 `CashFlowAssumptions` שלמטה - יש לה טיפוס ייעודי משלה, `ProjectCashFlowAssumptions`, מתועד ב-§13.9.
-הסקיצה כאן נשארת כתיעוד היסטורי של כיוון המחשבה המקורי, לא כחוזה API בפועל.
+הסקיצה כאן נשארת כתיעוד היסטורי של כיוון המחשבה המקורי, לא כחוזה API בפועל. **`CashFlowAssumptions`
+עצמו הוסר מהקוד ב-8d** (לא היה בשימוש בשום מקום חי) - הבלוק שלמטה קיים כאן כטקסט תיעוד בלבד, לא
+כהעתק של קוד קיים. בפרט, `creditFacilityLimitNis: number | "auto"` בבלוק שלמטה מתעד רעיון שנדחה
+(ר' §4.1) - בטיפוסים החיים (`InterestCashFlowAssumptions`, `ProjectCashFlowAssumptions.financing`)
+השדה הוא `number` בלבד, בלי `"auto"`.
 
 ```ts
 export const CASH_FLOW_SCHEMA_VERSION = 1;
@@ -682,39 +688,77 @@ interface CashFlowResult {
 
 ---
 
-## 11. חלוקה מומלצת ל-commits
+## 11. ארכיטקטורת המימוש בפועל (עודכן ב-8d)
 
-**המשתמש אישר: מתחילים ב-commit 1 בלבד לעת עתה. commits 2-7 ממתינים לבדיקת diff של commit 1.**
+הסעיף הזה מחליף תכנית "commits 1-7" ישנה שנכתבה לפני שהמימוש התחיל ולא עודכנה מאז - היא לא שיקפה
+עוד את מה שבפועל נבנה (24 commits בהיסטוריה בפועל, כולל סבבי תיקון כמו 3b/3c/4b/5b/6-prep/6b/6f/
+7-prep, לא 7 שלבים כמתוכנן במקור). מה שלמטה מתאר את השכבות **הקיימות**, לא רצף כרונולוגי.
 
-1. **[מאושר להתחלה]** טיפוסים וקבועים (§9) + פונקציות ולידציה (`fraction` בטווח [0,1] וסכום≈1,
-   `cumulativePercentByMonth` מסכם 100%, `costTimingOverrides` ללא כפילות) - **ללא** `computeCashFlow`,
-   **ללא** שינוי מסכים, **ללא** שינוי לתוצאת `computeProject`.
-2. `ConstructionCurveAssumptions` - מימוש `linear`/`sCurve`/`legacy`/`custom`.
-3. `SalesScheduleAssumptions` + `PaymentTiming` - preset 0.15/0.70/0.15 + `legacyConstructionLinked`.
-4. `computeCashFlow` - ה-waterfall המלא (§4.2), כולל אכיפת מסגרת ו-preset `purchaseGroup`.
-5. שכבת הערבויות (§6) + `CashFlowReconciliation` (§2.1).
-6. בדיקות vitest לפי §12.
-7. חיווט תצוגתי ראשוני, נפרד מהדוח הקיים.
+כל שכבה היא מודול `lib/calc/cashflow-*.ts` נפרד עם `computeXxx()` טהורה משלה + קובץ `.test.ts` צמוד.
+שום שכבה לא משכפלת נוסחה משכבה שמתחתיה - כל שכבה מרכיבה (orchestration) בלבד. סדר ההרכבה בפועל:
+
+```
+cashflow-construction-curve.ts   (ConstructionCurveAssumptions -> אחוזים מצטברים)
+cashflow-sales-schedule.ts        (PaymentTranche[] -> תקבולים חודשיים, ל-batch בודד)
+        │
+        ▼
+cashflow-cost-schedule.ts         (CashFlowCostItemId + CostTimingRule -> לוח עלויות חודשי)
+cashflow-operating-schedule.ts    (מאחד: תקבולי מכירות רב-שורתיים + לוח עלויות -> לוח תפעולי)
+        │
+        ▼
+cashflow-guarantees.ts            (שלושה מנגנוני ערבות -> לוח יתרות/הוצאות ערבות, פלט בלבד)
+cashflow-interest-engine.ts       (waterfall הון-עצמי/אשראי/פירעון + ריבית מהוונת חודשית)
+cashflow-financed-engine.ts       (מרכיב: לוח תפעולי + הוצאת ערבות -> מוזן ל-interest-engine)
+cashflow-financing-fees.ts        (עמלת פתיחת תיק + עמלת אי-ניצול, על יתרות מוכנות - "לפני עמלות")
+cashflow-complete-financing.ts    (לולאת התכנסות: financed-engine + financing-fees עד יציבות)
+        │
+        ▼
+cashflow-engine.ts                (computeCashFlow - האורקסטרטור העליון, union תלת-מצבי על status)
+        │
+        ▼
+cashflow-project-adapter.ts       (prepareCashFlowInput - גישור ProjectInputs -> CashFlowInput,
+                                    opt-in בלבד, עדיין לא מחובר לשום דבר)
+```
+
+`cashflow-types.ts`/`cashflow-validation.ts` הם שכבת יסוד משותפת (טיפוסים + ולידציה) שכל המודולים
+שלמעלה תלויים בה. **הערה (8d)**: `cashflow-types.ts` הכיל בעבר גם סקיצת טיפוסים מונוליתית מ-commit 1
+(`CashFlowAssumptions`, `CashFlowMonth`, `FinancingSummary`, `CashFlowReconciliation`, `CashFlowResult`,
+`InterestBalanceBasis`, `UnusedCreditCommissionBalanceBasis`, `EquityInjectionMode`) - כולם הוסרו
+ב-8d, כי הפירוק המודולרי החליף אותם לחלוטין ואף אחד מהם לא היה בשימוש בקוד החי (`CashFlowResult`
+בפרט התנגש בשם עם הטיפוס האמיתי מ-`cashflow-engine.ts`). מנוע `cashflow-base-engine.ts` (waterfall
+בסיסי-בלי-ריבית מ-commit 4, שהוחלף על ידי `cashflow-interest-engine.ts` ולא נעשה בו שימוש מאז) הוסר
+מאותה סיבה.
+
+**מסגרת אשראי היא תמיד מספר מפורש**: `InterestCashFlowAssumptions.creditFacilityLimitNis` (המנוע
+החי, `cashflow-interest-engine.ts`) וגם `ProjectCashFlowAssumptions.financing.creditFacilityLimitNis`
+(שכבת הגישור, `cashflow-project-adapter.ts`) הם `number` בלבד. **`"auto"` היה קונספט שנשקל בשלב
+התכנון המוקדם (מוזכר בהיסטוריית §9/§12 הישנות) ונדחה במפורש** - אינו קיים באף טיפוס חי היום, ואסור
+לגזור מסגרת אשראי מאומדן סטטי או משיא חוב בדיעבד (הוחלט ותועד מפורשות ב-commit 8c, §13.6). כשמסגרת
+לא סופקה: `CREDIT_FACILITY_LIMIT_MISSING` (`prepareCashFlowInput`) - לא ניחוש, לא ברירת מחדל מחושבת.
 
 ---
 
-## 12. תכנית בדיקות (מעודכנת)
+## 12. סטטוס נוכחי לפי שכבה (עודכן ב-8d)
 
-| # | תרחיש | מה מוודאים |
+| שכבה | קובץ | סטטוס |
 |---|---|---|
-| 1-11 | (כבסיס: ללא מכירות, ללא הון עצמי, ממומן כולו בהון עצמי, תקבולים מקדימים, מסגרת נדרשת לאורך הביצוע, פירעון מלא במסירה, יחידות תמורה ללא תקבולים, אפס חודשי בנייה, משך חריג, NaN/Infinity, מאזן חודשי) | ר' גרסה קודמת, ללא שינוי מהותי |
-| 12 | עקומת בנייה מסכמת בדיוק 100% | בכל ארבעת המודלים, גם `constructionMonths=1` |
-| 13 | `purchaseGroup` preset | מסגרת=0, ערבויות=[] כברירת מחדל, ניתן לדריסה |
-| 14 | `legacyConstructionLinked` משחזר את דגם המקור | תוצאה זהה לנוסחת 01-תמא-38.md |
-| 15 | `unitCompensationOwner` בלי שיעור | לא מחושב, ב-`missingAssumptions`, `isComplete=false` |
-| 16 | `interestBalanceBasisUsed` מוצג נכון | לא נסתר |
-| 17 | אין מעגליות ריבית | ריבית מחודש m לא משפיעה על `creditDrawNis[m]` של אותו חודש |
-| 18 | `creditFacilityLimitNis="auto"` נגזר מהאומדן הסטטי + מרווח, לא משיא בדיעבד | ר' §4.1 |
-| 19 | `PaymentTranche[]` תקין | סך `fraction`≈1 לכל קטגוריה, אין ערך שלילי או `>1`, כל `timing` בתוך ציר הפרויקט |
-| 20 | `costTimingOverrides` ללא כפילות/אובדן | `scheduledOperatingCostsNis` = `baseOperatingCostsNis` בדיוק (לא כולל `accountOpeningCommission`) |
-| 21 | **חדש**: חריגה ממסגרת אשראי | הון מוצה + מסגרת קטנה מדי → `fundingShortfallNis>0`, `facilityExceeded=true`, `isComplete=false`, לא מומצא כסף, לא זורק |
-| 22 | **חדש**: אין מעגליות עמלת אי-ניצול | `unusedCreditCommissionNis[m]` מחושב מ-`openingDebtBalanceNis[m]` בלבד, לא תלוי ב-`creditDrawNis[m]` של אותו חודש |
-| 23 | **חדש**: `CashFlowReconciliation` נכון | `operatingCostDifferenceNis≈0`; `accountOpeningCommissionNis`/ערבויות/ריבית/אי-ניצול **לא** נדרשים להיות שווים לקירוב הישן |
+| טיפוסים + ולידציה | `cashflow-types.ts`, `cashflow-validation.ts` | ✅ יציב, נבדק |
+| עקומת בנייה | `cashflow-construction-curve.ts` | ✅ ארבעת המודלים (`linear`/`sCurve`/`legacy`/`custom`), מסכם 100% בדיוק |
+| לוח תקבולי מכירה | `cashflow-sales-schedule.ts` | ✅ `PaymentTranche[]`, כל סוגי `PaymentTiming`, אין מעגליות |
+| לוח עלויות | `cashflow-cost-schedule.ts` | ✅ כל 27 `CashFlowCostItemId`, מפתח לא-מוכר נדחה (כולל `accountOpeningCommission`/`interest`/`guaranteeCommission` - ר' cashflow-financed-engine.ts §OperatingMonthInput) |
+| לוח תפעולי מאוחד | `cashflow-operating-schedule.ts` | ✅ רב-שורתי, זכאות ערבות חוק מכר לכל שורה בנפרד |
+| ערבויות | `cashflow-guarantees.ts` | ✅ שלושה מנגנונים נפרדים, `unitCompensationOwner` עם `requiresVerification` -> `missingAssumptions` בלבד |
+| ריבית + waterfall | `cashflow-interest-engine.ts` | ✅ ריבית מהוונת חודשית, אין מעגליות (תקרת משיכה מותאמת-ריבית סגורה אלגברית), `facilityBreachNis`/`fundingDeficitBalanceNis` גלויים ולא מוסתרים |
+| שילוב ערבות בתזרים | `cashflow-financed-engine.ts` | ✅ הוצאת ערבות מתווספת פעם אחת בלבד, לא כלולה ב-`operatingOutflowsNis` (אוכף בתיעוד, ר' §4 להלן) |
+| עמלות מימון | `cashflow-financing-fees.ts` | ✅ עמלת פתיחה + אי-ניצול (שלושה בסיסים), תוצאה "לפני עמלות" בלבד |
+| לולאת התכנסות | `cashflow-complete-financing.ts` | ✅ עד 60 איטרציות (ברירת מחדל), `isConverged=false`+warning אם לא מתכנסת - לא זורק, לא לולאה אינסופית |
+| אורקסטרטור עליון | `cashflow-engine.ts` | ✅ `computeCashFlow`, union תלת-מצבי (`incompleteAssumptions`/`notConverged`/`complete`) |
+| גישור מ-ProjectInputs | `cashflow-project-adapter.ts` | ✅ `prepareCashFlowInput`, opt-in, לא מחובר לשום דבר (React/Supabase/Excel) |
+
+**כיסוי בדיקות דור 1 (regression, לא Gen2)**: `feasibility.test.ts` מכסה `basic`/`tama38`/`kombinatsia`/
+`purchaseGroup`. `pinuyBinui`/`kombinatsiaTemurot`/`mixedUse` מכוסים כעת ב-`dealtype-regression.test.ts`
+(נוסף ב-8d, ר' דוח ה-audit) - `computeProject` לא נגע בהם, נבדקים באינווריאנטים (אין NaN/Infinity,
+דטרמיניזם, אי-מוטציה, זהות הכנסה/עלות/רווח) ולא ב-snapshot שביר.
 
 ---
 
