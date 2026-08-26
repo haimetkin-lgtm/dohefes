@@ -30,6 +30,7 @@ export type FinalizeOutcomeCode =
   | "deal_mismatch"
   | "terminal_state"
   | "deal_number_conflict"
+  | "verification_mismatch"
   | "not_found"
   | "invalid_input";
 
@@ -43,16 +44,25 @@ export interface FinalizeOutcome {
 
 /** אירועים "חשודים" (לא כשלים תמימים) שראוי לתעד - תמיד ללא PII, רק סיבה כללית + lowProfileCode
  *  (מזהה טכני שלנו, לא מידע אישי). ר' index.ts למימוש הרישום עצמו (כרגע console.error, אין
- *  טבלת audit ייעודית בשלב הזה). */
-export type SecurityEventReason = "verification_mismatch" | "deal_mismatch" | "deal_number_conflict" | "unexpected_not_found";
+ *  טבלת audit ייעודית בשלב הזה). זהה במפורש לתת-הקבוצה של FinalizeOutcomeCode שנחשבת חשודה
+ *  (SECURITY_EVENT_OUTCOMES למטה) + "verification_mismatch" (נתפס כבר בשכבה הזו, לפני ה-RPC). */
+export type SecurityEventReason = "verification_mismatch" | "deal_mismatch" | "deal_number_conflict" | "not_found";
 
 export interface PaymentIndicatorDatabase {
   /** קריאה בלבד - לא mutation. נדרשת כדי להשוות את מה ש-Cardcom אישרה מול מה שאנחנו כבר יודעים
    *  על ההזמנה (ReturnValue/CoinId/Sum36 מול provider_order_reference/currency_code/expected_amount_agorot) -
-   *  ה-RPC עצמו לא מקבל את השדות האלה כפרמטרים (ר' payment-schema.sql), ולכן ההשוואה חייבת
-   *  לקרות כאן, בשכבת ה-service, לפני שקוראים ל-RPC בכלל. */
+   *  זו בדיקה **ראשונה, מוקדמת** (fast-path: נמנעת מקריאת RPC מיותרת ורושמת אירוע אבטחה כאן
+   *  ישירות) - ה-RPC עצמו (ר' payment-schema.sql, commit חמישי) **גם הוא** מבצע את אותה השוואה
+   *  באופן עצמאי מול השורה שהוא נועל, כהגנת-עומק - שתי הבדיקות מכוונות, לא כפילות מיותרת: זו
+   *  כאן ממשיכה לעבוד גם אם ה-RPC אי-פעם ישונה/יוסר את הבדיקה הפנימית שלו, וההפך. */
   getOrderByLowProfileCode(lowProfileCode: string): Promise<OrderForVerification | null>;
-  finalizeVerifiedPayment(lowProfileCode: string, cardcomInternalDealNumber: string): Promise<FinalizeOutcome>;
+  finalizeVerifiedPayment(
+    lowProfileCode: string,
+    cardcomInternalDealNumber: string,
+    verifiedProviderOrderReference: string,
+    verifiedAmountAgorot: number,
+    verifiedCurrencyCode: number
+  ): Promise<FinalizeOutcome>;
   recordSecurityEvent(event: { reason: SecurityEventReason; lowProfileCode: string }): Promise<void>;
 }
 
@@ -81,7 +91,12 @@ export interface IndicatorResult {
 const RETRYABLE_FAILURE_CODES = new Set(["provider_unreachable", "not_completed"]);
 const RETRYABLE_HTTP_PREFIX = "provider_http_";
 
-const SECURITY_EVENT_OUTCOMES = new Set<FinalizeOutcomeCode>(["deal_mismatch", "deal_number_conflict", "not_found"]);
+const SECURITY_EVENT_OUTCOMES = new Set<FinalizeOutcomeCode>([
+  "deal_mismatch",
+  "deal_number_conflict",
+  "verification_mismatch",
+  "not_found",
+]);
 
 export async function handleIndicatorCallback(
   deps: PaymentIndicatorServiceDeps,
@@ -117,7 +132,13 @@ export async function handleIndicatorCallback(
     return { httpStatus: 200 };
   }
 
-  const finalizeResult = await deps.database.finalizeVerifiedPayment(lowProfileCode, fields.internalDealNumber);
+  const finalizeResult = await deps.database.finalizeVerifiedPayment(
+    lowProfileCode,
+    fields.internalDealNumber,
+    fields.returnValue,
+    fields.amountAgorot,
+    fields.coinId
+  );
 
   if (SECURITY_EVENT_OUTCOMES.has(finalizeResult.outcome)) {
     await deps.database.recordSecurityEvent({ reason: finalizeResult.outcome as SecurityEventReason, lowProfileCode });

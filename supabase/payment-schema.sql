@@ -359,24 +359,53 @@ $$;
 revoke execute on function dohefes_upsert_active_entitlement(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function dohefes_upsert_active_entitlement(uuid, uuid, text) to service_role;
 
+-- --- commit חמישי (ביקורת אבטחה): הגנת-עומק על סכום/מטבע/ReturnValue בתוך ה-RPC עצמו ---
+--
+-- **ממצא ביקורת**: הגרסה המקורית של הפונקציה הזו (commit d55f02b) קיבלה רק p_low_profile_code
+-- ו-p_cardcom_internal_deal_number, ו**סמכה במלואה** על כך שהקוד הקורא לה (cardcom-payment-indicator)
+-- כבר אימת את הסכום/המטבע/ה-ReturnValue מול Cardcom לפני הקריאה. זה עמד בסתירה לעיקרון שמונחה
+-- את שאר הקובץ הזה מתחילתו (ר' ה-trigger dohefes_payment_entitlement_requires_verified_order
+-- למעלה, שקיים בדיוק כדי **לא** לסמוך על כך שקוד השרת נכון-בהכרח): כל בעל service_role
+-- (כולל Edge Function עתידית עם באג, או session ידני ב-SQL Editor) יכול היה לקרוא לפונקציה עם
+-- p_cardcom_internal_deal_number מומצא לחלוטין ולסמן הזמנה כלשהי כ-paid, בלי שום אימות עצמאי
+-- ברמת מסד הנתונים שהסכום/המטבע/ה-ReturnValue שנטען אכן תואמים למה ש-Cardcom דיווחה בפועל.
+--
+-- **התיקון**: שלושה פרמטרים נוספים - p_verified_provider_order_reference/p_verified_amount_agorot/
+-- p_verified_currency_code - הערכים שה-Edge Function קיבלה בפועל מקריאת server-to-server אמיתית
+-- ל-Cardcom (GetLowProfileIndicator), **לא** מה-webhook הנכנס עצמו. הפונקציה משווה אותם כאן,
+-- באופן עצמאי, מול העמודות המתאימות בשורה שננעלה (v_order.provider_order_reference/
+-- expected_amount_agorot/currency_code) - **לא** כותבת אותם לשום מקום (ההזמנה/ה-entitlement
+-- ממשיכים להיגזר אך ורק מ-v_order, בדיוק כמו קודם) - זו בדיקת שקילות בלבד, הגנת-עומק עצמאית
+-- שממשיכה לחסום גם אם שכבת ה-service תיפרץ/תבאג בעתיד, בדיוק כמו שה-trigger למעלה עושה עבור
+-- report_id/product_type. **אין כאן סתירה** לדרישה המקורית "אין להעביר report_id/product_type/
+-- סכום/מטבע כפרמטרים חיצוניים לצורך יצירת ה-entitlement" - הערכים האלה עדיין לא נכתבים לשום
+-- מקום, הם רק נבדקים מול מה שכבר קיים בשורה הנעולה, לפני שמתבצעת מוטציה כלשהי.
+--
 -- --- הפונקציה הראשית ---
 --
 -- outcome אפשריים (כולם מוחזרים כשורה תקינה, לא כ-exception - כשל צפוי אינו שגיאת קוד):
---   'finalized'            - ההזמנה עברה מ-created/pending ל-paid בהצלחה, entitlement נוצרה/מופעלת.
---   'already_finalized'    - כבר הייתה paid עם **אותה** אסמכתה בדיוק - idempotent, אין שינוי נוסף
---                            מעבר לוידוא ש-entitlement קיימת (retry בטוח לחלוטין, אין תופעות לוואי כפולות).
---   'deal_mismatch'        - כבר הייתה paid, אך עם אסמכתה **שונה** - נתפס כנכשל, ההזמנה לא משתנה
---                            (חשד לתרחיש לא-תקין: איך יש שתי אסמכתאות Cardcom שונות לאותה הזמנה).
---   'terminal_state'       - ההזמנה כבר ב-failed/cancelled/refunded - לא נפתחת מחדש בשקט, אין
---                            מדיניות מוגדרת עדיין ל"תחיית" הזמנה שכבר הגיעה למצב סופי לא-משולם.
---   'deal_number_conflict' - ה-InternalDealNumber שהתקבל כבר שייך **להזמנה אחרת** (unique constraint
---                            הקיים כבר על cardcom_internal_deal_number - ר' הגדרת הטבלה למעלה) -
---                            נתפס ב-EXCEPTION block, לא מוחזר כשגיאת Postgres גולמית ללקוח.
---   'not_found'            - אין הזמנה עם p_low_profile_code הזה - לא חושפים יותר מזה.
---   'invalid_input'        - פרמטר חסר (null) - שגיאת קריאה, לא תרחיש Cardcom אמיתי.
+--   'finalized'             - ההזמנה עברה מ-created/pending ל-paid בהצלחה, entitlement נוצרה/מופעלת.
+--   'already_finalized'     - כבר הייתה paid עם **אותה** אסמכתה בדיוק - idempotent, אין שינוי נוסף
+--                             מעבר לוידוא ש-entitlement קיימת (retry בטוח לחלוטין, אין תופעות לוואי כפולות).
+--   'deal_mismatch'         - כבר הייתה paid, אך עם אסמכתה **שונה** - נתפס כנכשל, ההזמנה לא משתנה
+--                             (חשד לתרחיש לא-תקין: איך יש שתי אסמכתאות Cardcom שונות לאותה הזמנה).
+--   'terminal_state'        - ההזמנה כבר ב-failed/cancelled/refunded - לא נפתחת מחדש בשקט, אין
+--                             מדיניות מוגדרת עדיין ל"תחיית" הזמנה שכבר הגיעה למצב סופי לא-משולם.
+--   'deal_number_conflict'  - ה-InternalDealNumber שהתקבל כבר שייך **להזמנה אחרת** (unique constraint
+--                             הקיים כבר על cardcom_internal_deal_number - ר' הגדרת הטבלה למעלה) -
+--                             נתפס ב-EXCEPTION block, לא מוחזר כשגיאת Postgres גולמית ללקוח.
+--   'verification_mismatch' - הסכום/המטבע/ה-ReturnValue המאומתים שהתקבלו **לא תואמים** למה
+--                             שכתוב בפועל בהזמנה שננעלה - נבדק **לפני** כל הסתעפות אחרת (גם לפני
+--                             בדיקת "כבר paid"), כי זו אי-התאמה יסודית יותר מכל סטטוס - חשודה
+--                             ומדווחת כאירוע אבטחה בשכבת ה-service (ר' payment-indicator-service.ts).
+--   'not_found'             - אין הזמנה עם p_low_profile_code הזה - לא חושפים יותר מזה.
+--   'invalid_input'         - פרמטר חסר (null) - שגיאת קריאה, לא תרחיש Cardcom אמיתי.
 create or replace function dohefes_finalize_verified_payment(
   p_low_profile_code text,
-  p_cardcom_internal_deal_number text
+  p_cardcom_internal_deal_number text,
+  p_verified_provider_order_reference text,
+  p_verified_amount_agorot integer,
+  p_verified_currency_code integer
 )
 returns table (
   outcome text,
@@ -393,7 +422,11 @@ declare
   v_order dohefes_payment_orders%rowtype;
   v_entitlement_id uuid;
 begin
-  if p_low_profile_code is null or p_cardcom_internal_deal_number is null then
+  if p_low_profile_code is null
+     or p_cardcom_internal_deal_number is null
+     or p_verified_provider_order_reference is null
+     or p_verified_amount_agorot is null
+     or p_verified_currency_code is null then
     return query select 'invalid_input'::text, null::uuid, null::uuid, null::text, null::uuid;
     return;
   end if;
@@ -407,6 +440,15 @@ begin
 
   if not found then
     return query select 'not_found'::text, null::uuid, null::uuid, null::text, null::uuid;
+    return;
+  end if;
+
+  -- הגנת-עומק: הערכים המאומתים מול Cardcom חייבים לתאום את ההזמנה הנעולה עצמה - **לפני** כל
+  -- הסתעפות אחרת (ר' הערת "commit חמישי" למעלה לנימוק המלא). לא כותבת כלום - רק בדיקת שקילות.
+  if v_order.provider_order_reference is distinct from p_verified_provider_order_reference
+     or v_order.expected_amount_agorot is distinct from p_verified_amount_agorot
+     or v_order.currency_code is distinct from p_verified_currency_code then
+    return query select 'verification_mismatch'::text, v_order.id, v_order.report_id, v_order.product_type, null::uuid;
     return;
   end if;
 
@@ -457,12 +499,12 @@ begin
 end;
 $$;
 
-revoke execute on function dohefes_finalize_verified_payment(text, text) from public, anon, authenticated;
-grant execute on function dohefes_finalize_verified_payment(text, text) to service_role;
+revoke execute on function dohefes_finalize_verified_payment(text, text, text, integer, integer) from public, anon, authenticated;
+grant execute on function dohefes_finalize_verified_payment(text, text, text, integer, integer) to service_role;
 
 -- --- Rollback (מתועד בלבד, לא מבוצע) ---
 --
--- drop function if exists dohefes_finalize_verified_payment(text, text);
+-- drop function if exists dohefes_finalize_verified_payment(text, text, text, integer, integer);
 -- drop function if exists dohefes_upsert_active_entitlement(uuid, uuid, text);
 -- drop trigger if exists dohefes_product_entitlements_require_verified_order on dohefes_product_entitlements;
 -- drop trigger if exists dohefes_product_entitlements_touch_updated_at on dohefes_product_entitlements;
@@ -549,31 +591,50 @@ grant execute on function dohefes_finalize_verified_payment(text, text) to servi
 --           'lpc-finalize-1', 'hash-finalize-1')
 --   returning id;  -- שמור כ-<finalize-order-id>
 --
+-- הערה: מ-commit חמישי (ביקורת אבטחה) ואילך, הפונקציה מקבלת גם שלושה פרמטרים "מאומתים" -
+-- p_verified_provider_order_reference/p_verified_amount_agorot/p_verified_currency_code - אלה
+-- הערכים שה-Edge Function כביכול קיבלה מ-Cardcom (GetLowProfileIndicator) ומעבירה הלאה. בתרחישים
+-- #8-#11 למטה הם תואמים בכוונה להזמנה עצמה ('order-ref-finalize-1'/98000/1, ר' ה"הכנה" למעלה) -
+-- כדי לבודד את מה שכל תרחיש בפועל בודק (idempotency/mismatch/terminal state), לא את בדיקת ההתאמה
+-- עצמה - זו נבדקת בנפרד בתרחיש #13.
+--
 -- 8. finalize ראשון מצליח:
---   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-1');
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-1', 'order-ref-finalize-1', 98000, 1);
 --   -- צפוי: שורה אחת, outcome='finalized', order_id=<finalize-order-id>, entitlement_id לא null.
 --   -- לוודא גם: dohefes_payment_orders.status='paid' על אותה שורה, ו-dohefes_product_entitlements
 --   -- מכילה בדיוק שורה אחת עם report_id/product_type/payment_order_id תואמים.
 --
 -- 9. callback כפול עם אותה עסקה בדיוק -> מצליח idempotently, בלי תופעות לוואי כפולות:
---   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-1');
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-1', 'order-ref-finalize-1', 98000, 1);
 --   -- צפוי: outcome='already_finalized', אותם order_id/report_id/product_type/entitlement_id
 --   -- כמו בתרחיש #8 - לוודא ש-dohefes_product_entitlements עדיין מכילה **שורה אחת בלבד** (לא
 --   -- שתיים) לאותו report_id/product_type, ו-granted_at התעדכן ל-now() החדש.
 --
 -- 10. callback שני עם InternalDealNumber אחר -> נכשל, ההזמנה לא משתנה:
---   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-DIFFERENT');
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-1', 'deal-finalize-DIFFERENT', 'order-ref-finalize-1', 98000, 1);
 --   -- צפוי: outcome='deal_mismatch'. לוודא: dohefes_payment_orders.cardcom_internal_deal_number
 --   -- על אותה שורה **נשאר** 'deal-finalize-1' (לא השתנה ל-'deal-finalize-DIFFERENT').
 --
 -- 11. הזמנה במצב סופי (failed/cancelled/refunded) לא נפתחת מחדש בלי מדיניות מפורשת:
---   -- (יוצרים הזמנה נפרדת עם status='failed' ו-cardcom_low_profile_code='lpc-finalize-failed', ואז:)
---   select * from dohefes_finalize_verified_payment('lpc-finalize-failed', 'deal-finalize-2');
+--   -- (יוצרים הזמנה נפרדת עם status='failed', cardcom_low_profile_code='lpc-finalize-failed',
+--   --  provider_order_reference='order-ref-finalize-failed', expected_amount_agorot=98000, ואז:)
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-failed', 'deal-finalize-2', 'order-ref-finalize-failed', 98000, 1);
 --   -- צפוי: outcome='terminal_state'. לוודא: status על אותה שורה נשאר 'failed', לא הפך ל-'paid'.
 --
 -- 12. אותו InternalDealNumber עבור **הזמנה אחרת** -> ה-unique constraint הקיים על
 --     cardcom_internal_deal_number חוסם, לא מאפשר לשייך עסקת Cardcom אחת לשתי הזמנות:
---   -- (יוצרים הזמנה שנייה, נפרדת, pending, עם cardcom_low_profile_code='lpc-finalize-3'):
---   select * from dohefes_finalize_verified_payment('lpc-finalize-3', 'deal-finalize-1');
+--   -- (יוצרים הזמנה שנייה, נפרדת, pending, עם cardcom_low_profile_code='lpc-finalize-3',
+--   --  provider_order_reference='order-ref-finalize-3', expected_amount_agorot=98000):
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-3', 'deal-finalize-1', 'order-ref-finalize-3', 98000, 1);
 --   -- ('deal-finalize-1' כבר שייך להזמנה מתרחיש #8) -- צפוי: outcome='deal_number_conflict'.
 --   -- לוודא: ההזמנה השנייה נשארת 'pending' (לא 'paid'), ואין entitlement חדשה שנוצרה עבורה.
+--
+-- 13. (ממצא ביקורת - הגנת-עומק חדשה) הערכים ה"מאומתים" לא תואמים לשורה עצמה -> נכשל, לפני כל
+--     הסתעפות אחרת, אפילו אם ה-p_cardcom_internal_deal_number עצמו תקין לחלוטין:
+--   -- (יוצרים הזמנה חדשה, pending, cardcom_low_profile_code='lpc-finalize-4',
+--   --  provider_order_reference='order-ref-finalize-4', expected_amount_agorot=98000, currency_code=1):
+--   select * from dohefes_finalize_verified_payment('lpc-finalize-4', 'deal-finalize-4', 'order-ref-finalize-4', 1, 1);
+--   -- (הסכום המאומת שהועבר, 1 אגורה, לא תואם ל-expected_amount_agorot=98000 בהזמנה עצמה) --
+--   -- צפוי: outcome='verification_mismatch'. לוודא: ההזמנה נשארת 'pending' (לא 'paid'), אין
+--   -- entitlement שנוצרה. אותה תוצאה צפויה גם כש-p_verified_provider_order_reference או
+--   -- p_verified_currency_code (ולא הסכום) הם אלה שלא תואמים.

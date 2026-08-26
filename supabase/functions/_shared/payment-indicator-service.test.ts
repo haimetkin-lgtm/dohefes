@@ -19,9 +19,17 @@ const VALID_ORDER: OrderForVerification = {
 
 const VALID_FIELDS = { internalDealNumber: "deal-1", returnValue: "po_abc123", coinId: 1, amountAgorot: 98_000 };
 
+interface FinalizeCall {
+  lowProfileCode: string;
+  cardcomInternalDealNumber: string;
+  verifiedProviderOrderReference: string;
+  verifiedAmountAgorot: number;
+  verifiedCurrencyCode: number;
+}
+
 class FakeDatabase implements PaymentIndicatorDatabase {
   orders = new Map<string, OrderForVerification>();
-  finalizeCalls: Array<{ lowProfileCode: string; cardcomInternalDealNumber: string }> = [];
+  finalizeCalls: FinalizeCall[] = [];
   finalizeResult: FinalizeOutcome = {
     outcome: "finalized",
     orderId: "order-1",
@@ -35,8 +43,20 @@ class FakeDatabase implements PaymentIndicatorDatabase {
     return this.orders.get(lowProfileCode) ?? null;
   }
 
-  async finalizeVerifiedPayment(lowProfileCode: string, cardcomInternalDealNumber: string): Promise<FinalizeOutcome> {
-    this.finalizeCalls.push({ lowProfileCode, cardcomInternalDealNumber });
+  async finalizeVerifiedPayment(
+    lowProfileCode: string,
+    cardcomInternalDealNumber: string,
+    verifiedProviderOrderReference: string,
+    verifiedAmountAgorot: number,
+    verifiedCurrencyCode: number
+  ): Promise<FinalizeOutcome> {
+    this.finalizeCalls.push({
+      lowProfileCode,
+      cardcomInternalDealNumber,
+      verifiedProviderOrderReference,
+      verifiedAmountAgorot,
+      verifiedCurrencyCode,
+    });
     return this.finalizeResult;
   }
 
@@ -67,7 +87,18 @@ describe("handleIndicatorCallback - תשלום תקין", () => {
     const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
 
     expect(result).toEqual({ httpStatus: 200 });
-    expect(database.finalizeCalls).toEqual([{ lowProfileCode: "lpc-1", cardcomInternalDealNumber: "deal-1" }]);
+    expect(database.finalizeCalls).toEqual([
+      {
+        lowProfileCode: "lpc-1",
+        cardcomInternalDealNumber: "deal-1",
+        // הערכים המאומתים שהועברו הם אלה שחזרו בפועל מ-Cardcom (fields.*) - **לא** מ-order.* -
+        // ה-RPC עצמו עושה את ההשוואה מול ההזמנה (ר' payment-schema.sql, commit חמישי); העברת
+        // order.* בחזרה לעצמו הייתה טאוטולוגיה חסרת ערך שלא בודקת כלום.
+        verifiedProviderOrderReference: "po_abc123",
+        verifiedAmountAgorot: 98_000,
+        verifiedCurrencyCode: 1,
+      },
+    ]);
     expect(database.securityEvents).toEqual([]);
   });
 
@@ -229,6 +260,21 @@ describe("handleIndicatorCallback - outcome מה-RPC שדורש תיעוד אי�
 
     expect(result).toEqual({ httpStatus: 200 });
     expect(database.securityEvents).toEqual([{ reason: "deal_number_conflict", lowProfileCode: "lpc-1" }]);
+  });
+
+  it("verification_mismatch מה-RPC (הגנת-עומק ברמת ה-DB עצמו) -> נרשם אירוע אבטחה, 200", async () => {
+    // מייצג מצב שבו הבדיקה המוקדמת בשכבת ה-service (matches, למעלה) עברה בטעות/עקיפה כלשהי,
+    // וה-RPC עצמו (שגם הוא בודק עצמאית מול השורה הנעולה, ר' payment-schema.sql commit חמישי)
+    // הוא זה שתופס את אי-ההתאמה בפועל - חייב עדיין להירשם כאירוע אבטחה, לא להיבלע בשקט.
+    const database = new FakeDatabase();
+    database.orders.set("lpc-1", VALID_ORDER);
+    database.finalizeResult = { outcome: "verification_mismatch", orderId: "order-1", reportId: "report-1", productType: "cashFlowAnalysis", entitlementId: null };
+    const cardcomClient = fakeCardcomClient({ ok: true, fields: VALID_FIELDS });
+
+    const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
+
+    expect(result).toEqual({ httpStatus: 200 });
+    expect(database.securityEvents).toEqual([{ reason: "verification_mismatch", lowProfileCode: "lpc-1" }]);
   });
 
   it("deal_mismatch מה-RPC -> נרשם אירוע אבטחה, 200", async () => {

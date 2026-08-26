@@ -74,11 +74,20 @@ function buildDatabase(supabase: SupabaseClient): PaymentIndicatorDatabase {
       };
     },
 
-    async finalizeVerifiedPayment(lowProfileCode: string, cardcomInternalDealNumber: string): Promise<FinalizeOutcome> {
+    async finalizeVerifiedPayment(
+      lowProfileCode: string,
+      cardcomInternalDealNumber: string,
+      verifiedProviderOrderReference: string,
+      verifiedAmountAgorot: number,
+      verifiedCurrencyCode: number
+    ): Promise<FinalizeOutcome> {
       const { data, error } = await supabase
         .rpc("dohefes_finalize_verified_payment", {
           p_low_profile_code: lowProfileCode,
           p_cardcom_internal_deal_number: cardcomInternalDealNumber,
+          p_verified_provider_order_reference: verifiedProviderOrderReference,
+          p_verified_amount_agorot: verifiedAmountAgorot,
+          p_verified_currency_code: verifiedCurrencyCode,
         })
         .single<RpcRow>();
       if (error) throw error;
