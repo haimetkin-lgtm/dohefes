@@ -502,8 +502,39 @@ $$;
 revoke execute on function dohefes_finalize_verified_payment(text, text, text, integer, integer) from public, anon, authenticated;
 grant execute on function dohefes_finalize_verified_payment(text, text, text, integer, integer) to service_role;
 
+-- --- commit שישי (מניעת שימוש לרעה): לכל היותר הזמנה "פעילה" אחת לכל (report_id, product_type) ---
+--
+-- ממצא ביקורת "חובה לפני ניסיון אמיתי": בלי הגבלה כלשהי, כל בקשה עם Idempotency-Key חדש
+-- (שאין עלותה - anon key פומבי מטבעו) יוצרת הזמנה חדשה + session חדש אצל Cardcom - אין מגבלה
+-- על מספר ה-sessions שניתן ליצור לאותו (report, מוצר). ה-index הזה הוא ההגנה האמיתית מול race
+-- (לא רק בדיקה ברמת השירות, שנשארת TOCTOU-חשופה לבדה - ר' create-payment-order/index.ts
+-- ו-_shared/payment-order-service.ts ליישום המלא בצד השירות, כולל טיפול ב-race עצמו).
+--
+-- **partial unique index על (report_id, product_type) עבור status in ('created','pending','paid')** -
+-- לא unique constraint רגיל על כל הטבלה (שהיה חוסם, בטעות, אפילו הזמנות ישנות/סופיות באותו
+-- זוג דוח+מוצר). למה שלושת הסטטוסים האלה בדיוק, ולא רק created/pending:
+--   - created/pending: תמיד חוסמים - אלה ניסיונות פעילים, אין סיבה לאפשר שני ניסיונות מקבילים.
+--   - paid: חוסם **כל עוד ההזמנה עצמה נשארת paid** - ברגע שהזמנה paid "מתבטלת" (למשל refund
+--     עתידי), status אמור לעבור ל-'refunded' (ערך קיים כבר ב-check constraint של הטבלה) - **לא**
+--     להישאר 'paid' לנצח. זו **דרישה מפורשת מכל מימוש refund עתידי**: מעבר entitlement.status
+--     ל-'refunded'/'revoked' בלבד, בלי לעדכן גם את payment_orders.status, ישאיר את ה-index הזה
+--     חוסם רכישה חוזרת לנצח - אם וכאשר תיבנה תשתית refund, היא **חייבת** לעדכן את שני הצדדים יחד
+--     (בדיוק כמו ש-dohefes_finalize_verified_payment מעדכנת order+entitlement יחד היום ל-paid).
+-- failed/cancelled/refunded - **לא** בפרדיקט, ולכן לא חוסמים ניסיון חדש בכלל - זה מה שמאפשר
+-- "נכשל -> נסה שוב" ו"הוחזר -> קנה שוב" בלי לגעת בשורה הישנה.
+--
+-- race-safety: זו לא בדיקה-ואז-כתיבה ברמת אפליקציה (חשופה ל-TOCTOU) - Postgres אוכף ייחודיות
+-- ברמת ה-index עצמו בזמן ה-INSERT/UPDATE: שני INSERT מקבילים לאותו (report_id, product_type)
+-- עם status חוסם - השני ממתין לראשון (נעילת index-entry מובנית), ואז נכשל עם unique_violation
+-- ברגע שהראשון commit. אין חלון זמן שבו שתי שורות חוסמות "כמעט בו-זמנית" עוברות את הבדיקה גם
+-- יחד - זהה למנגנון שכבר מוכח לעבוד עם cardcom_internal_deal_number ב-dohefes_finalize_verified_payment.
+create unique index if not exists idx_dohefes_payment_orders_one_active_per_report_product
+  on dohefes_payment_orders (report_id, product_type)
+  where status in ('created', 'pending', 'paid');
+
 -- --- Rollback (מתועד בלבד, לא מבוצע) ---
 --
+-- drop index if exists idx_dohefes_payment_orders_one_active_per_report_product;
 -- drop function if exists dohefes_finalize_verified_payment(text, text, text, integer, integer);
 -- drop function if exists dohefes_upsert_active_entitlement(uuid, uuid, text);
 -- drop trigger if exists dohefes_product_entitlements_require_verified_order on dohefes_product_entitlements;
@@ -514,11 +545,13 @@ grant execute on function dohefes_finalize_verified_payment(text, text, text, in
 -- drop function if exists dohefes_payment_entitlement_requires_verified_order();
 -- drop function if exists dohefes_payment_touch_updated_at();
 --
+-- (drop index if exists, בניגוד ל-drop trigger, כן אידמפוטנטי - ניתן להריץ פעמיים בבטחה.)
+--
 -- בטוח לביצוע בכל שלב: אין foreign key בכיוון ההפוך (dohefes_reports לא מפנה לשתי הטבלאות
 -- האלה), ואין קוד קיים (React/Edge Function) שתלוי בהן - הן לא נצרכות על ידי שום דבר עד commit
--- עתידי. הסדר למעלה (RPC -> triggers -> entitlements -> orders -> functions) חשוב: entitlements
--- תלויה ב-orders דרך foreign key, שתי פונקציות ה-RPC נמחקות ראשונות כי אינן תלות של אף אובייקט
--- אחר, וכל טריגר/פונקציה אחרת נמחקת רק אחרי שמי שמשתמש בה כבר לא קיים.
+-- עתידי. הסדר למעלה (index -> RPC -> triggers -> entitlements -> orders -> functions) חשוב:
+-- entitlements תלויה ב-orders דרך foreign key, שתי פונקציות ה-RPC נמחקות ראשונות כי אינן תלות
+-- של אף אובייקט אחר, וכל טריגר/פונקציה אחרת נמחקת רק אחרי שמי שמשתמש בה כבר לא קיים.
 
 -- --- תרחישי בדיקה ידניים (מתועדים בלבד - לא מבוצעים אוטומטית, לא כחלק מה-commit הזה) ---
 --
@@ -638,3 +671,30 @@ grant execute on function dohefes_finalize_verified_payment(text, text, text, in
 --   -- צפוי: outcome='verification_mismatch'. לוודא: ההזמנה נשארת 'pending' (לא 'paid'), אין
 --   -- entitlement שנוצרה. אותה תוצאה צפויה גם כש-p_verified_provider_order_reference או
 --   -- p_verified_currency_code (ולא הסכום) הם אלה שלא תואמים.
+
+-- --- תרחישי בדיקה ל-idx_dohefes_payment_orders_one_active_per_report_product (מתועדים בלבד) ---
+--
+-- 14. שתי הזמנות created/pending לאותו (report_id, product_type) -> ה-INSERT השני נכשל:
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash)
+--   values ('<report-A>', 'cashFlowAnalysis', 98000, 1, 'idem-cap-1', 'order-ref-cap-1', 'hash-cap-1');
+--   -- מצליח. עכשיו:
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash)
+--   values ('<report-A>', 'cashFlowAnalysis', 98000, 1, 'idem-cap-2', 'order-ref-cap-2', 'hash-cap-2');
+--   -- צפוי: EXCEPTION duplicate key value violates unique constraint
+--   -- "idx_dohefes_payment_orders_one_active_per_report_product"
+--
+-- 15. אותה הזמנה, אחרי שעברה ל-failed -> מותר ליצור הזמנה שנייה (לא חוסמת):
+--   update dohefes_payment_orders set status = 'failed', failure_code = 'test'
+--   where provider_order_reference = 'order-ref-cap-1';
+--   -- עכשיו ה-insert השני (מתרחיש 14, עם idem-cap-2) אמור להצליח.
+--
+-- 16. מוצר אחר באותו דוח, או דוח אחר באותו מוצר -> לא נחסמים (המפתח הוא הזוג המלא):
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash)
+--   values ('<report-A>', 'baseReport', 98000, 1, 'idem-cap-3', 'order-ref-cap-3', 'hash-cap-3');
+--   -- צפוי: מצליח, גם אם יש עדיין הזמנה חוסמת ל-('<report-A>', 'cashFlowAnalysis').

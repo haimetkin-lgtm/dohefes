@@ -28,7 +28,15 @@ import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
 import { isProductType, type ProductType } from "../_shared/payment-products.ts";
 import { createCardcomClient } from "../_shared/cardcom-client.ts";
 import { createPaymentOrder } from "../_shared/payment-order-service.ts";
-import type { NewOrderInput, OrderRecord, PaymentOrderDatabase, ReportLookupResult } from "../_shared/payment-order-service.ts";
+import type {
+  InsertOrderResult,
+  NewOrderInput,
+  OrderEntitlementLookup,
+  OrderRecord,
+  PaymentOrderAnomalyLogger,
+  PaymentOrderDatabase,
+  ReportLookupResult,
+} from "../_shared/payment-order-service.ts";
 
 // --- Secrets: שמות בלבד, אין ערכים בקוד. ר' דוח ה-commit לרשימה המלאה. ---
 // **אין CARDCOM_API_PASSWORD** - הוסר: לפי התיעוד הרשמי המאומת (ר' _shared/cardcom-client.ts),
@@ -90,6 +98,14 @@ function mapOrderRow(row: OrderRow): OrderRecord {
 
 const ORDER_SELECT_COLUMNS = "id, status, report_id, product_type, provider_order_reference, checkout_url";
 
+/** שם ה-index המדויק מ-payment-schema.sql (commit שישי) - חייב להישאר זהה מילה-במילה. משמש
+ *  אך ורק לזיהוי **איזה** unique constraint נכשל בהודעת השגיאה של Postgres (הטבלה כוללת עוד
+ *  כמה unique נפרדים - idempotency_key/provider_order_reference/וכו' - צריך להבחין ביניהם, לא
+ *  להתייחס לכל 23505 כאילו הוא בהכרח ה-race שאנחנו יודעים לטפל בו). */
+const ACTIVE_ORDER_INDEX_NAME = "idx_dohefes_payment_orders_one_active_per_report_product";
+
+type EntitlementRow = { entitlement_status: OrderEntitlementLookup["entitlementStatus"] };
+
 function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
   return {
     async getReportPaymentStatus(reportId: string): Promise<ReportLookupResult> {
@@ -109,7 +125,21 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
       return data ? mapOrderRow(data) : null;
     },
 
-    async insertOrder(input: NewOrderInput): Promise<OrderRecord> {
+    async findBlockingOrderForProduct(reportId: string, productType: ProductType): Promise<OrderRecord | null> {
+      // תואם בדיוק לפרדיקט של idx_dohefes_payment_orders_one_active_per_report_product - ה-index
+      // מבטיח שלכל היותר שורה אחת יכולה לתאום את שלושת התנאים האלה יחד, אז maybeSingle() בטוח.
+      const { data, error } = await supabase
+        .from("dohefes_payment_orders")
+        .select(ORDER_SELECT_COLUMNS)
+        .eq("report_id", reportId)
+        .eq("product_type", productType)
+        .in("status", ["created", "pending", "paid"])
+        .maybeSingle<OrderRow>();
+      if (error) throw error;
+      return data ? mapOrderRow(data) : null;
+    },
+
+    async insertOrder(input: NewOrderInput): Promise<InsertOrderResult> {
       const { data, error } = await supabase
         .from("dohefes_payment_orders")
         .insert({
@@ -124,8 +154,17 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
         })
         .select(ORDER_SELECT_COLUMNS)
         .single<OrderRow>();
-      if (error || !data) throw error ?? new Error("insertOrder: no row returned");
-      return mapOrderRow(data);
+      if (error) {
+        // 23505 = unique_violation. בודקים ספציפית את שם ה-index שלנו (ולא סתם "כל 23505") -
+        // התנגשות על idempotency_key/provider_order_reference וכו' היא תקלה אמיתית ולא-צפויה,
+        // לא race שאנחנו יודעים לטפל בו - נשארת זורקת.
+        if (error.code === "23505" && typeof error.message === "string" && error.message.includes(ACTIVE_ORDER_INDEX_NAME)) {
+          return { ok: false };
+        }
+        throw error;
+      }
+      if (!data) throw new Error("insertOrder: no row returned");
+      return { ok: true, order: mapOrderRow(data) };
     },
 
     async updateAccessTokenHash(orderId: string, accessTokenHash: string): Promise<void> {
@@ -145,8 +184,28 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
       const { error } = await supabase.from("dohefes_payment_orders").update({ status: "failed", failure_code: failureCode }).eq("id", orderId);
       if (error) throw error;
     },
+
+    async getEntitlement(reportId: string, productType: ProductType): Promise<OrderEntitlementLookup | null> {
+      const { data, error } = await supabase
+        .from("dohefes_product_entitlements")
+        .select("entitlement_status")
+        .eq("report_id", reportId)
+        .eq("product_type", productType)
+        .maybeSingle<EntitlementRow>();
+      if (error) throw error;
+      return data ? { entitlementStatus: data.entitlement_status } : null;
+    },
   };
 }
+
+const anomalyLogger: PaymentOrderAnomalyLogger = {
+  logAnomaly(event) {
+    // תיעוד מינימלי, בלי PII/token/פרטי Cardcom - רק reason + reportId/productType (מזהים
+    // טכניים). אין טבלת audit ייעודית בשלב הזה - console.warn בלבד, כמו recordSecurityEvent
+    // ב-cardcom-payment-indicator/index.ts (אותו דפוס בדיוק).
+    console.warn("dohefes_payment_order_anomaly", event);
+  },
+};
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
@@ -205,6 +264,7 @@ Deno.serve(async (req: Request) => {
         cardcomClient,
         tokenGenerator: { generateAccessToken, hashAccessToken, generateProviderOrderReference },
         clock: () => new Date(),
+        anomalyLogger,
         successRedirectUrl: CARDCOM_SUCCESS_URL,
         errorRedirectUrl: CARDCOM_ERROR_URL,
         indicatorUrl: CARDCOM_INDICATOR_URL,
