@@ -126,6 +126,15 @@ create table if not exists dohefes_payment_orders (
   verified_at timestamptz,
   paid_at timestamptz,
   failure_code text,
+  -- checkout_claim_token/checkout_claim_expires_at: מנגנון ה-claim/lease ליצירת LowProfile
+  -- session (commit שביעי, ר' דוח הביקורת שגילה את הפער - שתי בקשות עם Idempotency-Key שונים
+  -- שתיהן מגיעות ל-status='created' לאותה הזמנה יכלו, בלי זה, לקרוא ל-Cardcom **במקביל** ולייצר
+  -- שני session נפרדים לאותה הזמנה - ה-partial unique index (למטה) מונע שתי **שורות**, לא שתי
+  -- **קריאות רשת** על אותה שורה). checkout_claim_token **בכוונה בלי unique** - תפקידו התאמה
+  -- מדויקת מול שורה ספציפית אחת (ר' dohefes_claim_checkout_creation למטה), לא ייחודיות גלובלית
+  -- כמו cardcom_internal_deal_number (שם הייחודיות היא הדרישה העסקית עצמה - כאן היא לא).
+  checkout_claim_token text,
+  checkout_claim_expires_at timestamptz,
   unique (id, report_id, product_type),
   constraint dohefes_payment_orders_paid_requires_evidence check (
     status <> 'paid'
@@ -532,8 +541,73 @@ create unique index if not exists idx_dohefes_payment_orders_one_active_per_repo
   on dohefes_payment_orders (report_id, product_type)
   where status in ('created', 'pending', 'paid');
 
+-- --- commit שביעי (ביקורת נוספת): claim אטומי ליצירת LowProfile session יחיד ---
+--
+-- **ממצא**: ה-index למעלה מונע שתי **שורות הזמנה** לאותו report+product - הוא **לא** מונע שתי
+-- **קריאות רשת מקבילות ל-Cardcom** על אותה שורה יחידה שכבר קיימת ב-status='created'. תרחיש:
+-- בקשה א' מצליחה ב-insert (created). בקשה ב' (Idempotency-Key אחר) נכשלת ב-unique, מאתרת את
+-- אותה שורה (findBlockingOrderForProduct, ר' payment-order-service.ts), ורואה גם היא created
+-- בלי checkout_url - שתיהן יכלו, בלי claim, לקרוא ל-createLowProfile **במקביל** ולייצר שני
+-- session נפרדים (בזבוז, בלבול, ותלוי-תזמון מי "מנצח" בכתיבה הסופית ל-DB).
+--
+-- **הפתרון**: claim אטומי - UPDATE יחיד בתבנית CAS (compare-and-swap), לא select ואחריו update:
+-- מתנה על status='created' וגם על (אין claim פעיל, או שה-claim הקודם כבר פג). רק קריאה אחת
+-- מבין שתי קריאות מקבילות יכולה "לנצח" - Postgres מבטיח את זה ברמת נעילת השורה בזמן ה-UPDATE
+-- עצמו (אותו עיקרון שכבר הוכח לעבוד ב-dohefes_finalize_verified_payment). **הפונקציה הזו לא
+-- קוראת ל-Cardcom בכלל ולא מחזיקה שום דבר פתוח מעבר לזמן ריצת ה-UPDATE עצמו** - הקריאה
+-- ל-Cardcom קורית **אחרי** שהפונקציה כבר חזרה, בקוד ה-Edge Function (payment-order-service.ts),
+-- בלי טרנזקציה/נעילה פתוחה מצידנו בזמן שממתינים לרשת.
+--
+-- lease (checkout_claim_expires_at): זמן מוגבל, ארוך יותר מ-CARDCOM_FETCH_TIMEOUT_MS (15 שניות,
+-- ר' _shared/cardcom-client.ts) - כדי שקריאת Cardcom שגיטימית תמיד תספיק להסתיים בתוך ה-lease.
+-- אם ה-Edge Function קורסת/נתקעת **אחרי** ה-claim, ה-lease פג מעצמו - claim חדש מותר רק **אחרי**
+-- שהוא פג (כלל השתלטות ברור: status='created' וגם checkout_claim_expires_at < now()) - אין
+-- הזמנה תקועה לנצח, אך גם אין השתלטות מוקדמת על claim עדיין פעיל.
+--
+-- שחרור ה-claim (הצלחה/כישלון ודאי) נעשה **בצד ה-Edge Function** (UPDATE רגיל, לא RPC נוסף -
+-- אין בו CAS על now()/OR, רק התאמה מדויקת על checkout_claim_token, ר' create-payment-order/index.ts) -
+-- **מותנה** בכך שה-checkout_claim_token עדיין תואם למה שסיפקנו ב-claim, כדי שלא "נדרוס" claim
+-- שכבר עבר לבעלים אחר (במקרה הנדיר שבו חרגנו מה-lease). על **תוצאה לא ודאית** (timeout/5xx -
+-- ר' isAmbiguousCardcomFailure ב-payment-order-service.ts) - **אין** שחרור claim יזום בכלל,
+-- וההזמנה **לא** מסומנת failed: ייתכן ש-Cardcom כן יצרה session אצלה והתשובה פשוט אבדה (אין
+-- ראיה רשמית לכך שניתן לשחזר/לאתר session קיים לפי provider_order_reference - לא הונחה יכולת
+-- כזו). ה-claim פשוט פוקע מעצמו לפי ה-lease - זו המדיניות המפורשת, לא "בלי מדיניות".
+create or replace function dohefes_claim_checkout_creation(
+  p_order_id uuid,
+  p_claim_token text,
+  p_lease_seconds integer
+)
+returns table (claimed boolean)
+language plpgsql
+security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  v_claimed_id uuid;
+begin
+  if p_order_id is null or p_claim_token is null or p_lease_seconds is null or p_lease_seconds <= 0 then
+    return query select false;
+    return;
+  end if;
+
+  update dohefes_payment_orders
+  set checkout_claim_token = p_claim_token,
+      checkout_claim_expires_at = now() + make_interval(secs => p_lease_seconds)
+  where id = p_order_id
+    and status = 'created'
+    and (checkout_claim_token is null or checkout_claim_expires_at < now())
+  returning id into v_claimed_id;
+
+  return query select v_claimed_id is not null;
+end;
+$$;
+
+revoke execute on function dohefes_claim_checkout_creation(uuid, text, integer) from public, anon, authenticated;
+grant execute on function dohefes_claim_checkout_creation(uuid, text, integer) to service_role;
+
 -- --- Rollback (מתועד בלבד, לא מבוצע) ---
 --
+-- drop function if exists dohefes_claim_checkout_creation(uuid, text, integer);
 -- drop index if exists idx_dohefes_payment_orders_one_active_per_report_product;
 -- drop function if exists dohefes_finalize_verified_payment(text, text, text, integer, integer);
 -- drop function if exists dohefes_upsert_active_entitlement(uuid, uuid, text);
@@ -698,3 +772,33 @@ create unique index if not exists idx_dohefes_payment_orders_one_active_per_repo
 --      provider_order_reference, access_token_hash)
 --   values ('<report-A>', 'baseReport', 98000, 1, 'idem-cap-3', 'order-ref-cap-3', 'hash-cap-3');
 --   -- צפוי: מצליח, גם אם יש עדיין הזמנה חוסמת ל-('<report-A>', 'cashFlowAnalysis').
+
+-- --- תרחישי בדיקה ל-dohefes_claim_checkout_creation (מתועדים בלבד) ---
+--
+-- הכנה (הזמנה חדשה, created, בלי claim):
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash)
+--   values ('<report-A>', 'cashFlowAnalysis', 98000, 1, 'idem-claim-1', 'order-ref-claim-1', 'hash-claim-1')
+--   returning id;  -- שמור כ-<claim-order-id>
+--
+-- 17. claim ראשון מצליח:
+--   select * from dohefes_claim_checkout_creation('<claim-order-id>', 'claim-token-A', 30);
+--   -- צפוי: claimed=true.
+--
+-- 18. claim שני (token אחר) בזמן שהראשון עדיין פעיל -> נכשל, לא דורס:
+--   select * from dohefes_claim_checkout_creation('<claim-order-id>', 'claim-token-B', 30);
+--   -- צפוי: claimed=false. לוודא: checkout_claim_token על השורה **נשאר** 'claim-token-A'.
+--
+-- 19. claim שפג ניתן להשתלטות - מדמים תפוגה ידנית (בפועל: פשוט להמתין ל-lease):
+--   update dohefes_payment_orders set checkout_claim_expires_at = now() - interval '1 second'
+--   where id = '<claim-order-id>';
+--   select * from dohefes_claim_checkout_creation('<claim-order-id>', 'claim-token-C', 30);
+--   -- צפוי: claimed=true, checkout_claim_token עכשיו 'claim-token-C'.
+--
+-- 20. claim על הזמנה שכבר לא 'created' (pending/paid/וכו') -> נכשל תמיד, גם בלי claim פעיל:
+--   update dohefes_payment_orders set checkout_claim_token = null, checkout_claim_expires_at = null,
+--     status = 'pending', cardcom_low_profile_code = 'lpc-claim-test', checkout_url = 'https://secure.cardcom.solutions/x'
+--   where id = '<claim-order-id>';
+--   select * from dohefes_claim_checkout_creation('<claim-order-id>', 'claim-token-D', 30);
+--   -- צפוי: claimed=false.

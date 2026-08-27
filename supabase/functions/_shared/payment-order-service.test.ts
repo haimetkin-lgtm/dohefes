@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createPaymentOrder } from "./payment-order-service";
 import type {
   CardcomClientLike,
+  ClaimResult,
   InsertOrderResult,
   NewOrderInput,
   OrderEntitlementLookup,
@@ -16,32 +17,39 @@ import type {
 const REPORT_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_REPORT_ID = "22222222-2222-2222-2222-222222222222";
 const IDEMPOTENCY_KEY = "33333333-3333-3333-3333-333333333333";
-const OTHER_IDEMPOTENCY_KEY = "44444444-4444-4444-4444-444444444444";
 
 const BLOCKING_STATUSES = new Set(["created", "pending", "paid"]);
+const LEASE_SECONDS = 30;
+const NOW_MS = Date.parse("2026-01-01T00:00:00Z");
+
+interface ClaimState {
+  token: string;
+  expiresAtMs: number;
+}
 
 /** מסד נתונים מזוייף בזיכרון - מיישם בדיוק את PaymentOrderDatabase, בלי שום Supabase אמיתי.
- *  findBlockingOrderForProduct כאן מיישמת בפועל את אותו פרדיקט כמו ה-partial unique index
- *  (idx_dohefes_payment_orders_one_active_per_report_product, ר' payment-schema.sql) - created/
- *  pending/paid בלבד - כדי שהבדיקות כאן ישקפו נכון את מה שה-DB האמיתי היה עושה. */
+ *  claimCheckoutCreation מדמה את סמנטיקת ה-CAS של dohefes_claim_checkout_creation (UPDATE אטומי
+ *  יחיד ב-Postgres): claim מוענק רק אם ההזמנה 'created' וגם (אין claim פעיל, או שהוא פג לפי
+ *  nowMs - נשלט ידנית מהבדיקות כדי לדמות תפוגת lease בלי טיימרים אמיתיים). */
 class FakeDatabase implements PaymentOrderDatabase {
   reportPaymentStatusByReportId = new Map<string, string | null>();
   ordersById = new Map<string, OrderRecord>();
   ordersByIdempotencyKey = new Map<string, string>();
   entitlementsByKey = new Map<string, OrderEntitlementLookup>();
+  claims = new Map<string, ClaimState>();
+  nowMs = NOW_MS;
   nextOrderId = 1;
 
   insertOrderCallCount = 0;
-  /** כשמופעל, ה-insertOrder **הבאה** תדמה race: "בקשה מקבילה" כבר יוצרת ומכניסה שורה משלה
-   *  (winner), ומחזירה {ok:false} לקריאה הנוכחית - בדיוק כמו unique_violation אמיתי על ה-index. */
   simulateRaceOnNextInsert = false;
   raceWinnerOverrides: Partial<OrderRecord> = {};
 
   findBlockingOrderCalls: Array<{ reportId: string; productType: string }> = [];
   getEntitlementCalls: Array<{ reportId: string; productType: string }> = [];
-  markOrderPendingCalls: Array<{ orderId: string; details: { cardcomLowProfileCode: string; checkoutUrl: string } }> = [];
-  markOrderFailedCalls: Array<{ orderId: string; failureCode: string }> = [];
   updateAccessTokenHashCalls: Array<{ orderId: string; accessTokenHash: string }> = [];
+  claimCheckoutCreationCalls: Array<{ orderId: string; claimToken: string; leaseSeconds: number }> = [];
+  releaseClaimAsPendingCalls: Array<{ orderId: string; claimToken: string; details: { cardcomLowProfileCode: string; checkoutUrl: string } }> = [];
+  releaseClaimAsFailedCalls: Array<{ orderId: string; claimToken: string; failureCode: string }> = [];
 
   async getReportPaymentStatus(reportId: string): Promise<ReportLookupResult> {
     if (!this.reportPaymentStatusByReportId.has(reportId)) return { found: false, paymentStatus: null };
@@ -99,17 +107,41 @@ class FakeDatabase implements PaymentOrderDatabase {
     this.updateAccessTokenHashCalls.push({ orderId, accessTokenHash });
   }
 
-  async markOrderPending(orderId: string, details: { cardcomLowProfileCode: string; checkoutUrl: string }): Promise<void> {
-    this.markOrderPendingCalls.push({ orderId, details });
+  async claimCheckoutCreation(orderId: string, claimToken: string, leaseSeconds: number): Promise<ClaimResult> {
+    this.claimCheckoutCreationCalls.push({ orderId, claimToken, leaseSeconds });
+    const order = this.ordersById.get(orderId);
+    if (!order || order.status !== "created") return { claimed: false };
+
+    const existing = this.claims.get(orderId);
+    const activeClaimHeld = existing !== undefined && existing.expiresAtMs > this.nowMs;
+    if (activeClaimHeld) return { claimed: false };
+
+    this.claims.set(orderId, { token: claimToken, expiresAtMs: this.nowMs + leaseSeconds * 1000 });
+    return { claimed: true };
+  }
+
+  async releaseClaimAsPending(
+    orderId: string,
+    claimToken: string,
+    details: { cardcomLowProfileCode: string; checkoutUrl: string }
+  ): Promise<boolean> {
+    this.releaseClaimAsPendingCalls.push({ orderId, claimToken, details });
+    const current = this.claims.get(orderId);
+    if (!current || current.token !== claimToken) return false;
+    this.claims.delete(orderId);
     const order = this.ordersById.get(orderId);
     if (order) {
       order.status = "pending";
       order.checkoutUrl = details.checkoutUrl;
     }
+    return true;
   }
 
-  async markOrderFailed(orderId: string, failureCode: string): Promise<void> {
-    this.markOrderFailedCalls.push({ orderId, failureCode });
+  async releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<void> {
+    this.releaseClaimAsFailedCalls.push({ orderId, claimToken, failureCode });
+    const current = this.claims.get(orderId);
+    if (!current || current.token !== claimToken) return;
+    this.claims.delete(orderId);
     const order = this.ordersById.get(orderId);
     if (order) order.status = "failed";
   }
@@ -130,6 +162,7 @@ function fakeTokenGenerator(): TokenGenerator {
     generateAccessToken: () => `token-${++counter}`,
     hashAccessToken: async (rawToken: string) => `hash-of-${rawToken}`,
     generateProviderOrderReference: () => `po_fake_${counter}`,
+    generateClaimToken: () => `claim-${++counter}`,
   };
 }
 
@@ -144,8 +177,8 @@ function fakeCardcomClient(outcome: Awaited<ReturnType<CardcomClientLike["create
   };
 }
 
-function fakeAnomalyLogger(): PaymentOrderAnomalyLogger & { calls: Array<{ reason: string; reportId: string; productType: string }> } {
-  const calls: Array<{ reason: string; reportId: string; productType: string }> = [];
+function fakeAnomalyLogger(): PaymentOrderAnomalyLogger & { calls: Array<{ reason: string; productType: string }> } {
+  const calls: Array<{ reason: string; productType: string }> = [];
   return {
     calls,
     logAnomaly(event) {
@@ -194,6 +227,13 @@ describe("יצירת order מוצלחת", () => {
     await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
     expect(db.insertOrderCallCount).toBe(1);
   });
+
+  it("claim משוחרר בהצלחה - אין claim פעיל שנשאר אחרי הזמנה שהושלמה", async () => {
+    const deps = buildDeps({ database: db });
+    await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const order = [...db.ordersById.values()][0];
+    expect(db.claims.has(order.id)).toBe(false);
+  });
 });
 
 describe("retry עם אותו Idempotency-Key", () => {
@@ -216,20 +256,21 @@ describe("retry עם אותו Idempotency-Key", () => {
     expect(firstOrderId).toBe(secondOrderId);
   });
 
-  it("מסובב token רק כשההזמנה created/pending (לא כשהיא paid)", async () => {
+  it("מסובב token בכל קריאה כשההזמנה created/pending, אך לא יותר אחרי שהיא paid", async () => {
     const deps = buildDeps({ database: db });
     await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
     await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-    expect(db.updateAccessTokenHashCalls.length).toBe(1);
+    // 2 קריאות = 2 סיבובים (הראשונה - יצירה טרייה; השנייה - retry על pending+checkoutUrl כבר קיים).
+    expect(db.updateAccessTokenHashCalls.length).toBe(2);
 
-    // מדמים ש-cardcom-payment-indicator (עתידית) כבר סימנה paid + יצרה entitlement פעילה
     const order = [...db.ordersById.values()][0];
     order.status = "paid";
     db.setEntitlement(REPORT_ID, "baseReport", "active");
 
     const afterPaid = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
     expect(afterPaid.body).toEqual({ status: "paid" });
-    expect(db.updateAccessTokenHashCalls.length).toBe(1);
+    // אין סיבוב token נוסף אחרי ה-paid - נשאר על 2.
+    expect(db.updateAccessTokenHashCalls.length).toBe(2);
   });
 
   it("הזמנה pending עם checkoutUrl שמור לא קוראת ל-Cardcom שוב (לא יוצרת session שני)", async () => {
@@ -303,107 +344,169 @@ describe("סכום מהלקוח אינו מתקבל", () => {
   });
 });
 
-describe("Cardcom נכשל -> order failed", () => {
-  it("cardcomClient מחזיר ok:false -> markOrderFailed נקרא, תגובה 502 כללית", async () => {
+describe("Cardcom נכשל בוודאות -> order failed (claim משוחרר)", () => {
+  it("cardcomClient מחזיר ok:false (כשל ודאי) -> releaseClaimAsFailed נקרא, תגובה 502 כללית", async () => {
     const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_rejected" });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
 
     const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
 
     expect(result).toEqual({ status: 502, body: { error: "payment_provider_error" } });
-    expect(db.markOrderFailedCalls).toEqual([{ orderId: "order-1", failureCode: "provider_rejected" }]);
-    expect(db.markOrderPendingCalls).toEqual([]);
+    expect(db.releaseClaimAsFailedCalls.length).toBe(1);
+    expect(db.releaseClaimAsFailedCalls[0]).toMatchObject({ orderId: "order-1", failureCode: "provider_rejected" });
+    expect(db.releaseClaimAsFailedCalls[0].claimToken).toMatch(/^claim-/);
+    expect(db.releaseClaimAsPendingCalls).toEqual([]);
+    expect([...db.ordersById.values()][0].status).toBe("failed");
   });
+});
 
-  it("timeout מול Cardcom (provider_unreachable) -> אותה התנהגות כשל כללית - ההזמנה לא נשארת pending/מטעה", async () => {
+describe("timeout (כשל לא ודאי) - לא failed, לא claim משוחרר, לא קריאה שנייה מיידית", () => {
+  it("provider_unreachable -> 503 retryable (אותה תגובה כללית כמו 'claim תפוס') לקורא שחווה את זה בעצמו, ההזמנה נשארת 'created' וה-claim נשאר פעיל", async () => {
+    // 503 checkout_creation_in_progress, לא 502 - כי מבחינת המערכת "עדיין לא נפתר" (retryable)
+    // הוא בדיוק אותו מסר לקורא שחווה בעצמו timeout כמו לקורא אחר שמצא claim פעיל של מישהו אחר -
+    // בשני המקרים הפעולה הנכונה זהה (retry), ואין תועלת בהבחנה מלאכותית בין 502 ל-503 כאן.
     const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_unreachable" });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
 
     const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
 
-    expect(result).toEqual({ status: 502, body: { error: "payment_provider_error" } });
-    expect(db.markOrderFailedCalls).toEqual([{ orderId: "order-1", failureCode: "provider_unreachable" }]);
-    expect(db.markOrderPendingCalls).toEqual([]);
+    expect(result).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
+    expect(db.releaseClaimAsFailedCalls).toEqual([]);
+    const order = [...db.ordersById.values()][0];
+    expect(order.status).toBe("created"); // לא failed - ייתכן ש-Cardcom כן יצרה session
+    expect(db.claims.has(order.id)).toBe(true); // ה-claim עדיין פעיל, לא שוחרר
+  });
+
+  it("provider_http_503 (5xx) מטופל זהה - לא ודאי, לא failed", async () => {
+    const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_http_503" });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+
+    await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(db.releaseClaimAsFailedCalls).toEqual([]);
+    expect([...db.ordersById.values()][0].status).toBe("created");
+  });
+
+  it("timeout אינו גורם מיד לקריאת Cardcom שנייה - retry מיידי (לפני שה-lease פג) מקבל retryable בלי לגעת ב-Cardcom", async () => {
+    const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_unreachable" });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+
+    await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    expect(cardcom.calls.length).toBe(1);
+
+    // retry מיידי, עדיין באותו lease - לא אמור לגעת ב-Cardcom שוב.
+    const retry = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(cardcom.calls.length).toBe(1);
+    expect(retry).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
   });
 });
 
-describe("אין credentials/PII בתגובה או בלוג", () => {
-  it("תגובת ההצלחה מכילה רק orderId/checkoutUrl/accessToken/status - אין שדות נוספים", async () => {
-    const deps = buildDeps({ database: db });
-    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-    if (result.status === 200 && "orderId" in result.body) {
-      expect(Object.keys(result.body).sort()).toEqual(["accessToken", "checkoutUrl", "orderId", "status"]);
+describe("claim פעיל אינו ניתן להשתלטות לפני פקיעתו", () => {
+  it("שתי בקשות עוקבות (idempotency-key זהה) לפני שה-claim הראשון שוחרר - השנייה retryable, בלי Cardcom", async () => {
+    const order: OrderRecord = {
+      id: "order-created",
+      status: "created",
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_created",
+      checkoutUrl: null,
+    };
+    db.ordersById.set(order.id, order);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, order.id);
+    db.claims.set(order.id, { token: "claim-held-by-someone-else", expiresAtMs: db.nowMs + LEASE_SECONDS * 1000 });
+
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
+    const result = await createPaymentOrder(buildDeps({ database: db, cardcomClient: cardcom }), {
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    expect(result).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
+    expect(cardcom.calls.length).toBe(0);
+    expect(db.updateAccessTokenHashCalls).toEqual([]);
+  });
+});
+
+describe("claim שפג ניתן להשתלטות", () => {
+  it("claim שפג (nowMs עבר את expiresAtMs) מאפשר claim חדש וקריאה חדשה ל-Cardcom", async () => {
+    const order: OrderRecord = {
+      id: "order-created",
+      status: "created",
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_created",
+      checkoutUrl: null,
+    };
+    db.ordersById.set(order.id, order);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, order.id);
+    db.claims.set(order.id, { token: "claim-expired", expiresAtMs: db.nowMs - 1 }); // כבר פג
+
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
+    const result = await createPaymentOrder(buildDeps({ database: db, cardcomClient: cardcom }), {
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    expect(cardcom.calls.length).toBe(1);
+    expect(result.status).toBe(200);
+    if (result.status === 200 && "checkoutUrl" in result.body) {
+      expect(result.body.checkoutUrl).toBe("https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP");
     }
   });
+});
 
-  it("תגובת כשל אינה מכילה failureCode הפנימי של Cardcom - רק קוד שגיאה כללי משלנו", async () => {
-    const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_rejected: card declined for user 054-1234567" });
+describe("שתי בקשות מקבילות (Idempotency-Key שונים) לאותה הזמנה created - רק קריאת Cardcom אחת", () => {
+  it("המנצחת קוראת ל-Cardcom פעם אחת; המפסידה retryable, בלי token מטעה", async () => {
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
-    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-    expect(result).toEqual({ status: 502, body: { error: "payment_provider_error" } });
-    expect(JSON.stringify(result)).not.toContain("054-1234567");
+
+    // בקשה א' מכניסה את ההזמנה ל-created (מדמה insert שכבר קרה, כמו בתיאור המרוץ המקורי).
+    const inserted: OrderRecord = {
+      id: "order-a",
+      status: "created",
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_a",
+      checkoutUrl: null,
+    };
+    db.ordersById.set(inserted.id, inserted);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, inserted.id);
+
+    // מדמים "בקשה ב' תפסה claim ראשונה" (כאילו הריצה שלה כבר עברה את השלב הזה בדיוק לפני א').
+    db.claims.set(inserted.id, { token: "claim-b-won", expiresAtMs: db.nowMs + LEASE_SECONDS * 1000 });
+
+    // עכשיו בקשה א' (idempotency-key המקורי) מגיעה לאותה הזמנה - אמורה להפסיד את ה-claim.
+    const resultA = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(resultA).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
+    expect(cardcom.calls.length).toBe(0); // א' לא קראה ל-Cardcom בכלל
+    expect(JSON.stringify(resultA)).not.toContain("accessToken");
+    expect(JSON.stringify(resultA)).not.toContain("checkoutUrl");
   });
 });
 
-// --- מניעת הזמנות בלתי-מוגבלות (ממצא ביקורת "חובה לפני ניסיון אמיתי") ---
-
-describe("שתי בקשות סדרתיות עם Idempotency-Key שונים לאותו report+product", () => {
-  it("רק הזמנה אחת נוצרת - הבקשה השנייה מאתרת אותה ומסובבת token, לא יוצרת session שני", async () => {
+describe("הצלחה סוגרת claim ומחזירה תמיד את אותו checkout", () => {
+  it("שתי קריאות עוקבות (אחרי הצלחה) מחזירות את אותו checkoutUrl, בלי claim/Cardcom נוסף", async () => {
     const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
 
     const first = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-    const second = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: OTHER_IDEMPOTENCY_KEY });
+    const second = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
 
-    expect(db.insertOrderCallCount).toBe(1);
     expect(cardcom.calls.length).toBe(1);
-    // findBlockingOrderForProduct נקראת בשתי הבקשות (גם בראשונה, לפני שמחליטה ליצור - שם היא
-    // לא מוצאת כלום ולכן ממשיכה ל-insert; בשנייה היא מוצאת את ההזמנה שהראשונה יצרה).
-    expect(db.findBlockingOrderCalls.length).toBe(2);
-
-    const firstOrderId = "orderId" in first.body ? first.body.orderId : null;
-    const secondOrderId = "orderId" in second.body ? second.body.orderId : null;
-    expect(secondOrderId).toBe(firstOrderId);
-    expect(second.status).toBe(200);
-  });
-});
-
-describe("מרוץ מדומה: שתי בקשות כמעט-בו-זמניות עם Idempotency-Key שונים", () => {
-  it("insertOrder נכשל (race על ה-partial unique index) -> מאתרים את המנצח, אין שגיאת unique גולמית, אין session כפול", async () => {
-    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
-    const deps = buildDeps({ database: db, cardcomClient: cardcom });
-    db.simulateRaceOnNextInsert = true; // "המנצח" (order-race-winner, pending+checkoutUrl) נוצר בתוך insertOrder עצמה
-
-    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-
-    expect(result.status).toBe(200);
-    if (result.status === 200 && "orderId" in result.body) {
-      expect(result.body.orderId).toBe("order-race-winner");
-      expect(result.body.checkoutUrl).toBe("https://secure.cardcom.solutions/EA/EA5/race-winner");
+    if (first.status === 200 && "checkoutUrl" in first.body && second.status === 200 && "checkoutUrl" in second.body) {
+      expect(second.body.checkoutUrl).toBe(first.body.checkoutUrl);
     }
-    // המנצח כבר pending עם checkoutUrl שמור - אין קריאה נוספת ל-Cardcom בכלל מהנתיב הזה.
-    expect(cardcom.calls.length).toBe(0);
-  });
-
-  it("מנצח race שהוא created בלי checkout עדיין - ממשיכים ליצור session **לאותה** הזמנה, בלי insert נוסף", async () => {
-    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
-    const deps = buildDeps({ database: db, cardcomClient: cardcom });
-    db.simulateRaceOnNextInsert = true;
-    db.raceWinnerOverrides = { status: "created", checkoutUrl: null };
-
-    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-
-    expect(result.status).toBe(200);
-    expect(cardcom.calls.length).toBe(1); // קריאה אחת בלבד, לאותה הזמנה (order-race-winner)
-    expect(db.insertOrderCallCount).toBe(1); // ה-insert היחיד הוא זה שנכשל (race) - לא בוצע insert נוסף
-    expect(db.markOrderPendingCalls).toEqual([
-      { orderId: "order-race-winner", details: { cardcomLowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } },
-    ]);
+    const order = [...db.ordersById.values()][0];
+    expect(db.claims.has(order.id)).toBe(false);
   });
 });
 
-describe("pending קיים (Idempotency-Key אחר)", () => {
-  it("מחזיר את ה-checkoutUrl הקיים, מסובב token, לא יוצר הזמנה/session חדשים", async () => {
+describe("pending קיים אינו יוצר session חדש", () => {
+  it("הזמנה pending+checkoutUrl קיימת (Idempotency-Key אחר) - fast-path, אין claim, אין Cardcom", async () => {
     const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
 
@@ -421,16 +524,16 @@ describe("pending קיים (Idempotency-Key אחר)", () => {
 
     expect(db.insertOrderCallCount).toBe(0);
     expect(cardcom.calls.length).toBe(0);
+    expect(db.claimCheckoutCreationCalls).toEqual([]);
     expect(db.updateAccessTokenHashCalls).toEqual([{ orderId: "order-existing", accessTokenHash: "hash-of-token-1" }]);
     if (result.status === 200 && "orderId" in result.body) {
-      expect(result.body.orderId).toBe("order-existing");
       expect(result.body.checkoutUrl).toBe("https://secure.cardcom.solutions/EA/EA5/existing");
     }
   });
 });
 
 describe("created קיים ללא checkout (Idempotency-Key אחר)", () => {
-  it("ממשיך ליצור session לאותה הזמנה (UPDATE), לא insert נוסף", async () => {
+  it("ממשיך ליצור session לאותה הזמנה (claim + UPDATE), לא insert נוסף", async () => {
     const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
 
@@ -448,13 +551,13 @@ describe("created קיים ללא checkout (Idempotency-Key אחר)", () => {
 
     expect(db.insertOrderCallCount).toBe(0);
     expect(cardcom.calls.length).toBe(1);
-    expect(db.markOrderPendingCalls[0].orderId).toBe("order-existing");
+    expect(db.releaseClaimAsPendingCalls[0].orderId).toBe("order-existing");
     expect(result.status).toBe(200);
   });
 });
 
 describe("paid עם entitlement פעיל (Idempotency-Key אחר)", () => {
-  it("מחזיר {status:'paid'}, בלי token, בלי insert/session חדשים", async () => {
+  it("מחזיר {status:'paid'}, בלי token, בלי insert/session/claim חדשים", async () => {
     const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
     const deps = buildDeps({ database: db, cardcomClient: cardcom });
 
@@ -474,12 +577,13 @@ describe("paid עם entitlement פעיל (Idempotency-Key אחר)", () => {
     expect(result).toEqual({ status: 200, body: { status: "paid" } });
     expect(db.insertOrderCallCount).toBe(0);
     expect(cardcom.calls.length).toBe(0);
+    expect(db.claimCheckoutCreationCalls).toEqual([]);
     expect(db.updateAccessTokenHashCalls).toEqual([]);
   });
 });
 
 describe("paid ללא entitlement (אנומליה - fail-closed)", () => {
-  it("לא יוצר תשלום נוסף, לא 'מתקן' בשקט - מחזיר שגיאה פנימית כללית ומתעד אזהרה בלי מזהים רגישים", async () => {
+  it("לא יוצר תשלום נוסף, לא 'מתקן' בשקט - מחזיר שגיאה פנימית כללית, מתעד אזהרה בלי reportId/מזהים רגישים", async () => {
     const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
     const anomalyLogger = fakeAnomalyLogger();
     const deps = buildDeps({ database: db, cardcomClient: cardcom, anomalyLogger });
@@ -493,27 +597,16 @@ describe("paid ללא entitlement (אנומליה - fail-closed)", () => {
       checkoutUrl: null,
     };
     db.ordersById.set(existing.id, existing);
-    // בכוונה בלי db.setEntitlement - מייצג הפרה של הערבות של dohefes_finalize_verified_payment.
 
     const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
 
     expect(result).toEqual({ status: 500, body: { error: "internal_error" } });
     expect(db.insertOrderCallCount).toBe(0);
     expect(cardcom.calls.length).toBe(0);
-    expect(anomalyLogger.calls).toEqual([{ reason: "paid_order_without_entitlement", reportId: REPORT_ID, productType: "baseReport" }]);
-    // אין מזהים רגישים (token/פרטי Cardcom) באזהרה - רק reason/reportId/productType.
-    expect(Object.keys(anomalyLogger.calls[0]).sort()).toEqual(["productType", "reason", "reportId"]);
-  });
-
-  it("אותה אנומליה גם כשנמצאת דרך idempotency-key מדויק (לא רק דרך findBlockingOrderForProduct)", async () => {
-    const deps = buildDeps({ database: db });
-    await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-    const order = [...db.ordersById.values()][0];
-    order.status = "paid";
-    // שוב, בכוונה בלי entitlement.
-
-    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
-    expect(result).toEqual({ status: 500, body: { error: "internal_error" } });
+    expect(anomalyLogger.calls).toEqual([{ reason: "paid_order_without_entitlement", productType: "baseReport" }]);
+    // reportId **לא** נכלל בכוונה - הוא מזהה גישה בפועל (ר' payment-order-service.ts).
+    expect(Object.keys(anomalyLogger.calls[0]).sort()).toEqual(["productType", "reason"]);
+    expect(JSON.stringify(anomalyLogger.calls[0])).not.toContain(REPORT_ID);
   });
 });
 
@@ -592,7 +685,6 @@ describe("מוצר אחר באותו report אינו נחסם", () => {
       checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/base",
     };
     db.ordersById.set(blockingBaseReport.id, blockingBaseReport);
-    // REPORT_ID כבר "paid" (ר' beforeEach) - עומד בתנאי הסף של cashFlowAnalysis.
 
     const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
 
@@ -623,6 +715,154 @@ describe("report אחר אינו נחסם", () => {
     expect(result.status).toBe(200);
     if (result.status === 200 && "orderId" in result.body) {
       expect(result.body.orderId).not.toBe("order-other-report-pending");
+    }
+  });
+});
+
+describe("מרוץ מדומה: insert נכשל (partial unique index), מנצח created-בלי-checkout", () => {
+  it("ממשיכים ליצור session **לאותה** הזמנה (המנצחת), בלי insert נוסף, קריאת Cardcom אחת", async () => {
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+    db.simulateRaceOnNextInsert = true;
+    db.raceWinnerOverrides = { status: "created", checkoutUrl: null };
+
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(result.status).toBe(200);
+    expect(cardcom.calls.length).toBe(1);
+    expect(db.insertOrderCallCount).toBe(1);
+    expect(db.releaseClaimAsPendingCalls[0].orderId).toBe("order-race-winner");
+  });
+});
+
+describe("מרוץ בין השלמת checkout לבין בקשת retry", () => {
+  it("retry שמגיע *לפני* שהמנצחת סיימה - retryable, בלי checkoutUrl חלקי/שגוי", async () => {
+    const deps = buildDeps({ database: db });
+    const order: OrderRecord = {
+      id: "order-in-flight",
+      status: "created",
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_in_flight",
+      checkoutUrl: null,
+    };
+    db.ordersById.set(order.id, order);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, order.id);
+    // מדמה "בקשה אחרת" שכבר תפסה claim ועדיין לא סיימה (לא released).
+    db.claims.set(order.id, { token: "claim-in-flight", expiresAtMs: db.nowMs + LEASE_SECONDS * 1000 });
+
+    const retry = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(retry).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
+    expect(order.status).toBe("created"); // לא נגעו בהזמנה
+    expect(order.checkoutUrl).toBeNull();
+  });
+
+  it("retry שמגיע *אחרי* שהמנצחת סיימה - מקבל בדיוק את אותו checkoutUrl הקנוני, בלי claim/Cardcom נוסף", async () => {
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+    const order: OrderRecord = {
+      id: "order-finished",
+      status: "pending", // "המנצחת" כבר סיימה - released כ-pending עם checkoutUrl קנוני
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_finished",
+      checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/canonical",
+    };
+    db.ordersById.set(order.id, order);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, order.id);
+
+    const retry = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(cardcom.calls.length).toBe(0);
+    expect(db.claimCheckoutCreationCalls).toEqual([]);
+    if (retry.status === 200 && "checkoutUrl" in retry.body) {
+      expect(retry.body.checkoutUrl).toBe("https://secure.cardcom.solutions/EA/EA5/canonical");
+    } else {
+      throw new Error("expected success shape");
+    }
+  });
+});
+
+describe("אין דליפה של claim token, access token או פרטי Cardcom", () => {
+  it("תגובת checkout_creation_in_progress (503) לא מכילה claim token/access token כלשהו", async () => {
+    const order: OrderRecord = {
+      id: "order-created",
+      status: "created",
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_created",
+      checkoutUrl: null,
+    };
+    db.ordersById.set(order.id, order);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, order.id);
+    db.claims.set(order.id, { token: "super-secret-claim-token-xyz", expiresAtMs: db.nowMs + LEASE_SECONDS * 1000 });
+
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(result).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
+    expect(Object.keys(result.body)).toEqual(["error"]);
+    expect(JSON.stringify(result)).not.toContain("super-secret-claim-token-xyz");
+  });
+
+  it("תגובת כשל ודאי אינה מכילה failureCode הפנימי של Cardcom - רק קוד שגיאה כללי משלנו", async () => {
+    const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_rejected: card declined for user 054-1234567" });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    expect(result).toEqual({ status: 502, body: { error: "payment_provider_error" } });
+    expect(JSON.stringify(result)).not.toContain("054-1234567");
+  });
+
+  it("תגובת ההצלחה מכילה רק orderId/checkoutUrl/accessToken/status - אין שדות נוספים (כולל לא claim token)", async () => {
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    if (result.status === 200 && "orderId" in result.body) {
+      expect(Object.keys(result.body).sort()).toEqual(["accessToken", "checkoutUrl", "orderId", "status"]);
+    }
+  });
+});
+
+describe("אי-מוטציה ותוצאות סופיות ללא NaN/ערכים חסרים", () => {
+  it("תגובת retryable לא נוגעת בהזמנה בכלל (אין insert/claim/release calls)", async () => {
+    const order: OrderRecord = {
+      id: "order-created",
+      status: "created",
+      reportId: REPORT_ID,
+      productType: "baseReport",
+      providerOrderReference: "po_created",
+      checkoutUrl: null,
+    };
+    db.ordersById.set(order.id, order);
+    db.ordersByIdempotencyKey.set(IDEMPOTENCY_KEY, order.id);
+    db.claims.set(order.id, { token: "claim-other", expiresAtMs: db.nowMs + LEASE_SECONDS * 1000 });
+
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+    await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(db.insertOrderCallCount).toBe(0);
+    expect(db.releaseClaimAsPendingCalls).toEqual([]);
+    expect(db.releaseClaimAsFailedCalls).toEqual([]);
+    expect(db.updateAccessTokenHashCalls).toEqual([]);
+    expect(cardcom.calls.length).toBe(0);
+    expect(order.status).toBe("created");
+    expect(order.checkoutUrl).toBeNull();
+  });
+
+  it("תגובת הצלחה: orderId/checkoutUrl/accessToken כולם מחרוזות לא-ריקות, לא NaN/undefined/null", async () => {
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(result.status).toBe(200);
+    if (result.status === 200 && "orderId" in result.body) {
+      for (const value of [result.body.orderId, result.body.checkoutUrl, result.body.accessToken]) {
+        expect(typeof value).toBe("string");
+        expect(value.length).toBeGreaterThan(0);
+        expect(value).not.toBe("NaN");
+        expect(value).not.toContain("undefined");
+        expect(value).not.toContain("null");
+      }
     }
   });
 });

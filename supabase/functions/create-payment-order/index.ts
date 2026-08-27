@@ -17,6 +17,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   isUuid,
   generateAccessToken,
+  generateClaimToken,
   generateProviderOrderReference,
   hashAccessToken,
   parseAllowedOrigins,
@@ -29,6 +30,7 @@ import { isProductType, type ProductType } from "../_shared/payment-products.ts"
 import { createCardcomClient } from "../_shared/cardcom-client.ts";
 import { createPaymentOrder } from "../_shared/payment-order-service.ts";
 import type {
+  ClaimResult,
   InsertOrderResult,
   NewOrderInput,
   OrderEntitlementLookup,
@@ -172,16 +174,46 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
       if (error) throw error;
     },
 
-    async markOrderPending(orderId: string, details: { cardcomLowProfileCode: string; checkoutUrl: string }): Promise<void> {
-      const { error } = await supabase
-        .from("dohefes_payment_orders")
-        .update({ status: "pending", cardcom_low_profile_code: details.cardcomLowProfileCode, checkout_url: details.checkoutUrl })
-        .eq("id", orderId);
+    async claimCheckoutCreation(orderId: string, claimToken: string, leaseSeconds: number): Promise<ClaimResult> {
+      // RPC בלבד - UPDATE אטומי יחיד בתבנית CAS (ר' dohefes_claim_checkout_creation,
+      // payment-schema.sql commit שביעי) - לא select+update נפרד מכאן.
+      const { data, error } = await supabase
+        .rpc("dohefes_claim_checkout_creation", { p_order_id: orderId, p_claim_token: claimToken, p_lease_seconds: leaseSeconds })
+        .single<{ claimed: boolean }>();
       if (error) throw error;
+      return { claimed: data.claimed };
     },
 
-    async markOrderFailed(orderId: string, failureCode: string): Promise<void> {
-      const { error } = await supabase.from("dohefes_payment_orders").update({ status: "failed", failure_code: failureCode }).eq("id", orderId);
+    async releaseClaimAsPending(
+      orderId: string,
+      claimToken: string,
+      details: { cardcomLowProfileCode: string; checkoutUrl: string }
+    ): Promise<boolean> {
+      // מותנה ב-checkout_claim_token תואם - אם מישהו אחר כבר תפס claim חדש בינתיים (חריגה
+      // נדירה מה-lease), ה-UPDATE הזה לא יתאים לשום שורה (0 תוצאות), לא "דורס" claim זר.
+      const { data, error } = await supabase
+        .from("dohefes_payment_orders")
+        .update({
+          status: "pending",
+          cardcom_low_profile_code: details.cardcomLowProfileCode,
+          checkout_url: details.checkoutUrl,
+          checkout_claim_token: null,
+          checkout_claim_expires_at: null,
+        })
+        .eq("id", orderId)
+        .eq("checkout_claim_token", claimToken)
+        .select("id")
+        .maybeSingle();
+      if (error) throw error;
+      return data !== null;
+    },
+
+    async releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<void> {
+      const { error } = await supabase
+        .from("dohefes_payment_orders")
+        .update({ status: "failed", failure_code: failureCode, checkout_claim_token: null, checkout_claim_expires_at: null })
+        .eq("id", orderId)
+        .eq("checkout_claim_token", claimToken);
       if (error) throw error;
     },
 
@@ -262,7 +294,7 @@ Deno.serve(async (req: Request) => {
       {
         database: buildDatabase(supabase),
         cardcomClient,
-        tokenGenerator: { generateAccessToken, hashAccessToken, generateProviderOrderReference },
+        tokenGenerator: { generateAccessToken, hashAccessToken, generateProviderOrderReference, generateClaimToken },
         clock: () => new Date(),
         anomalyLogger,
         successRedirectUrl: CARDCOM_SUCCESS_URL,

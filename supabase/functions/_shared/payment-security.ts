@@ -44,6 +44,16 @@ export function generateProviderOrderReference(): string {
   return `po_${toHex(bytes)}`;
 }
 
+/** claim token פנימי בלבד (מנגנון ה-lease ליצירת LowProfile session, ר' payment-order-service.ts) -
+ *  **לעולם לא** נחשף ללקוח, לא מוחזר בתגובת HTTP, לא נרשם ללוג - שונה במפורש מ-generateAccessToken
+ *  (זה כן נמסר ללקוח) כדי ששני סוגי ה-token לא "יתבלבלו" בקוד עתידי. 128 ביט - מספיק להבחין בין
+ *  claims מתחרים (לא סוד קריפטוגרפי כלפי לקוח חיצוני - אף לקוח לא רואה אותו בכלל). */
+export function generateClaimToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `claim_${toHex(bytes)}`;
+}
+
 /** ALLOWED_ORIGINS: רשימה מופרדת בפסיקים, בלי רווחים מיותרים, בלי ערכים ריקים */
 export function parseAllowedOrigins(raw: string | null | undefined): string[] {
   if (!raw) return [];

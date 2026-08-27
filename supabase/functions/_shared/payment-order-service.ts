@@ -10,6 +10,12 @@
 // הרגיל) + טיפול ב-race שבו ה-index עצמו כן תפס משהו (ר' insertResult.ok===false למטה) - בלי
 // זה, race אמיתי (שתי בקשות עם Idempotency-Key שונים כמעט בו-זמנית) היה מחזיר שגיאת unique
 // גולמית ללקוח במקום למצוא את ההזמנה שניצחה ולפעול לפי מצבה.
+//
+// **claim אטומי ליצירת LowProfile session (ממצא ביקורת נוסף, commit שביעי)**: ה-index למעלה
+// מונע שתי **שורות** להזמנה אחת - הוא **לא** מונע שתי בקשות (Idempotency-Key שונים) שמאתרות
+// את **אותה** שורה יחידה ב-status='created' ומנסות שתיהן לקרוא ל-Cardcom במקביל. advanceOrderToCheckout
+// למטה עוטפת כל קריאה ל-Cardcom ב-claim (dohefes_claim_checkout_creation, ר' payment-schema.sql) -
+// רק בעל ה-claim קורא ל-Cardcom בפועל; המפסיד מקבל תגובה כללית retryable, בלי token מטעה.
 
 import { getProduct, type ProductType } from "./payment-products.ts";
 
@@ -50,6 +56,13 @@ export interface OrderEntitlementLookup {
   entitlementStatus: "active" | "revoked" | "refunded";
 }
 
+/** תוצאת claimCheckoutCreation - עוטפת את dohefes_claim_checkout_creation (RPC, UPDATE אטומי
+ *  יחיד בתבנית CAS - לא select+update). claimed:false לא מבחינה בין "claim אחר פעיל" ל"ההזמנה
+ *  כבר לא created" - שני המקרים מטופלים זהה (retryable, ר' advanceOrderToCheckout). */
+export interface ClaimResult {
+  claimed: boolean;
+}
+
 /** מופשט מעל Supabase - לא חושף client קונקרטי, כדי שאפשר יהיה להזריק fake ב-Vitest */
 export interface PaymentOrderDatabase {
   getReportPaymentStatus(reportId: string): Promise<ReportLookupResult>;
@@ -61,8 +74,18 @@ export interface PaymentOrderDatabase {
   findBlockingOrderForProduct(reportId: string, productType: ProductType): Promise<OrderRecord | null>;
   insertOrder(input: NewOrderInput): Promise<InsertOrderResult>;
   updateAccessTokenHash(orderId: string, accessTokenHash: string): Promise<void>;
-  markOrderPending(orderId: string, details: { cardcomLowProfileCode: string; checkoutUrl: string }): Promise<void>;
-  markOrderFailed(orderId: string, failureCode: string): Promise<void>;
+  /** claim אטומי - UPDATE יחיד, לא select+update (ר' dohefes_claim_checkout_creation). לא קוראת
+   *  ל-Cardcom, לא מחזיקה שום דבר פתוח מעבר לזמן ה-UPDATE עצמו - הקריאה ל-Cardcom קורית **אחרי**
+   *  שהפונקציה הזו כבר חזרה, ללא טרנזקציה/נעילה פתוחה מצידנו. */
+  claimCheckoutCreation(orderId: string, claimToken: string, leaseSeconds: number): Promise<ClaimResult>;
+  /** משחררת claim בהצלחה - שומרת LowProfileCode+checkout_url, עוברת pending, מוחקת את ה-claim.
+   *  **מותנית** בכך ש-claimToken עדיין תואם (לא נלקח על ידי claim חדש בינתיים, למשל אם חרגנו
+   *  מה-lease) - מחזירה false אם ההתאמה נכשלה, כדי שהקוד הקורא לא ימסור checkoutUrl שאולי כבר
+   *  לא קנוני. */
+  releaseClaimAsPending(orderId: string, claimToken: string, details: { cardcomLowProfileCode: string; checkoutUrl: string }): Promise<boolean>;
+  /** משחררת claim בכשל **ודאי** (לא timeout/תוצאה לא ודאית - ר' isAmbiguousCardcomFailure) -
+   *  מסמנת failed, לפי מדיניות הכשל הקיימת. גם היא מותנית ב-claimToken תואם. */
+  releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<void>;
   getEntitlement(reportId: string, productType: ProductType): Promise<OrderEntitlementLookup | null>;
 }
 
@@ -81,6 +104,8 @@ export interface TokenGenerator {
   generateAccessToken(): string;
   hashAccessToken(rawToken: string): Promise<string>;
   generateProviderOrderReference(): string;
+  /** claim token פנימי - **לעולם לא** מוחזר ללקוח, שונה במפורש מ-generateAccessToken. */
+  generateClaimToken(): string;
 }
 
 /** מוזרק בכוונה (גם אם לא נצרך בלוגיקה כרגע) - כל timestamp שדורש "עכשיו" עתידי (למשל אם
@@ -88,9 +113,10 @@ export interface TokenGenerator {
 export type Clock = () => Date;
 
 /** אירוע "חריג" (לא כשל תמים) - הזמנה paid בלי entitlement פעילה תואמת. **תמיד ללא PII/token/
- *  פרטי Cardcom** - רק reportId/productType (מזהים טכניים, לא מידע אישי) + reason כללי. */
+ *  פרטי Cardcom, ובכוונה גם בלי reportId** - reportId משמש בפועל כמזהה גישה לדוח (קישור פרטי,
+ *  ר' "Supabase ללא Auth") - לא נכתב ללוג גם אם הוא "רק" UUID טכני. רק reason+productType. */
 export interface PaymentOrderAnomalyLogger {
-  logAnomaly(event: { reason: string; reportId: string; productType: ProductType }): void;
+  logAnomaly(event: { reason: string; productType: ProductType }): void;
 }
 
 export interface PaymentOrderServiceDeps {
@@ -116,11 +142,30 @@ export type CreatePaymentOrderResult =
   | { status: 403; body: { error: "report_not_eligible" } }
   | { status: 409; body: { error: "idempotency_key_conflict" } }
   | { status: 500; body: { error: "internal_error" } }
-  | { status: 502; body: { error: "payment_provider_error" } };
+  | { status: 502; body: { error: "payment_provider_error" } }
+  | { status: 503; body: { error: "checkout_creation_in_progress" } };
 
 const NOT_ELIGIBLE = { status: 403 as const, body: { error: "report_not_eligible" as const } };
 const PROVIDER_ERROR = { status: 502 as const, body: { error: "payment_provider_error" as const } };
 const INTERNAL_ERROR = { status: 500 as const, body: { error: "internal_error" as const } };
+const CHECKOUT_IN_PROGRESS = { status: 503 as const, body: { error: "checkout_creation_in_progress" as const } };
+
+/** lease ה-claim - חייב להיות ארוך יותר מ-CARDCOM_FETCH_TIMEOUT_MS (15_000ms, ר' cardcom-client.ts)
+ *  כדי שקריאת Cardcom לגיטימית תמיד תספיק להסתיים בתוכו. 30 שניות: פי 2 מ-timeout ה-fetch עצמו -
+ *  שוליים ל-round-trip-ים הנוספים של ה-DB (claim + release) סביב קריאת הרשת. */
+const CHECKOUT_CLAIM_LEASE_SECONDS = 30;
+
+/** provider_unreachable/provider_http_* - כשל **לא ודאי**: ייתכן ש-Cardcom כן עיבדה את הבקשה
+ *  (יצרה session) והתשובה פשוט לא הגיעה/אבדה (timeout/רשת) - אין ראיה רשמית לכך שניתן לשחזר/
+ *  לאתר session קיים אצל Cardcom לפי provider_order_reference (רק לפי LowProfileCode, שאין לנו
+ *  אם התשובה עצמה אבדה) - לכן **לא** מסמנים failed (שהיה משחרר את ה-partial unique index
+ *  ומאפשר ניסיון חדש מיידי, כפול-session אפשרי) - ה-claim פשוט פוקע לפי ה-lease. שאר הקודים
+ *  (provider_rejected/provider_missing_fields/provider_untrusted_checkout_url/invalid_amount/
+ *  invalid_callback_url_config) הם תגובה **מלאה ומובנת** מ-Cardcom (או כשל ולידציה מקומי לפני
+ *  שיצאה בקשה בכלל) - ודאיים, בטוחים לסמן failed מיד. */
+function isAmbiguousCardcomFailure(failureCode: string): boolean {
+  return failureCode === "provider_unreachable" || failureCode.startsWith("provider_http_");
+}
 
 /**
  * הרצף המלא:
@@ -131,12 +176,11 @@ const INTERNAL_ERROR = { status: 500 as const, body: { error: "internal_error" a
  * 2. idempotency-key מדויק: אם כבר קיימת הזמנה עם המפתח הזה **בדיוק** - פועלים לפי מצבה (ר'
  *    respondToBlockingOrder למטה), לא יוצרים הזמנה נוספת.
  * 3. אם אין התאמה לפי idempotency-key: בודקים אם קיימת הזמנה **חוסמת** לאותו report+product
- *    תחת Idempotency-Key **אחר** (findBlockingOrderForProduct) - זו ההגנה מול "כל בקשה עם מפתח
- *    חדש = הזמנה חדשה + session חדש ב-Cardcom, בלי הגבלה".
- * 4. רק אם שום דבר לא חוסם - ניסיון insert אמיתי. אם ה-insert עצמו נכשל בגלל race (מישהו ניצח
- *    בין הבדיקה בשלב 3 לבין ה-insert) - מאתרים את המנצח ופועלים לפי מצבו, בדיוק כמו שלב 3,
- *    **לא** מחזירים שגיאת unique גולמית.
- * 5. פונה ל-Cardcom רק כשבאמת נדרש (הזמנה חדשה, או pending/created בלי checkoutUrl שמור עדיין).
+ *    תחת Idempotency-Key **אחר** (findBlockingOrderForProduct).
+ * 4. רק אם שום דבר לא חוסם - ניסיון insert אמיתי. אם ה-insert עצמו נכשל בגלל race - מאתרים
+ *    את המנצח ופועלים לפי מצבו, **לא** מחזירים שגיאת unique גולמית.
+ * 5. יצירת/המשך checkout: תמיד דרך advanceOrderToCheckout, שעוטפת claim אטומי - רק בעל ה-claim
+ *    קורא בפועל ל-Cardcom. מפסיד ה-claim מקבל checkout_creation_in_progress (503), בלי token.
  * 6. מחזירה רק orderId/checkoutUrl/accessToken/status - לא entitlement, לא פרטי Cardcom גולמיים.
  */
 export async function createPaymentOrder(
@@ -170,8 +214,6 @@ export async function createPaymentOrder(
 
   const product = getProduct(productType);
   const providerOrderReference = deps.tokenGenerator.generateProviderOrderReference();
-  const rawToken = deps.tokenGenerator.generateAccessToken();
-  const accessTokenHash = await deps.tokenGenerator.hashAccessToken(rawToken);
 
   const insertResult = await database.insertOrder({
     reportId,
@@ -180,7 +222,10 @@ export async function createPaymentOrder(
     currencyCode: product.currencyCode,
     idempotencyKey,
     providerOrderReference,
-    accessTokenHash,
+    // access_token_hash הראשוני: נכתב רק כדי לספק ערך not-null בשורה - מוחלף מיד בכל מקרה על ידי
+    // rotateTokenAndEnsureCheckout (למטה) לפני שנמסר ללקוח, גם בנתיב היצירה הטרייה - אף אחד
+    // אף פעם לא מקבל את הערך הזמני הזה.
+    accessTokenHash: await deps.tokenGenerator.hashAccessToken(deps.tokenGenerator.generateAccessToken()),
   });
 
   if (!insertResult.ok) {
@@ -189,30 +234,16 @@ export async function createPaymentOrder(
     // מצבה - **לא** מחזירים שגיאת unique גולמית ללקוח.
     const winner = await database.findBlockingOrderForProduct(reportId, productType);
     if (!winner) {
-      // תרחיש בלתי-צפוי: ה-insert נכשל אך אין הזמנה חוסמת בנמצא (למשל התנגשות חלפה כבר -
-      // ההזמנה המנצחת עברה ל-failed/refunded בין הרגעים). לא מנחשים - כשל ספק כללי.
       return PROVIDER_ERROR;
     }
     return await respondToBlockingOrder(deps, winner);
   }
 
-  const insertedOrder = insertResult.order;
-  const cardcomOutcome = await callCardcomAndAdvance(deps, insertedOrder);
-  if (!cardcomOutcome.ok) {
-    return PROVIDER_ERROR;
-  }
-
-  return {
-    status: 200,
-    body: { orderId: insertedOrder.id, checkoutUrl: cardcomOutcome.checkoutUrl, accessToken: rawToken, status: "pending" },
-  };
+  return await rotateTokenAndEnsureCheckout(deps, insertResult.order);
 }
 
 /** נתיב משותף להזמנה קיימת "חוסמת" - בין אם נמצאה לפי idempotency-key מדויק, לפי חיפוש
- *  report+product, או כמנצחת race על ה-insert. תמיד אחת משלוש: paid (ר' respondToPaidOrder),
- *  created/pending (מסובבת token, ר' rotateTokenAndEnsureCheckout), או מצב סופי לא-חוסם
- *  (failed/cancelled/refunded - לא אמור להגיע לכאן דרך findBlockingOrderForProduct, רק דרך
- *  idempotency-key מדויק על הזמנה ישנה - מוחזר כפי שהוא, בלי ניסיון retry אוטומטי). */
+ *  report+product, או כמנצחת race על ה-insert. */
 async function respondToBlockingOrder(deps: PaymentOrderServiceDeps, order: OrderRecord): Promise<CreatePaymentOrderResult> {
   if (order.status === "paid") {
     return await respondToPaidOrder(deps, order);
@@ -227,58 +258,64 @@ async function respondToBlockingOrder(deps: PaymentOrderServiceDeps, order: Orde
 }
 
 /** "אם קיימת הזמנה paid והרשאה פעילה, החזר status:paid בלי token ובלי session חדש. אם קיימת
- *  paid אך entitlement חסר או לא פעילה, אל תיצור תשלום נוסף ואל 'לתקן' בשקט; החזר מצב פנימי
- *  כללי ותעד אזהרה ללא מזהים רגישים." - entitlement.status !== 'active' עדיין נחשב "יש
- *  entitlement" לצורך זה (revoked/refunded הם מצבים לגיטימיים - למשל אחרי refund עתידי, שאותו
- *  refund **חייב** גם לעדכן payment_orders.status בעצמו, ר' payment-schema.sql commit שישי -
- *  ברגע שזה קורה, ההזמנה כבר לא תימצא כאן בכלל). רק **היעדר מוחלט** של entitlement מול הזמנה
- *  paid הוא האנומליה - מפר את הערבות של dohefes_finalize_verified_payment (מעדכן paid+entitlement
- *  יחד, אטומית) - חשוד מספיק כדי לא להמשיך בשקט. */
+ *  paid אך entitlement חסר, אל תיצור תשלום נוסף ואל 'לתקן' בשקט; החזר מצב פנימי כללי ותעד
+ *  אזהרה ללא מזהים רגישים." - entitlement.status !== 'active' עדיין נחשב "יש entitlement"
+ *  לצורך זה (revoked/refunded לגיטימיים, למשל אחרי refund עתידי - שחייב גם לעדכן
+ *  payment_orders.status, ר' payment-schema.sql commit שישי). רק **היעדר מוחלט** של entitlement
+ *  מול הזמנה paid הוא האנומליה - מפר את הערבות של dohefes_finalize_verified_payment. */
 async function respondToPaidOrder(deps: PaymentOrderServiceDeps, order: OrderRecord): Promise<CreatePaymentOrderResult> {
   const entitlement = await deps.database.getEntitlement(order.reportId, order.productType);
   if (entitlement) {
     return { status: 200, body: { status: "paid" } };
   }
-  deps.anomalyLogger.logAnomaly({
-    reason: "paid_order_without_entitlement",
-    reportId: order.reportId,
-    productType: order.productType,
-  });
+  // reportId **לא** נכלל בכוונה - הוא מזהה גישה לדוח בפועל (קישור פרטי, ר' "Supabase ללא Auth"),
+  // לא רק "מזהה טכני" - לא נכתב ללוג גם כ-UUID.
+  deps.anomalyLogger.logAnomaly({ reason: "paid_order_without_entitlement", productType: order.productType });
   return INTERNAL_ERROR;
 }
 
-/** retry על הזמנה created/pending: מסובבת token תמיד, ומוודאת ש-Cardcom כבר נוצר - checkoutUrl
- *  כבר קיים = לא קוראים ל-Cardcom שוב, רק מחזירים את מה שכבר יש (אין session שני לאותה הזמנה).
- *  אם ההזמנה created ואין לה עדיין checkout תקין - ממשיכה את יצירת ה-session ל**אותה** הזמנה
- *  (callCardcomAndAdvance מעדכנת UPDATE, לא INSERT) - בלי הזמנה נוספת. */
+/** מסובבת token **רק אחרי** שכבר יש checkout מוכן בפועל (קיים מראש, או הרגע נוצר בהצלחה) -
+ *  לעולם לא לפני, כדי לא "לשרוף" רוטציה על תגובה שממילא לא מוסרת את הטוקן החדש ללקוח (retryable). */
 async function rotateTokenAndEnsureCheckout(
   deps: PaymentOrderServiceDeps,
   order: OrderRecord
 ): Promise<CreatePaymentOrderResult> {
+  const advance = await advanceOrderToCheckout(deps, order);
+  if (!advance.ok) {
+    return advance.retryable ? CHECKOUT_IN_PROGRESS : PROVIDER_ERROR;
+  }
+
   const rawToken = deps.tokenGenerator.generateAccessToken();
   const accessTokenHash = await deps.tokenGenerator.hashAccessToken(rawToken);
   await deps.database.updateAccessTokenHash(order.id, accessTokenHash);
 
-  if (order.status === "pending" && order.checkoutUrl) {
-    return { status: 200, body: { orderId: order.id, checkoutUrl: order.checkoutUrl, accessToken: rawToken, status: "pending" } };
-  }
-
-  const cardcomOutcome = await callCardcomAndAdvance(deps, order);
-  if (!cardcomOutcome.ok) {
-    return PROVIDER_ERROR;
-  }
-  return { status: 200, body: { orderId: order.id, checkoutUrl: cardcomOutcome.checkoutUrl, accessToken: rawToken, status: "pending" } };
+  return { status: 200, body: { orderId: order.id, checkoutUrl: advance.checkoutUrl, accessToken: rawToken, status: "pending" } };
 }
 
-/** קוראת ל-Cardcom ליצירת LowProfile, ומעדכנת את ההזמנה בהתאם - pending+checkoutUrl בהצלחה,
- *  failed+failure_code כללי בכישלון (כולל timeout - ר' cardcom-client.ts, נופל לאותו כשל כללי).
- *  **אף פעם לא מסמנת paid כאן** - זו רק "נוצר דף תשלום". */
-async function callCardcomAndAdvance(
+/**
+ * מוודאת שלהזמנה יש checkout מוכן, תוך claim אטומי כדי שרק **בעל אחד** בכל רגע נתון קורא בפועל
+ * ל-Cardcom (ר' הערת commit שביעי בראש הקובץ + ב-payment-schema.sql לנימוק המלא):
+ * - כבר pending+checkoutUrl -> fast-path, אין claim בכלל, אין קריאה ל-Cardcom.
+ * - claim נכשל (claim אחר פעיל, או שההזמנה כבר לא created) -> retryable, בלי לגעת ב-Cardcom.
+ * - claim הצליח -> קריאה **יחידה** ל-Cardcom, בלי טרנזקציה/נעילה פתוחה מצידנו בזמן ההמתנה לרשת.
+ *   הצלחה -> משחררת claim + pending. כשל ודאי -> משחררת claim + failed (מדיניות קיימת). כשל לא
+ *   ודאי (timeout/5xx) -> **לא** משחררת - ה-claim פוקע לפי ה-lease, retryable בינתיים.
+ */
+async function advanceOrderToCheckout(
   deps: PaymentOrderServiceDeps,
   order: OrderRecord
-): Promise<{ ok: true; checkoutUrl: string } | { ok: false }> {
-  const product = getProduct(order.productType);
+): Promise<{ ok: true; checkoutUrl: string } | { ok: false; retryable: boolean }> {
+  if (order.status === "pending" && order.checkoutUrl) {
+    return { ok: true, checkoutUrl: order.checkoutUrl };
+  }
 
+  const claimToken = deps.tokenGenerator.generateClaimToken();
+  const claim = await deps.database.claimCheckoutCreation(order.id, claimToken, CHECKOUT_CLAIM_LEASE_SECONDS);
+  if (!claim.claimed) {
+    return { ok: false, retryable: true };
+  }
+
+  const product = getProduct(order.productType);
   const outcome = await deps.cardcomClient.createLowProfile({
     amountAgorot: product.amountAgorot,
     productName: product.productName,
@@ -289,13 +326,22 @@ async function callCardcomAndAdvance(
   });
 
   if (!outcome.ok) {
-    await deps.database.markOrderFailed(order.id, outcome.failureCode);
-    return { ok: false };
+    if (isAmbiguousCardcomFailure(outcome.failureCode)) {
+      return { ok: false, retryable: true };
+    }
+    await deps.database.releaseClaimAsFailed(order.id, claimToken, outcome.failureCode);
+    return { ok: false, retryable: false };
   }
 
-  await deps.database.markOrderPending(order.id, {
+  const released = await deps.database.releaseClaimAsPending(order.id, claimToken, {
     cardcomLowProfileCode: outcome.result.lowProfileCode,
     checkoutUrl: outcome.result.checkoutUrl,
   });
+  if (!released) {
+    // איבדנו את ה-claim בין סיום קריאת Cardcom לבין השחרור (חריגה נדירה מה-lease) - לא מוסרים
+    // checkoutUrl שאולי כבר לא קנוני; הקורא יחזור ויקבל את המצב הנוכחי בפועל.
+    return { ok: false, retryable: true };
+  }
+
   return { ok: true, checkoutUrl: outcome.result.checkoutUrl };
 }
