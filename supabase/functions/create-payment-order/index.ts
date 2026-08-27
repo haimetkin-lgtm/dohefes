@@ -208,13 +208,18 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
       return data !== null;
     },
 
-    async releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<void> {
-      const { error } = await supabase
+    async releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<boolean> {
+      // מותנה ב-checkout_claim_token תואם, בדיוק כמו releaseClaimAsPending - אם מישהו אחר כבר
+      // תפס claim חדש בינתיים, ה-UPDATE הזה לא יתאים לשום שורה ולא "דורס" claim זר ל-failed.
+      const { data, error } = await supabase
         .from("dohefes_payment_orders")
         .update({ status: "failed", failure_code: failureCode, checkout_claim_token: null, checkout_claim_expires_at: null })
         .eq("id", orderId)
-        .eq("checkout_claim_token", claimToken);
+        .eq("checkout_claim_token", claimToken)
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      return data !== null;
     },
 
     async getEntitlement(reportId: string, productType: ProductType): Promise<OrderEntitlementLookup | null> {

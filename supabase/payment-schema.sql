@@ -146,7 +146,16 @@ create table if not exists dohefes_payment_orders (
     )
   ),
   constraint dohefes_payment_orders_paid_at_after_created check (paid_at is null or paid_at >= created_at),
-  constraint dohefes_payment_orders_verified_at_after_created check (verified_at is null or verified_at >= created_at)
+  constraint dohefes_payment_orders_verified_at_after_created check (verified_at is null or verified_at >= created_at),
+  -- ממצא ביקורת סופית: שני עמודות ה-claim (commit שביעי) חייבות להיות שתיהן null או שתיהן
+  -- non-null יחד - לא ניתן "חצי claim" (token בלי תפוגה, או תפוגה בלי token). dohefes_claim_checkout_creation
+  -- ו-releaseClaimAsPending/AsFailed (create-payment-order/index.ts) כבר מקפידים על כך בפועל -
+  -- הבדיקה הזו היא הגנת-עומק ברמת ה-DB, בדיוק כמו שאר ה-constraints בקובץ, לא הסתמכות בלבד על
+  -- שקוד השרת יישאר נכון.
+  constraint dohefes_payment_orders_claim_pairing check (
+    (checkout_claim_token is null and checkout_claim_expires_at is null)
+    or (checkout_claim_token is not null and checkout_claim_expires_at is not null)
+  )
 );
 
 create trigger dohefes_payment_orders_touch_updated_at
@@ -802,3 +811,19 @@ grant execute on function dohefes_claim_checkout_creation(uuid, text, integer) t
 --   where id = '<claim-order-id>';
 --   select * from dohefes_claim_checkout_creation('<claim-order-id>', 'claim-token-D', 30);
 --   -- צפוי: claimed=false.
+
+-- --- תרחישי בדיקה ל-dohefes_payment_orders_claim_pairing (ממצא ביקורת סופית, מתועדים בלבד) ---
+--
+-- 21. token בלי תפוגה -> נכשל:
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash, checkout_claim_token)
+--   values ('<report-A>', 'baseReport', 98000, 1, 'idem-pairing-1', 'order-ref-pairing-1', 'hash-pairing-1', 'orphan-token');
+--   -- צפוי: EXCEPTION violates check constraint "dohefes_payment_orders_claim_pairing"
+--
+-- 22. תפוגה בלי token -> נכשל, אותה סיבה:
+--   insert into dohefes_payment_orders
+--     (report_id, product_type, expected_amount_agorot, currency_code, idempotency_key,
+--      provider_order_reference, access_token_hash, checkout_claim_expires_at)
+--   values ('<report-A>', 'baseReport', 98000, 1, 'idem-pairing-2', 'order-ref-pairing-2', 'hash-pairing-2', now() + interval '30 seconds');
+--   -- צפוי: EXCEPTION violates check constraint "dohefes_payment_orders_claim_pairing"

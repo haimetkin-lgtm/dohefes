@@ -137,13 +137,14 @@ class FakeDatabase implements PaymentOrderDatabase {
     return true;
   }
 
-  async releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<void> {
+  async releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<boolean> {
     this.releaseClaimAsFailedCalls.push({ orderId, claimToken, failureCode });
     const current = this.claims.get(orderId);
-    if (!current || current.token !== claimToken) return;
+    if (!current || current.token !== claimToken) return false;
     this.claims.delete(orderId);
     const order = this.ordersById.get(orderId);
     if (order) order.status = "failed";
+    return true;
   }
 
   async getEntitlement(reportId: string, productType: string): Promise<OrderEntitlementLookup | null> {
@@ -357,6 +358,33 @@ describe("Cardcom נכשל בוודאות -> order failed (claim משוחרר)",
     expect(db.releaseClaimAsFailedCalls[0].claimToken).toMatch(/^claim-/);
     expect(db.releaseClaimAsPendingCalls).toEqual([]);
     expect([...db.ordersById.values()][0].status).toBe("failed");
+  });
+
+  it("ממצא ביקורת סופית: אם releaseClaimAsFailed מאבד בעלות (claim נדרס בינתיים) - הכשל לא מוסתר, מתועדת אזהרה, ותגובה retryable (לא 'failed' שקרי)", async () => {
+    // מדמה: בדיוק כשה-cardcomClient מחזירה כשל ודאי, "מישהו אחר" כבר תפס claim חדש על אותה
+    // הזמנה (חריגה נדירה מה-lease) - releaseClaimAsFailed (ה-fake, כמו ה-DB האמיתי) מתנה על
+    // claimToken תואם ומחזירה false כי הוא כבר לא תואם.
+    const cardcom: CardcomClientLike & { calls: unknown[] } = {
+      calls: [],
+      async createLowProfile(request) {
+        this.calls.push(request);
+        // "בעלים אחר" כבר תפס claim חדש - claimToken שונה מזה שהשירות מחזיק כרגע.
+        const order = [...db.ordersById.values()][0];
+        db.claims.set(order.id, { token: "claim-stolen-by-someone-else", expiresAtMs: db.nowMs + LEASE_SECONDS * 1000 });
+        return { ok: false, failureCode: "provider_rejected" };
+      },
+    };
+    const anomalyLogger = fakeAnomalyLogger();
+    const deps = buildDeps({ database: db, cardcomClient: cardcom, anomalyLogger });
+
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    // לא "עבר בשקט" - retryable (503), לא 502 "failed" שקרי (גורל ההזמנה ביד הבעלים החדש כרגע).
+    expect(result).toEqual({ status: 503, body: { error: "checkout_creation_in_progress" } });
+    // הניסיון לשחרר-כ-failed כן קרה (לא דולג) - רק לא הצליח, וזה תועד:
+    expect(db.releaseClaimAsFailedCalls.length).toBe(1);
+    expect([...db.ordersById.values()][0].status).toBe("created"); // לא "failed" - ה-UPDATE לא תפס
+    expect(anomalyLogger.calls).toEqual([{ reason: "claim_release_as_failed_lost_ownership", productType: "baseReport" }]);
   });
 });
 

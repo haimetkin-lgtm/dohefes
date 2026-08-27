@@ -37,7 +37,7 @@ class FakeDatabase implements PaymentIndicatorDatabase {
     productType: "cashFlowAnalysis",
     entitlementId: "entitlement-1",
   };
-  securityEvents: Array<{ reason: SecurityEventReason; lowProfileCode: string }> = [];
+  securityEvents: Array<{ reason: SecurityEventReason; productType: string | null }> = [];
 
   async getOrderByLowProfileCode(lowProfileCode: string): Promise<OrderForVerification | null> {
     return this.orders.get(lowProfileCode) ?? null;
@@ -60,7 +60,7 @@ class FakeDatabase implements PaymentIndicatorDatabase {
     return this.finalizeResult;
   }
 
-  async recordSecurityEvent(event: { reason: SecurityEventReason; lowProfileCode: string }): Promise<void> {
+  async recordSecurityEvent(event: { reason: SecurityEventReason; productType: string | null }): Promise<void> {
     this.securityEvents.push(event);
   }
 }
@@ -126,7 +126,7 @@ describe("handleIndicatorCallback - אי-התאמה מול ההזמנה (ה-Edge
 
     expect(result).toEqual({ httpStatus: 200 });
     expect(database.finalizeCalls).toEqual([]);
-    expect(database.securityEvents).toEqual([{ reason: "verification_mismatch", lowProfileCode: "lpc-1" }]);
+    expect(database.securityEvents).toEqual([{ reason: "verification_mismatch", productType: "cashFlowAnalysis" }]);
   });
 
   it("מטבע לא תואם -> אין קריאה ל-finalize, נרשם אירוע אבטחה", async () => {
@@ -275,7 +275,7 @@ describe("handleIndicatorCallback - outcome מה-RPC שדורש תיעוד אי�
     const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
 
     expect(result).toEqual({ httpStatus: 200 });
-    expect(database.securityEvents).toEqual([{ reason: "deal_number_conflict", lowProfileCode: "lpc-1" }]);
+    expect(database.securityEvents).toEqual([{ reason: "deal_number_conflict", productType: "cashFlowAnalysis" }]);
   });
 
   it("verification_mismatch מה-RPC (הגנת-עומק ברמת ה-DB עצמו) -> נרשם אירוע אבטחה, 200", async () => {
@@ -290,7 +290,7 @@ describe("handleIndicatorCallback - outcome מה-RPC שדורש תיעוד אי�
     const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
 
     expect(result).toEqual({ httpStatus: 200 });
-    expect(database.securityEvents).toEqual([{ reason: "verification_mismatch", lowProfileCode: "lpc-1" }]);
+    expect(database.securityEvents).toEqual([{ reason: "verification_mismatch", productType: "cashFlowAnalysis" }]);
   });
 
   it("deal_mismatch מה-RPC -> נרשם אירוע אבטחה, 200", async () => {
@@ -302,7 +302,7 @@ describe("handleIndicatorCallback - outcome מה-RPC שדורש תיעוד אי�
     const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
 
     expect(result).toEqual({ httpStatus: 200 });
-    expect(database.securityEvents).toEqual([{ reason: "deal_mismatch", lowProfileCode: "lpc-1" }]);
+    expect(database.securityEvents).toEqual([{ reason: "deal_mismatch", productType: "cashFlowAnalysis" }]);
   });
 
   it("terminal_state מה-RPC -> אין אירוע אבטחה (לא חשוד, מצב סופי לגיטימי), 200", async () => {
@@ -347,6 +347,6 @@ describe("handleIndicatorCallback - קלט חסר, בלי PII/סודות בשו�
     await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
 
     expect(database.securityEvents.length).toBe(1);
-    expect(Object.keys(database.securityEvents[0]).sort()).toEqual(["lowProfileCode", "reason"]);
+    expect(Object.keys(database.securityEvents[0]).sort()).toEqual(["productType", "reason"]);
   });
 });

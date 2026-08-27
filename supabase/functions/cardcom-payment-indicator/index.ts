@@ -118,10 +118,11 @@ function buildDatabase(supabase: SupabaseClient): PaymentIndicatorDatabase {
       };
     },
 
-    async recordSecurityEvent(event: { reason: SecurityEventReason; lowProfileCode: string }): Promise<void> {
-      // תיעוד מינימלי, בלי PII - רק סיבה כללית + lowProfileCode (מזהה טכני שלנו, לא מידע אישי).
+    async recordSecurityEvent(event: { reason: SecurityEventReason; productType: string | null }): Promise<void> {
+      // תיעוד מינימלי - רק reason + productType. **בלי lowProfileCode** (ממצא ביקורת סופית -
+      // הוא בפועל מזהה-גישה לדף התשלום של Cardcom עצמו, לא רק "מזהה טכני", ר' payment-indicator-service.ts).
       // אין טבלת audit ייעודית בשלב הזה - console.error בלבד, עד שתיווסף (מחוץ להיקף העבודה הזו).
-      console.error("dohefes_cardcom_security_event", { reason: event.reason, lowProfileCode: event.lowProfileCode });
+      console.error("dohefes_cardcom_security_event", { reason: event.reason, productType: event.productType });
     },
   };
 }

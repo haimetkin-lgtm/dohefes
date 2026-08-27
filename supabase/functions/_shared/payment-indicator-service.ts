@@ -42,9 +42,11 @@ export interface FinalizeOutcome {
   entitlementId: string | null;
 }
 
-/** אירועים "חשודים" (לא כשלים תמימים) שראוי לתעד - תמיד ללא PII, רק סיבה כללית + lowProfileCode
- *  (מזהה טכני שלנו, לא מידע אישי). ר' index.ts למימוש הרישום עצמו (כרגע console.error, אין
- *  טבלת audit ייעודית בשלב הזה). זהה במפורש לתת-הקבוצה של FinalizeOutcomeCode שנחשבת חשודה
+/** אירועים "חשודים" (לא כשלים תמימים) שראוי לתעד - תמיד ללא PII, ובכוונה **גם בלי lowProfileCode**
+ *  (ממצא ביקורת סופית: LowProfileCode הוא בפועל מזהה-גישה לדף התשלום של Cardcom עצמו - לא רק
+ *  "מזהה טכני סתמי", דומה בעיקרון ל-reportId שהוחלט לא לרשום מאותה סיבה, ר' payment-order-service.ts).
+ *  רק reason כללי + productType (אם ידוע) - ר' index.ts למימוש הרישום עצמו (כרגע console.error,
+ *  אין טבלת audit ייעודית בשלב הזה). זהה במפורש לתת-הקבוצה של FinalizeOutcomeCode שנחשבת חשודה
  *  (SECURITY_EVENT_OUTCOMES למטה) + "verification_mismatch" (נתפס כבר בשכבה הזו, לפני ה-RPC). */
 export type SecurityEventReason = "verification_mismatch" | "deal_mismatch" | "deal_number_conflict" | "not_found";
 
@@ -63,7 +65,8 @@ export interface PaymentIndicatorDatabase {
     verifiedAmountAgorot: number,
     verifiedCurrencyCode: number
   ): Promise<FinalizeOutcome>;
-  recordSecurityEvent(event: { reason: SecurityEventReason; lowProfileCode: string }): Promise<void>;
+  /** **בלי lowProfileCode** (ר' הערת SecurityEventReason למעלה) - רק reason + productType, כשידוע. */
+  recordSecurityEvent(event: { reason: SecurityEventReason; productType: string | null }): Promise<void>;
 }
 
 export interface CardcomIndicatorClientLike {
@@ -128,7 +131,7 @@ export async function handleIndicatorCallback(
     fields.amountAgorot === order.expectedAmountAgorot;
 
   if (!matches) {
-    await deps.database.recordSecurityEvent({ reason: "verification_mismatch", lowProfileCode });
+    await deps.database.recordSecurityEvent({ reason: "verification_mismatch", productType: order.productType });
     return { httpStatus: 200 };
   }
 
@@ -141,7 +144,7 @@ export async function handleIndicatorCallback(
   );
 
   if (SECURITY_EVENT_OUTCOMES.has(finalizeResult.outcome)) {
-    await deps.database.recordSecurityEvent({ reason: finalizeResult.outcome as SecurityEventReason, lowProfileCode });
+    await deps.database.recordSecurityEvent({ reason: finalizeResult.outcome as SecurityEventReason, productType: finalizeResult.productType });
   }
 
   return { httpStatus: 200 };

@@ -84,8 +84,10 @@ export interface PaymentOrderDatabase {
    *  לא קנוני. */
   releaseClaimAsPending(orderId: string, claimToken: string, details: { cardcomLowProfileCode: string; checkoutUrl: string }): Promise<boolean>;
   /** משחררת claim בכשל **ודאי** (לא timeout/תוצאה לא ודאית - ר' isAmbiguousCardcomFailure) -
-   *  מסמנת failed, לפי מדיניות הכשל הקיימת. גם היא מותנית ב-claimToken תואם. */
-  releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<void>;
+   *  מסמנת failed, לפי מדיניות הכשל הקיימת. גם היא מותנית ב-claimToken תואם - **גם כאן** מחזירה
+   *  boolean (ממצא ביקורת סופית: לא מספיק שה-UPDATE עצמו מותנה נכון - הקוד הקורא חייב לבדוק את
+   *  זה בפועל, אחרת כשל "השתלטות claim" כאן היה נבלע בשקט, בלי לדעת שה-failed בכלל לא נכתב). */
+  releaseClaimAsFailed(orderId: string, claimToken: string, failureCode: string): Promise<boolean>;
   getEntitlement(reportId: string, productType: ProductType): Promise<OrderEntitlementLookup | null>;
 }
 
@@ -329,7 +331,14 @@ async function advanceOrderToCheckout(
     if (isAmbiguousCardcomFailure(outcome.failureCode)) {
       return { ok: false, retryable: true };
     }
-    await deps.database.releaseClaimAsFailed(order.id, claimToken, outcome.failureCode);
+    const released = await deps.database.releaseClaimAsFailed(order.id, claimToken, outcome.failureCode);
+    if (!released) {
+      // איבדנו את ה-claim בין הכשל הודאי לבין הניסיון לרשום אותו (חריגה נדירה מה-lease) - ה-
+      // failed **לא** נכתב בפועל (מישהו אחר כבר בעל השורה עכשיו). לא מוסתר: מתועדת אזהרה, וה
+      // תגובה ללקוח היא retryable (לא failed) - כי גורלה של ההזמנה כרגע ביד הבעלים החדש, לא ודאי-כשל מבחינתנו.
+      deps.anomalyLogger.logAnomaly({ reason: "claim_release_as_failed_lost_ownership", productType: order.productType });
+      return { ok: false, retryable: true };
+    }
     return { ok: false, retryable: false };
   }
 
