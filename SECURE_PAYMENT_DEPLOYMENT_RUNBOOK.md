@@ -1,0 +1,297 @@
+# Runbook: פריסת תשתית התשלום המאובטחת (secure-payment-foundation)
+
+מסמך תפעולי בלבד - סדר פעולות מדויק לביצוע בפועל, כשתחליט לעבור לניסיון אמיתי. **לא בוצע כלום
+ממה שכתוב כאן** - זה תכנון, לא ביצוע. כל שלב עם `psql`/SQL Editor מסומן בבירור, וכל שלב שגובה
+כסף אמיתי מסומן באזהרה נפרדת.
+
+מבנה הענף כרגע (`secure-payment-foundation`): schema (`supabase/payment-schema.sql`) + שלוש
+Edge Functions (`create-payment-order`, `cardcom-payment-indicator`, `get-product-access`) -
+קוד בלבד, שום דבר לא רץ/פרוס.
+
+## מה תוקן מאז הביקורת הקודמת
+
+שני הפריטים שסווגו שם "חובה לפני ניסיון אמיתי" **בוצעו ואומתו** (בדיקות עוברות, ר' דוח ה-commit):
+
+1. **timeout על קריאות ל-Cardcom** (`e5a98a5`) - `CARDCOM_FETCH_TIMEOUT_MS=15_000` (`AbortSignal.timeout`)
+   על שני ה-fetch ב-`_shared/cardcom-client.ts` - קריאה תקועה כבר לא תוקעת את ה-Edge Function.
+2. **מניעת הזמנות בלתי-מוגבלות** - **שני חלקים, שניהם נדרשים ושניהם בוצעו**:
+   - שורת ההזמנה: `idx_dohefes_payment_orders_one_active_per_report_product` (`f74f3e3`, partial
+     unique index) - מונע שתי **שורות** להזמנה לאותו report+product.
+   - יצירת ה-Cardcom session עצמו: **לא הספיק** - התגלה (ובדוח קודם, בטעות, סומן כ"בוצע" לפני
+     שזה הוכח) שה-index לבדו לא מונע שתי בקשות מקבילות שמאתרות את **אותה שורה** (`created`, בלי
+     checkout עדיין) ומנסות **שתיהן** לקרוא ל-Cardcom. תוקן ב-`b735c0f`: claim/lease אטומי
+     (`dohefes_claim_checkout_creation`, RPC) - רק בעל ה-claim קורא בפועל ל-Cardcom; המפסיד
+     מקבל `503` כללי, בלי token מטעה. **עכשיו, ורק עכשיו, שני החלקים יחד מוכחים ב-39 בדיקות
+     ייעודיות** (כולל claim פעיל/פג, timeout לא גורם לקריאה שנייה, מרוץ בין השלמה ל-retry).
+
+כל אלה עדיין **לא נפרסו/הורצו** - הקוד קיים בענף, לא בסביבה חיה.
+
+---
+
+## שלב 1 - אילו פרטים לקבל מ-Cardcom
+
+לפני שמתחילים, ודא שיש בידך מ-Cardcom (או מהפאנל שלהם):
+
+1. **מספר מסוף (TerminalNumber)** - המספר שמזהה את חשבון הסליקה שלך אצל Cardcom.
+2. **שם משתמש API (UserName)** - לא סיסמה נפרדת (הממשק שנבנה, API Level 10, לא דורש סיסמה -
+   ר' `supabase/functions/_shared/cardcom-client.ts`).
+3. **אישור מפורש** שהחשבון מורשה להשתמש ב-LowProfile API (יצירת דף תשלום) **וגם** ב-
+   BillGoldGetLowProfileIndicator (בדיקת סטטוס עסקה) - שני ממשקים נפרדים, לא מובטח ששניהם
+   מופעלים אוטומטית על כל חשבון.
+4. **אם יש להם סביבת sandbox/מסוף בדיקה** - שאל מפורשות. אם כן, השתמש בו לשלבים 5-10 למטה
+   לפני מעבר לכסף אמיתי (שלב 7). אם אין - שלבים 6-10 יתבצעו ישירות מול הכסף האמיתי, ראה אזהרה
+   בשלב 7.
+
+**לא צריך מ-Cardcom**: כתובות ה-callback (SuccessRedirectUrl/ErrorRedirectUrl/IndicatorUrl) -
+אלה כתובות **שלך** (ר' שלב 2), לא משהו שהם נותנים לך.
+
+---
+
+## שלב 2 - אילו secrets להזין ב-Supabase (שמות בלבד)
+
+**חשוב**: `SUPABASE_URL` ו-`SUPABASE_SERVICE_ROLE_KEY` **לא** דורשים פעולה - Supabase מזריקה
+אותם אוטומטית לכל Edge Function בפרויקט, בלי `supabase secrets set`. אין צורך לגעת בהם.
+
+מה שכן צריך להזין (Dashboard: **Project Settings → Edge Functions → Secrets**, או `supabase
+secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים כאן ובשום מסמך אחר בריפו**:
+
+| שם ה-secret | מה נכנס בו | מקור |
+|---|---|---|
+| `CARDCOM_TERMINAL_NUMBER` | מספר המסוף משלב 1 | Cardcom |
+| `CARDCOM_API_USERNAME` | שם המשתמש משלב 1 | Cardcom |
+| `CARDCOM_SUCCESS_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי תשלום מוצלח | האתר שלך |
+| `CARDCOM_ERROR_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי כישלון/ביטול | האתר שלך |
+| `CARDCOM_INDICATOR_URL` | הכתובת המלאה של `cardcom-payment-indicator` **אחרי** שהיא נפרסת (שלב 4) - בפורמט `https://<project-ref>.supabase.co/functions/v1/cardcom-payment-indicator` | הפרויקט שלך, נקבע רק אחרי הפריסה |
+| `ALLOWED_ORIGINS` | רשימת origins מופרדת בפסיקים (למשל `https://haimetkin-lgtm.github.io`) - ר' `_shared/payment-security.ts` | האתר שלך |
+
+`CARDCOM_INDICATOR_URL` תלוי בשלב 4 (הפריסה) - לכן סדר מומלץ בפועל: הזן קודם את חמשת השדות
+הראשונים, פרוס את שלוש הפונקציות (שלב 4), ואז חזור והזן את `CARDCOM_INDICATOR_URL` עם הכתובת
+האמיתית שקיבלת, ופרוס מחדש רק את `cardcom-payment-indicator` (secrets נטענים מחדש אוטומטית
+עם כל deploy).
+
+---
+
+## שלב 3 - הרצת migration
+
+**חשוב לגבי טרנזקציות**: ריצה של קובץ SQL רב-פקודות **אינה מובטחת אוטומטית כטרנזקציה אחת בכל
+כלי** - זה תלוי בכלי הספציפי (SQL Editor מול `psql` מול חיבור ORM וכו') ובאופן שבו הוא שולח
+את הפקודות לשרת. **אל תסתמך על ברירת המחדל** - התהליך למטה עוטף את הריצה במפורש ב-`BEGIN;`/
+`COMMIT;` כדי שההתנהגות (הכל-או-כלום) תהיה מובטחת ולא תלויה בכלי.
+
+1. **גיבוי** - לפני כל migration בפרויקט הזה: Dashboard → **Database → Backups** - ודא שיש
+   גיבוי אוטומטי עדכני (או הרץ ידני אם אתה רוצה נקודת שחזור טרייה יותר).
+2. Dashboard → **SQL Editor → New query**.
+3. פתח את `supabase/payment-schema.sql` מהריפו, העתק את **כל** התוכן (מ-`create extension`
+   ועד סוף קובץ הבדיקות המתועדות - השורות המתועדות בהערות `--` לא מריצות כלום, בטוח להעתיק
+   הכל).
+4. **עטוף במפורש** - לפני שאתה מריץ, הוסף ידנית שורת `BEGIN;` בראש מה שהדבקת ו-`COMMIT;`
+   בסופו:
+   ```sql
+   BEGIN;
+
+   -- <כל תוכן payment-schema.sql שהעתקת, ללא שינוי>
+
+   COMMIT;
+   ```
+   לחץ **Run**.
+5. **ציפייה**: הודעת הצלחה ירוקה, בלי שגיאות. אם מופיעה שגיאה `relation "dohefes_reports" does
+   not exist` - הפרויקט שאתה מריץ עליו אינו הפרויקט הנכון (הסכמה מניחה ש-`dohefes_reports`
+   כבר קיים).
+6. **אם פקודה כלשהי נכשלת** (כל שגיאה אדומה): הרץ **מיד** `ROLLBACK;` (שורה נפרדת, Run) - אל
+   תניח שה-`BEGIN`/`COMMIT` "כבר טיפלו בזה" לבד; ב-SQL Editor של Supabase כל שורה/בקשה יכולה
+   לרוץ כחיבור נפרד, כך שחיבור שנכשל באמצע טרנזקציה פתוחה עלול להשאיר אותה תקועה עד שסוגרים
+   אותה במפורש. **אחרי** ה-`ROLLBACK;`, ודא בפועל שלא נשאר כלום חלקי:
+   ```sql
+   select count(*) from pg_tables where tablename in ('dohefes_payment_orders', 'dohefes_product_entitlements');
+   select count(*) from pg_proc where proname like 'dohefes_%';
+   ```
+   **ציפייה**: `0` בשתיהן. אם יש תוצאה חלקית (חלק מהטבלאות/פונקציות קיימות, לא כולן) - סימן
+   שה-rollback לא היה מלא (למשל אם ה-`BEGIN`/`COMMIT` לא נשמרו בפועל כחיבור אחד) - השתמש בבלוק
+   ה-Rollback המתועד בתחתית `payment-schema.sql` (עטוף גם אותו ב-`BEGIN;`/`COMMIT;`) לניקוי ידני,
+   ואז התייעץ לפני ניסיון חוזר - אל תריץ את הקובץ המלא שוב על מצב לא-ברור.
+7. **אל תריץ את הקובץ פעם שנייה "סתם", גם אם משהו נראה לא ברור** - ה-`create trigger` בקובץ
+   **אינם אידמפוטנטיים** (Postgres לא תומך ב-`CREATE TRIGGER IF NOT EXISTS`) - הרצה שנייה על
+   מסד שכבר הצליח תיכשל מיד ב-`create trigger dohefes_payment_orders_touch_updated_at`
+   ("already exists"). זו שגיאה **צפויה ובטוחה** (בתוך `BEGIN;`/`COMMIT;` היא פשוט תבטל את
+   הריצה השנייה כולה) - **היא הסימן שהריצה הקודמת כבר הצליחה**, לא תקלה לתקן. אם אתה חושב
+   שאתה צריך להריץ מחדש מסיבה אמיתית (למשל אחרי rollback מכוון) - זו החלטה מודעת, לא ריצה
+   חוזרת "ליתר ביטחון".
+
+---
+
+## שלב 4 - פריסת שלוש הפונקציות + הגדרת JWT
+
+### הגדרת JWT - `cardcom-payment-indicator` בלבד עם `verify_jwt=false`
+
+צור (אם לא קיים) `supabase/config.toml` עם:
+
+```toml
+[functions.cardcom-payment-indicator]
+verify_jwt = false
+
+# create-payment-order ו-get-product-access: לא מוזכרות כאן בכוונה - נשארות עם ברירת המחדל
+# (verify_jwt=true). הדפדפן קורא להן דרך supabase.functions.invoke עם מפתח ה-anon, שהוא
+# כשלעצמו JWT תקין וחתום שעובר את הבדיקה - אין להן צורך בפטור. שינוי ההגדרה הזו לפונקציה
+# אחרת מלבד cardcom-payment-indicator דורש החלטה מפורשת ונפרדת, לא נגזר מהחריג הזה.
+```
+
+חלופה (אם אתה מעדיף לא לשמור קובץ config): דגל `--no-verify-jwt` בפקודת ה-deploy עצמה
+(ר' למטה) - עושה בדיוק אותו דבר, רק לא "נדבק" לפרויקט בין פריסות.
+
+### פריסה בפועל (CLI)
+
+```bash
+supabase functions deploy create-payment-order
+supabase functions deploy get-product-access
+supabase functions deploy cardcom-payment-indicator --no-verify-jwt
+```
+
+(אם השתמשת ב-`config.toml` למעלה, הדגל `--no-verify-jwt` מיותר אך לא מזיק - שני המנגנונים
+אומרים את אותו דבר.)
+
+**ציפייה**: כל פקודה מדפיסה "Deployed Function" עם כתובת. **עכשיו** יש לך את הכתובת
+ל-`CARDCOM_INDICATOR_URL` (שלב 2) - חזור, הזן אותה, ופרוס מחדש רק את `cardcom-payment-indicator`.
+
+**איך לוודא שה-JWT הוגדר נכון**: Dashboard → **Edge Functions** → לחץ על `cardcom-payment-
+indicator` → לשונית **Details/Settings** - אמור להופיע "JWT verification: Disabled" (או ניסוח
+דומה, תלוי גרסת ה-Dashboard). עבור שתי הפונקציות האחרות - אמור להופיע "Enabled" (ברירת המחדל).
+
+---
+
+## שלב 5 - בדיקת sandbox/עסקת בדיקה
+
+אם ב-שלב 1 קיבלת אישור ש-Cardcom מספקת סביבת sandbox: הזן זמנית את פרטי ה-sandbox (terminal
+number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע שלבים 6-10 למטה מולם קודם. אחרי
+שהכל עובד ב-sandbox, **החלף את ה-secrets בפרטים האמיתיים** ופרוס מחדש (שלב 4) לפני שלב 6-10
+עם כסף אמיתי.
+
+אם אין sandbox - דלג לשלב 6 (כסף אמיתי מהשלב הראשון - ר' אזהרה בשלב 7).
+
+---
+
+## שלב 6 - יצירת הזמנת `cashFlowAnalysis`
+
+**תנאי מקדים חשוב**: `cashFlowAnalysis` דורש (ב-`create-payment-order`) שהדוח כבר `paid` עבור
+`baseReport` (המנגנון **הישן**, `dohefes_reports.payment_status` - עדיין לא הוחלף, ר'
+`GEN2_PAYMENT_ENTITLEMENT_DESIGN.md` §6.2 שלב 4). כדי לבדוק, צריך דוח קיים עם
+`payment_status='paid'`. אין React מחובר עדיין (מכוון), אז הבדיקה כאן היא דרך `curl` ישירות.
+
+1. **בחר/צור דוח בדיקה**: אם יש לך דוח אמיתי שכבר שולם - השתמש בו. אחרת, צור דוח חדש דרך
+   `/calculator` באתר (בלי לשלם), קח את ה-`id` שלו מה-URL (`?id=<uuid>`), ואז ב-SQL Editor
+   (**רק על דוח בדיקה, לא דוח לקוח אמיתי**):
+   ```sql
+   update dohefes_reports set payment_status = 'paid' where id = '<test-report-id>';
+   ```
+   זה מסמן את ה-baseReport כמשולם **למטרת הבדיקה בלבד** (המנגנון הישן) - לא קשור לתשתית
+   החדשה שאנחנו בודקים כאן.
+
+2. **קרא ל-create-payment-order**:
+   ```bash
+   curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/create-payment-order" \
+     -H "Content-Type: application/json" \
+     -H "Origin: <אחד מה-origins שהוגדרו ב-ALLOWED_ORIGINS>" \
+     -H "Authorization: Bearer <ANON_KEY של הפרויקט>" \
+     -H "Idempotency-Key: $(uuidgen)" \
+     -d '{"reportId":"<test-report-id>","productType":"cashFlowAnalysis"}'
+   ```
+   (בלי `-H "Origin: ..."` תקבל `403 origin_not_allowed` - זו התנהגות תקינה, לא באג; ר'
+   ממצאי ה-CORS בדוח.)
+
+3. **ציפייה**: `200`, גוף עם `{ orderId, checkoutUrl, accessToken, status: "pending" }`.
+   **שמור את שלושתם** - `orderId` לשלב 8, `checkoutUrl` לשלב 7, `accessToken` לשלב 10.
+4. **אם קיבלת `503 {"error":"checkout_creation_in_progress"}`**: זו תגובה תקינה, לא שגיאה -
+   אומרת שיש כבר ניסיון פעיל ליצור checkout לאותה הזמנה (claim פעיל, ר' `b735c0f`) - למשל אם
+   הרצת את הקריאה פעמיים כמעט בו-זמנית. פשוט המתן כמה שניות ונסה שוב.
+
+---
+
+## שלב 7 - ביצוע תשלום אמיתי אחד
+
+> **⚠️ שלב זה גובה כסף אמיתי** (אלא אם אתה עדיין ב-sandbox משלב 5). המחיר הוא הסכום הקבוע
+> ל-`cashFlowAnalysis` (ר' `_shared/payment-products.ts`) - ודא שאתה מודע לכך לפני שממשיך.
+
+1. פתח את ה-`checkoutUrl` משלב 6 בדפדפן.
+2. השלם תשלום עם כרטיס אמיתי (או פרטי בדיקה, אם ב-sandbox).
+3. אחרי הצלחה, אתה מגיע ל-`CARDCOM_SUCCESS_URL` שהגדרת. **בשלב הזה** (אם ה-IndicatorUrl הוגדר
+   נכון ו-Cardcom קוראת לו) - `cardcom-payment-indicator` אמורה כבר לרוץ ברקע. אם ה-IndicatorUrl
+   לא מוגדר נכון, או ש-Cardcom לא קוראת לו אוטומטית, תצטרך לגרות אותו ידנית - ר' שלב 9.
+
+---
+
+## שלב 8 - בדיקה שההזמנה הפכה `paid` ונוצר entitlement אחד בלבד
+
+ב-SQL Editor:
+
+```sql
+select id, status, verified_at, paid_at, cardcom_internal_deal_number
+from dohefes_payment_orders
+where id = '<orderId משלב 6>';
+```
+
+**ציפייה**: `status='paid'`, `verified_at`/`paid_at` לא null, `cardcom_internal_deal_number`
+מלא.
+
+```sql
+select id, report_id, product_type, entitlement_status, payment_order_id
+from dohefes_product_entitlements
+where report_id = '<test-report-id>' and product_type = 'cashFlowAnalysis';
+```
+
+**ציפייה**: **שורה אחת בלבד**, `entitlement_status='active'`, `payment_order_id` תואם ל-`orderId`.
+
+אם ה-`status` עדיין `pending`: `cardcom-payment-indicator` עוד לא רצה (ר' שלב 9, קריאה ידנית).
+
+---
+
+## שלב 9 - retry של Indicator והוכחת idempotency
+
+בלי Authorization header (ר' שלב 4 - הפונקציה הזו מוגדרת `verify_jwt=false`, זו בדיוק הסיבה):
+
+```bash
+curl -i "https://<project-ref>.supabase.co/functions/v1/cardcom-payment-indicator?LowProfileCode=<ה-LowProfileCode האמיתי מ-Cardcom>"
+```
+
+(אם אין לך את ה-LowProfileCode בהישג יד - הוא לא נחשף בתגובת create-payment-order בכוונה; ניתן
+לשלוף אותו מ-`select cardcom_low_profile_code from dohefes_payment_orders where id='<orderId>'`.)
+
+**קרא לזה פעמיים ברצף** (זה בדיוק ה"retry"). **ציפייה**: `200` בשתי הפעמים, ושורת ה-entitlement
+בשלב 8 **נשארת שורה אחת** (לא הכפילה את עצמה) - זו ההוכחה ל-idempotency (`already_finalized`
+ב-RPC בפעם השנייה).
+
+---
+
+## שלב 10 - בדיקת token שגוי ונכון
+
+**token נכון** (מ-שלב 6, `accessToken`):
+```bash
+curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/get-product-access" \
+  -H "Content-Type: application/json" \
+  -H "Origin: <אחד מה-origins שהוגדרו>" \
+  -H "Authorization: Bearer <ANON_KEY>" \
+  -H "X-Access-Token: <accessToken משלב 6>" \
+  -d '{"reportId":"<test-report-id>","productType":"cashFlowAnalysis"}'
+```
+**ציפייה**: `{"status":"active"}`.
+
+**token שגוי**: אותה קריאה עם `X-Access-Token: garbage-value-123`.
+**ציפייה**: `{"status":"unavailable"}` - **אותה תגובה בדיוק** שהייתה מתקבלת עבור דוח לא-קיים
+או מוצר-לא-נרכש (זה הכוונה, לא באג - ר' ממצאי get-product-access).
+
+---
+
+## מה קורה אם שלב נכשל (Rollback)
+
+- **שלב 3 (migration) נכשל**: ר' §3 סעיף 6 למעלה - `ROLLBACK;` מיידי, ואז אימות בפועל
+  (`pg_tables`/`pg_proc`) שלא נשאר כלום חלקי - **אל תניח** שזה קרה אוטומטית רק כי עטפת ב-
+  `BEGIN;`/`COMMIT;`. אם בכל זאת נשאר משהו חלקי - בלוק ה-Rollback המתועד בתחתית
+  `supabase/payment-schema.sql` (מריצים אותו **גם** עטוף ב-`BEGIN;`/`COMMIT;`, לא כפקודות
+  בודדות).
+- **פונקציה נכשלת בפריסה (שלב 4)**: `supabase functions delete <name>` ונסה שוב אחרי שתיקנת.
+- **תשלום אמיתי בוצע (שלב 7) אך שלב 8 מראה שההזמנה לא הפכה `paid`**: זה **לא** משהו שרולבק
+  טכני פותר - הכסף כבר עבר אצל Cardcom. פנה לתמיכת Cardcom לבירור/זיכוי (פעולה עסקית, לא
+  טכנית) - **אל תריץ UPDATE ידני** על `dohefes_payment_orders`/`dohefes_product_entitlements`
+  כדי "לתקן" את המצב בעצמך; זה עוקף את כל שכבות האימות שנבנו. אם צריך לסמן הזמנה כ-paid ידנית
+  אחרי אימות ישיר מול Cardcom (לא ניחוש) - זו החלטה נפרדת שדורשת דיון, לא צעד רוטיני ברשימה הזו.
+- **לבטל את כל התשתית (חזרה למצב לפני הענף הזה)**: בלוק ה-Rollback + `supabase functions
+  delete` לשלוש הפונקציות. שום דבר ב-`dohefes_reports` לא נגע, כך שהמערכת הקיימת (baseReport
+  דרך המנגנון הישן) ממשיכה לעבוד ללא שינוי.
