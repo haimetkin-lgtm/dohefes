@@ -14,10 +14,17 @@ Edge Functions (`create-payment-order`, `cardcom-payment-indicator`, `get-produc
 
 1. **timeout על קריאות ל-Cardcom** (`e5a98a5`) - `CARDCOM_FETCH_TIMEOUT_MS=15_000` (`AbortSignal.timeout`)
    על שני ה-fetch ב-`_shared/cardcom-client.ts` - קריאה תקועה כבר לא תוקעת את ה-Edge Function.
-2. **מניעת הזמנות בלתי-מוגבלות** (`f74f3e3`) - `idx_dohefes_payment_orders_one_active_per_report_product`
-   (partial unique index, ר' `payment-schema.sql`) + לוגיקת שירות ב-`_shared/payment-order-service.ts`.
+2. **מניעת הזמנות בלתי-מוגבלות** - **שני חלקים, שניהם נדרשים ושניהם בוצעו**:
+   - שורת ההזמנה: `idx_dohefes_payment_orders_one_active_per_report_product` (`f74f3e3`, partial
+     unique index) - מונע שתי **שורות** להזמנה לאותו report+product.
+   - יצירת ה-Cardcom session עצמו: **לא הספיק** - התגלה (ובדוח קודם, בטעות, סומן כ"בוצע" לפני
+     שזה הוכח) שה-index לבדו לא מונע שתי בקשות מקבילות שמאתרות את **אותה שורה** (`created`, בלי
+     checkout עדיין) ומנסות **שתיהן** לקרוא ל-Cardcom. תוקן ב-`b735c0f`: claim/lease אטומי
+     (`dohefes_claim_checkout_creation`, RPC) - רק בעל ה-claim קורא בפועל ל-Cardcom; המפסיד
+     מקבל `503` כללי, בלי token מטעה. **עכשיו, ורק עכשיו, שני החלקים יחד מוכחים ב-39 בדיקות
+     ייעודיות** (כולל claim פעיל/פג, timeout לא גורם לקריאה שנייה, מרוץ בין השלמה ל-retry).
 
-שני אלה עדיין **לא נפרסו/הורצו** - הקוד קיים בענף, לא בסביבה חיה.
+כל אלה עדיין **לא נפרסו/הורצו** - הקוד קיים בענף, לא בסביבה חיה.
 
 ---
 
@@ -192,6 +199,9 @@ number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע
 
 3. **ציפייה**: `200`, גוף עם `{ orderId, checkoutUrl, accessToken, status: "pending" }`.
    **שמור את שלושתם** - `orderId` לשלב 8, `checkoutUrl` לשלב 7, `accessToken` לשלב 10.
+4. **אם קיבלת `503 {"error":"checkout_creation_in_progress"}`**: זו תגובה תקינה, לא שגיאה -
+   אומרת שיש כבר ניסיון פעיל ליצור checkout לאותה הזמנה (claim פעיל, ר' `b735c0f`) - למשל אם
+   הרצת את הקריאה פעמיים כמעט בו-זמנית. פשוט המתן כמה שניות ונסה שוב.
 
 ---
 
