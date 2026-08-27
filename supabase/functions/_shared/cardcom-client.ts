@@ -14,6 +14,14 @@ import { getField, parseNameToValue } from "./name-to-value.ts";
 const LOW_PROFILE_CREATE_URL = "https://secure.cardcom.solutions/Interface/LowProfile.aspx";
 const LOW_PROFILE_INDICATOR_URL = "https://secure.cardcom.solutions/Interface/BillGoldGetLowProfileIndicator.aspx";
 
+/** timeout מרוכז יחיד לשתי הקריאות ל-Cardcom (יצירת LowProfile + GetLowProfileIndicator) - לא
+ *  מספר מפוזר בקוד. `AbortSignal.timeout(ms)` הוא Web API סטנדרטי, נתמך זהה ב-Deno (הריצה
+ *  האמיתית של Edge Functions) וב-Node 18+/Vitest (הבדיקות) - בלי import נוסף, אותו דפוס בדיוק
+ *  כמו fetch/URL/URLSearchParams הגלובליים שכבר בשימוש בקובץ הזה. 15 שניות: מספיק זמן לניתור
+ *  API רגיל, קצר מספיק שלא להשאיר את המשתמש (ביצירת הזמנה) או את ה-Edge Function (ב-Indicator)
+ *  תקועים על קריאה שלא תחזור. */
+const CARDCOM_FETCH_TIMEOUT_MS = 15_000;
+
 /** host מאושר יחיד ל-checkout_url שחוזר מ-Cardcom - לא בונים את הכתובת בעצמנו (לפי ההוראה),
  *  רק מוודאים שמה שהספק החזיר הוא באמת שלו, לא URL שרירותי (תגובה מזוייפת/proxy נגוע וכו') */
 const ALLOWED_CHECKOUT_HOSTS = new Set(["secure.cardcom.solutions"]);
@@ -149,13 +157,17 @@ export function createCardcomClient(credentials: CardcomCredentials) {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
+          signal: AbortSignal.timeout(CARDCOM_FETCH_TIMEOUT_MS),
         });
         if (!response.ok) {
           return { ok: false, failureCode: `provider_http_${response.status}` };
         }
         responseText = await response.text();
       } catch {
-        // תקלת רשת/חיבור - לא תקלת קוד.
+        // תקלת רשת/חיבור **וגם timeout** (fetch עם signal שפג נדחית באותה צורה, ר' הערת
+        // CARDCOM_FETCH_TIMEOUT_MS) - שתיהן תקלת ספק זמנית, לא תקלת קוד. לא נתפסת ההודעה הגולמית
+        // (catch בלי פרמטר) - לא נרשמת/מוחזרת בשום מקום. ההזמנה עצמה לא נשארת במצב מטעה - נופלת
+        // לאותה התנהגות כשל כללית וקיימת כמו כל תקלת רשת אחרת (markOrderFailed, ר' payment-order-service.ts).
         return { ok: false, failureCode: "provider_unreachable" };
       }
 
@@ -198,12 +210,18 @@ export function createCardcomClient(credentials: CardcomCredentials) {
 
       let responseText: string;
       try {
-        const response = await fetch(`${LOW_PROFILE_INDICATOR_URL}?${params.toString()}`, { method: "GET" });
+        const response = await fetch(`${LOW_PROFILE_INDICATOR_URL}?${params.toString()}`, {
+          method: "GET",
+          signal: AbortSignal.timeout(CARDCOM_FETCH_TIMEOUT_MS),
+        });
         if (!response.ok) {
           return { ok: false, failureCode: `provider_http_${response.status}` };
         }
         responseText = await response.text();
       } catch {
+        // תקלת רשת/חיבור **וגם timeout** - ר' אותה הערה למעלה. "provider_unreachable" כבר
+        // מוגדר כ-retryable (RETRYABLE_FAILURE_CODES, payment-indicator-service.ts) -> 503,
+        // בלי לגעת בהזמנה. לא נתפסת/נרשמת/מוחזרת ההודעה הגולמית של החריגה.
         return { ok: false, failureCode: "provider_unreachable" };
       }
 

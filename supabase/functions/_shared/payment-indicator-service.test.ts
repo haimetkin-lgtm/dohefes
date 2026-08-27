@@ -228,6 +228,22 @@ describe("handleIndicatorCallback - כשל תקשורת זמני (retryable)", (
     expect(database.securityEvents).toEqual([]);
   });
 
+  it("timeout על הקריאה ל-Cardcom (מגיע כ-provider_unreachable, ר' cardcom-client.ts) -> 503, אין entitlement שנוצרה, ההזמנה לא מסומנת failed", async () => {
+    // cardcomClient הוא fake כאן (ה-timeout האמיתי, AbortSignal.timeout, נבדק ב-cardcom-client.test.ts) -
+    // הבדיקה הזו מוודאת את השכבה הבאה: כש-cardcom-client כבר דיווח timeout כ-provider_unreachable,
+    // ה-orchestration כאן לא קוראת ל-finalize (=לא נוצרת entitlement) ולא רושמת אירוע אבטחה
+    // (זו לא התנהגות חשודה - זו תקלת ספק זמנית לגיטימית, לא ניסיון זיוף).
+    const database = new FakeDatabase();
+    database.orders.set("lpc-1", VALID_ORDER);
+    const cardcomClient = fakeCardcomClient({ ok: false, failureCode: "provider_unreachable" });
+
+    const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-1");
+
+    expect(result).toEqual({ httpStatus: 503 });
+    expect(database.finalizeCalls).toEqual([]);
+    expect(database.securityEvents).toEqual([]);
+  });
+
   it("העסקה עוד לא נרשמה סופית אצל Cardcom (not_completed) -> 503, לא failed", async () => {
     const database = new FakeDatabase();
     database.orders.set("lpc-1", VALID_ORDER);

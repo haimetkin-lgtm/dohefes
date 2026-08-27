@@ -320,3 +320,88 @@ describe("createCardcomClient().getLowProfileIndicator - פענוח תגובה",
     expect(outcome).toEqual({ ok: false, failureCode: "provider_http_500" });
   });
 });
+
+describe("createCardcomClient() - timeout מרוכז על שתי הקריאות ל-Cardcom", () => {
+  it("createLowProfile שולחת AbortSignal ב-fetch (ניתן לבדיקה כש-fetch מוזרק/מוחלף)", async () => {
+    let capturedInit: RequestInit | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return nameToValueResponse({ ResponseCode: "0", LowProfileCode: "lpc-1", url: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" });
+      })
+    );
+
+    const client = createCardcomClient(CREDENTIALS);
+    await client.createLowProfile(BASE_REQUEST);
+
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("getLowProfileIndicator שולחת AbortSignal ב-fetch", async () => {
+    let capturedInit: RequestInit | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return nameToValueResponse(indicatorSuccessFields());
+      })
+    );
+
+    const client = createCardcomClient(CREDENTIALS);
+    await client.getLowProfileIndicator({ lowProfileCode: "lpc-1" });
+
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("createLowProfile: timeout (signal מבוטל, fetch נדחית עם TimeoutError) -> provider_unreachable, לא זורקת, לא חושפת הודעה גולמית", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        // מדמה בדיוק את מה ש-AbortSignal.timeout גורם ל-fetch לעשות בפועל: הבטחה נדחית עם
+        // DOMException בשם TimeoutError - לא צריך timer אמיתי כדי לבדוק את הטיפול בכך.
+        throw new DOMException("The signal timed out", "TimeoutError");
+      })
+    );
+
+    const client = createCardcomClient(CREDENTIALS);
+    const outcome = await client.createLowProfile(BASE_REQUEST);
+
+    expect(outcome).toEqual({ ok: false, failureCode: "provider_unreachable" });
+    // ודאות נוספת: אין שום מקום ב-outcome שמכיל את הודעת ה-DOMException הגולמית.
+    expect(JSON.stringify(outcome)).not.toContain("timed out");
+    expect(JSON.stringify(outcome)).not.toContain("TimeoutError");
+  });
+
+  it("getLowProfileIndicator: timeout -> provider_unreachable (retryable), לא זורקת, לא חושפת הודעה גולמית", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("The signal timed out", "TimeoutError");
+      })
+    );
+
+    const client = createCardcomClient(CREDENTIALS);
+    const outcome = await client.getLowProfileIndicator({ lowProfileCode: "lpc-1" });
+
+    expect(outcome).toEqual({ ok: false, failureCode: "provider_unreachable" });
+    expect(JSON.stringify(outcome)).not.toContain("timed out");
+    expect(JSON.stringify(outcome)).not.toContain("TimeoutError");
+  });
+
+  it("abort ישיר (לא רק timeout) על ה-signal מטופל באותה צורה - fetch נדחית עם AbortError", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("The operation was aborted", "AbortError");
+      })
+    );
+
+    const client = createCardcomClient(CREDENTIALS);
+    const outcomeCreate = await client.createLowProfile(BASE_REQUEST);
+    const outcomeIndicator = await client.getLowProfileIndicator({ lowProfileCode: "lpc-1" });
+
+    expect(outcomeCreate).toEqual({ ok: false, failureCode: "provider_unreachable" });
+    expect(outcomeIndicator).toEqual({ ok: false, failureCode: "provider_unreachable" });
+  });
+});

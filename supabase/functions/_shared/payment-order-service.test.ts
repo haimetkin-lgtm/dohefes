@@ -254,6 +254,21 @@ describe("Cardcom נכשל -> order failed", () => {
     expect(db.markOrderFailedCalls).toEqual([{ orderId: "order-1", failureCode: "provider_rejected" }]);
     expect(db.markOrderPendingCalls).toEqual([]);
   });
+
+  it("timeout מול Cardcom (provider_unreachable) -> אותה התנהגות כשל כללית - ההזמנה לא נשארת pending/מטעה", async () => {
+    // cardcomClient.createLowProfile מחזירה provider_unreachable גם על timeout וגם על תקלת רשת
+    // (ר' cardcom-client.ts - AbortSignal.timeout נדחית באותו try/catch) - הבדיקה הזו מוודאת
+    // שה-orchestration לא מתייחסת ל-timeout אחרת מכל כשל ספק אחר: אין הזמנה שנשארת pending
+    // בלי checkout אמיתי, markOrderFailed נקרא בדיוק כמו בכל כשל אחר.
+    const cardcom = fakeCardcomClient({ ok: false, failureCode: "provider_unreachable" });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    expect(result).toEqual({ status: 502, body: { error: "payment_provider_error" } });
+    expect(db.markOrderFailedCalls).toEqual([{ orderId: "order-1", failureCode: "provider_unreachable" }]);
+    expect(db.markOrderPendingCalls).toEqual([]);
+  });
 });
 
 describe("אין credentials/PII בתגובה או בלוג", () => {
