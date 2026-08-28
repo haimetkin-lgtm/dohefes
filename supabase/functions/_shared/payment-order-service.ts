@@ -5,7 +5,7 @@
 // שמזריק את המימושים האמיתיים (Supabase, Cardcom, Web Crypto, new Date, console.warn).
 //
 // **מניעת הזמנות בלתי-מוגבלות (ממצא ביקורת "חובה לפני ניסיון אמיתי")**: הגנת ה-DB האמיתית היא
-// ה-partial unique index על (report_id, product_type) ב-payment-schema.sql (commit שישי) - לא
+// ה-partial unique index על (report_id, product_type) ב-migrations/20260828062934_dohefes_payment_infrastructure.sql (commit שישי) - לא
 // הבדיקות כאן. הבדיקות בקובץ הזה הן fast-path (נמנעות מ-round-trip מיותר ל-DB/Cardcom במקרה
 // הרגיל) + טיפול ב-race שבו ה-index עצמו כן תפס משהו (ר' insertResult.ok===false למטה) - בלי
 // זה, race אמיתי (שתי בקשות עם Idempotency-Key שונים כמעט בו-זמנית) היה מחזיר שגיאת unique
@@ -14,7 +14,7 @@
 // **claim אטומי ליצירת LowProfile session (ממצא ביקורת נוסף, commit שביעי)**: ה-index למעלה
 // מונע שתי **שורות** להזמנה אחת - הוא **לא** מונע שתי בקשות (Idempotency-Key שונים) שמאתרות
 // את **אותה** שורה יחידה ב-status='created' ומנסות שתיהן לקרוא ל-Cardcom במקביל. advanceOrderToCheckout
-// למטה עוטפת כל קריאה ל-Cardcom ב-claim (dohefes_claim_checkout_creation, ר' payment-schema.sql) -
+// למטה עוטפת כל קריאה ל-Cardcom ב-claim (dohefes_claim_checkout_creation, ר' migrations/20260828062934_dohefes_payment_infrastructure.sql) -
 // רק בעל ה-claim קורא ל-Cardcom בפועל; המפסיד מקבל תגובה כללית retryable, בלי token מטעה.
 
 import { getProduct, type ProductType } from "./payment-products.ts";
@@ -40,7 +40,7 @@ export interface NewOrderInput {
   accessTokenHash: string;
 }
 
-/** תוצאת insertOrder - **לא** תמיד "הצליח" יותר: אם ה-partial unique index (payment-schema.sql)
+/** תוצאת insertOrder - **לא** תמיד "הצליח" יותר: אם ה-partial unique index (migrations/20260828062934_dohefes_payment_infrastructure.sql)
  *  תפס race (מישהו אחר יצר הזמנה חוסמת בין הבדיקה המוקדמת לבין ה-INSERT עצמו), מוחזר
  *  `{ ok: false }` - לא נזרקת שגיאת unique גולמית. ה-caller (createPaymentOrder למטה) מטפל
  *  בזה על ידי איתור ההזמנה שניצחה, בדיוק כמו בנתיב "יש כבר הזמנה חוסמת" הרגיל. */
@@ -232,7 +232,7 @@ export async function createPaymentOrder(
 
   if (!insertResult.ok) {
     // race אמיתי בין הבדיקה למעלה לבין ה-insert - הרשת הבטוחה האמיתית היא ה-partial unique
-    // index ב-DB (payment-schema.sql), לא הבדיקה הזו. מאתרים את ההזמנה שניצחה ופועלים לפי
+    // index ב-DB (migrations/20260828062934_dohefes_payment_infrastructure.sql), לא הבדיקה הזו. מאתרים את ההזמנה שניצחה ופועלים לפי
     // מצבה - **לא** מחזירים שגיאת unique גולמית ללקוח.
     const winner = await database.findBlockingOrderForProduct(reportId, productType);
     if (!winner) {
@@ -263,7 +263,7 @@ async function respondToBlockingOrder(deps: PaymentOrderServiceDeps, order: Orde
  *  paid אך entitlement חסר, אל תיצור תשלום נוסף ואל 'לתקן' בשקט; החזר מצב פנימי כללי ותעד
  *  אזהרה ללא מזהים רגישים." - entitlement.status !== 'active' עדיין נחשב "יש entitlement"
  *  לצורך זה (revoked/refunded לגיטימיים, למשל אחרי refund עתידי - שחייב גם לעדכן
- *  payment_orders.status, ר' payment-schema.sql commit שישי). רק **היעדר מוחלט** של entitlement
+ *  payment_orders.status, ר' migrations/20260828062934_dohefes_payment_infrastructure.sql commit שישי). רק **היעדר מוחלט** של entitlement
  *  מול הזמנה paid הוא האנומליה - מפר את הערבות של dohefes_finalize_verified_payment. */
 async function respondToPaidOrder(deps: PaymentOrderServiceDeps, order: OrderRecord): Promise<CreatePaymentOrderResult> {
   const entitlement = await deps.database.getEntitlement(order.reportId, order.productType);
@@ -296,7 +296,7 @@ async function rotateTokenAndEnsureCheckout(
 
 /**
  * מוודאת שלהזמנה יש checkout מוכן, תוך claim אטומי כדי שרק **בעל אחד** בכל רגע נתון קורא בפועל
- * ל-Cardcom (ר' הערת commit שביעי בראש הקובץ + ב-payment-schema.sql לנימוק המלא):
+ * ל-Cardcom (ר' הערת commit שביעי בראש הקובץ + ב-migrations/20260828062934_dohefes_payment_infrastructure.sql לנימוק המלא):
  * - כבר pending+checkoutUrl -> fast-path, אין claim בכלל, אין קריאה ל-Cardcom.
  * - claim נכשל (claim אחר פעיל, או שההזמנה כבר לא created) -> retryable, בלי לגעת ב-Cardcom.
  * - claim הצליח -> קריאה **יחידה** ל-Cardcom, בלי טרנזקציה/נעילה פתוחה מצידנו בזמן ההמתנה לרשת.

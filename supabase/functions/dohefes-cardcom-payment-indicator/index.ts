@@ -12,7 +12,7 @@
 // מהימן, ולא משפיע על שום החלטה (ר' payment-indicator-service.ts לעיקרון המלא). פענוח case-
 // insensitive (ר' _shared/name-to-value.ts) - Cardcom לא מתועדת כמחייבת רישיות אחידה ב-webhook.
 //
-// כתיבה יחידה מותרת: dohefes_finalize_verified_payment (RPC, ר' supabase/payment-schema.sql).
+// כתיבה יחידה מותרת: dohefes_finalize_verified_payment (RPC, ר' supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql).
 // אין UPDATE/INSERT ישירים על payment_orders/product_entitlements בקובץ הזה, ולא ב-_shared/
 // payment-indicator-service.ts, בשום מקרה.
 //

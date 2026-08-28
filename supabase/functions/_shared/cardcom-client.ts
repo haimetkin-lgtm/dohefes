@@ -100,7 +100,7 @@ export interface VerifiedIndicatorFields {
  *  - operation_failed: Cardcom החזירה תשובה סופית שאינה הצלחה מלאה (Operation!=1, או
  *    OperationResponse/DealResponse!=0, או InternalDealNumber חסר, או TerminalNumber/LowProfileCode
  *    שחזרו לא תואמים למה שביקשנו) - לא retryable, אך גם לא "כשל" שדורש mutation כלשהי מצידנו
- *    (אין RPC ל"סימון failed" - ר' payment-schema.sql - ההזמנה פשוט נשארת כפי שהייתה).
+ *    (אין RPC ל"סימון failed" - ר' migrations/20260828062934_dohefes_payment_infrastructure.sql - ההזמנה פשוט נשארת כפי שהייתה).
  *  - malformed_response: המידע הגולמי הנוסף (ReturnValue/CoinId/Sum36) שנדרש להשוואה מול ההזמנה
  *    חסר/לא ניתן לפענוח, למרות שה-Operation עצמו הצליח - תרחיש לא-צפוי, מטופל כמו operation_failed. */
 export type CardcomIndicatorOutcome =

@@ -1,12 +1,13 @@
-# Runbook: פריסת תשתית התשלום המאובטחת (secure-payment-foundation)
+# Runbook: פריסת תשתית התשלום המאובטחת (secure-payment-deployment)
 
 מסמך תפעולי בלבד - סדר פעולות מדויק לביצוע בפועל, כשתחליט לעבור לניסיון אמיתי. **לא בוצע כלום
-ממה שכתוב כאן** - זה תכנון, לא ביצוע. כל שלב עם `psql`/SQL Editor מסומן בבירור, וכל שלב שגובה
-כסף אמיתי מסומן באזהרה נפרדת.
+ממה שכתוב כאן** - זה תכנון, לא ביצוע. כל שלב שגובה כסף אמיתי מסומן באזהרה נפרדת.
 
-מבנה הענף כרגע (`secure-payment-foundation`): schema (`supabase/payment-schema.sql`) + שלוש
-Edge Functions (`dohefes-create-payment-order`, `dohefes-cardcom-payment-indicator`, `dohefes-get-product-access`) -
-קוד בלבד, שום דבר לא רץ/פרוס.
+מבנה הענף כרגע (`secure-payment-deployment`, ממשיך את `secure-payment-foundation` שכבר מוזג
+ל-`main`): migration אמיתי (`supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql`,
+מקור אמת יחיד - ר' §3) + שלוש Edge Functions בעלות תחילית `dohefes-` (`dohefes-create-payment-order`,
+`dohefes-cardcom-payment-indicator`, `dohefes-get-product-access` - התחילית קיימת כי הפרויקט
+המרוחק משותף גם ל-insure-vda/rami/hetel-hasbaha) - קוד בלבד, שום דבר לא רץ/פרוס.
 
 ## מה תוקן מאז הביקורת הקודמת
 
@@ -73,49 +74,66 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 
 ## שלב 3 - הרצת migration
 
-**חשוב לגבי טרנזקציות**: ריצה של קובץ SQL רב-פקודות **אינה מובטחת אוטומטית כטרנזקציה אחת בכל
-כלי** - זה תלוי בכלי הספציפי (SQL Editor מול `psql` מול חיבור ORM וכו') ובאופן שבו הוא שולח
-את הפקודות לשרת. **אל תסתמך על ברירת המחדל** - התהליך למטה עוטף את הריצה במפורש ב-`BEGIN;`/
-`COMMIT;` כדי שההתנהגות (הכל-או-כלום) תהיה מובטחת ולא תלויה בכלי.
+**מקור אמת יחיד**: `supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql` -
+קובץ migration אמיתי (לא `supabase/payment-schema.sql` הישן - הועבר, לא שוכפל; אם אתה רואה
+עדיין את הקובץ הישן בסביבה שלך, הענף לא מעודכן). מזוהה על ידי Supabase CLI (`supabase migration
+list`) בזכות מיקומו (`supabase/migrations/`) ותבנית שמו (`<timestamp>_<name>.sql`, נוצר על ידי
+`supabase migration new`, לא הומצא ידנית).
+
+**נתיב ראשי - `supabase db push` (מומלץ)**:
 
 1. **גיבוי** - לפני כל migration בפרויקט הזה: Dashboard → **Database → Backups** - ודא שיש
    גיבוי אוטומטי עדכני (או הרץ ידני אם אתה רוצה נקודת שחזור טרייה יותר).
-2. Dashboard → **SQL Editor → New query**.
-3. פתח את `supabase/payment-schema.sql` מהריפו, העתק את **כל** התוכן (מ-`create extension`
-   ועד סוף קובץ הבדיקות המתועדות - השורות המתועדות בהערות `--` לא מריצות כלום, בטוח להעתיק
-   הכל).
-4. **עטוף במפורש** - לפני שאתה מריץ, הוסף ידנית שורת `BEGIN;` בראש מה שהדבקת ו-`COMMIT;`
-   בסופו:
-   ```sql
-   BEGIN;
-
-   -- <כל תוכן payment-schema.sql שהעתקת, ללא שינוי>
-
-   COMMIT;
-   ```
-   לחץ **Run**.
-5. **ציפייה**: הודעת הצלחה ירוקה, בלי שגיאות. אם מופיעה שגיאה `relation "dohefes_reports" does
-   not exist` - הפרויקט שאתה מריץ עליו אינו הפרויקט הנכון (הסכמה מניחה ש-`dohefes_reports`
-   כבר קיים).
-6. **אם פקודה כלשהי נכשלת** (כל שגיאה אדומה): הרץ **מיד** `ROLLBACK;` (שורה נפרדת, Run) - אל
-   תניח שה-`BEGIN`/`COMMIT` "כבר טיפלו בזה" לבד; ב-SQL Editor של Supabase כל שורה/בקשה יכולה
-   לרוץ כחיבור נפרד, כך שחיבור שנכשל באמצע טרנזקציה פתוחה עלול להשאיר אותה תקועה עד שסוגרים
-   אותה במפורש. **אחרי** ה-`ROLLBACK;`, ודא בפועל שלא נשאר כלום חלקי:
+2. ודא שהפרויקט מקושר (`npx supabase link --project-ref giygjmacxquucwexmfdd` - כבר בוצע בסבב
+   קודם; `npx supabase migration list --linked` אמור להראות את הקובץ תחת "Local" ותחת "Remote"
+   כ-`Not Applied` אם עוד לא רץ).
+3. הרץ: `npx supabase db push`. **חשוב לגבי טרנזקציות**: אין צורך בעטיפת `BEGIN;`/`COMMIT;`
+   ידנית בקובץ עצמו (וגם לא הוספתי כזו) - Supabase CLI מריץ כל migration דרך `pgx` `ExecBatch`,
+   שמתועד בקוד המקור עצמו (github.com/supabase/cli, `pkg/migration/file.go`) כ-"implicitly
+   transactional" - הכל-או-כלום מובטח על ידי הכלי עצמו, לא הונח.
+4. **ציפייה**: הודעת הצלחה, ושורה חדשה ב-`supabase_migrations.schema_migrations` (ניתן לוודא
+   עם `npx supabase migration list --linked` - הקובץ אמור לעבור מ-`Not Applied` ל"מיושם" בשני
+   הצדדים). אם מופיעה שגיאה `relation "dohefes_reports" does not exist` - הפרויקט שאתה מריץ
+   עליו אינו הפרויקט הנכון (הסכמה מניחה ש-`dohefes_reports` כבר קיים - זה אכן המצב ב-
+   `giygjmacxquucwexmfdd`, אומת מראש, ר' §6 בדוח הביקורת).
+5. **אם הפקודה נכשלת**: ה-transaction האוטומטי של ה-CLI כבר דואג לכך שכלום לא נשאר חלקי (זו
+   בדיוק הנקודה ב-"implicitly transactional" למעלה) - אמת בפועל בכל זאת:
    ```sql
    select count(*) from pg_tables where tablename in ('dohefes_payment_orders', 'dohefes_product_entitlements');
    select count(*) from pg_proc where proname like 'dohefes_%';
    ```
-   **ציפייה**: `0` בשתיהן. אם יש תוצאה חלקית (חלק מהטבלאות/פונקציות קיימות, לא כולן) - סימן
-   שה-rollback לא היה מלא (למשל אם ה-`BEGIN`/`COMMIT` לא נשמרו בפועל כחיבור אחד) - השתמש בבלוק
-   ה-Rollback המתועד בתחתית `payment-schema.sql` (עטוף גם אותו ב-`BEGIN;`/`COMMIT;`) לניקוי ידני,
-   ואז התייעץ לפני ניסיון חוזר - אל תריץ את הקובץ המלא שוב על מצב לא-ברור.
-7. **אל תריץ את הקובץ פעם שנייה "סתם", גם אם משהו נראה לא ברור** - ה-`create trigger` בקובץ
-   **אינם אידמפוטנטיים** (Postgres לא תומך ב-`CREATE TRIGGER IF NOT EXISTS`) - הרצה שנייה על
-   מסד שכבר הצליח תיכשל מיד ב-`create trigger dohefes_payment_orders_touch_updated_at`
-   ("already exists"). זו שגיאה **צפויה ובטוחה** (בתוך `BEGIN;`/`COMMIT;` היא פשוט תבטל את
-   הריצה השנייה כולה) - **היא הסימן שהריצה הקודמת כבר הצליחה**, לא תקלה לתקן. אם אתה חושב
-   שאתה צריך להריץ מחדש מסיבה אמיתית (למשל אחרי rollback מכוון) - זו החלטה מודעת, לא ריצה
-   חוזרת "ליתר ביטחון".
+   (דרך `npx supabase db query --linked "<שאילתה>"` - קריאה בלבד, לא דורש סיסמת DB). **ציפייה**:
+   `0` בשתיהן אם הכשל היה אמיתי. אם יש תוצאה חלקית - השתמש בבלוק ה-Rollback המתועד בתחתית
+   קובץ ה-migration (מריצים אותו כ-migration חדש נפרד עם `supabase migration new`, לא מדביקים
+   ידנית), ואז התייעץ לפני ניסיון חוזר.
+6. **אל תריץ `supabase db push` פעם שנייה "סתם"** - ברגע שה-migration כבר מיושם (רשום ב-
+   `schema_migrations`), ה-CLI עצמו לא ינסה להריץ אותו שוב (זו בדיוק המטרה של טבלת המעקב) -
+   הרצה חוזרת "ליתר ביטחון" לא אמורה לגרום נזק דרך ה-CLI (בניגוד להדבקה ידנית ב-SQL Editor,
+   ר' נתיב גיבוי למטה, שם `CREATE TRIGGER` לא-אידמפוטנטי כן היה גורם לשגיאה).
+
+**נתיב גיבוי - SQL Editor ידני (רק אם `db push` לא עובד מסיבה כלשהי)**:
+
+פתח את `supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql` מהריפו, העתק
+את **כל** התוכן, והדבק ב-Dashboard → **SQL Editor → New query**, עטוף **במפורש** ב-`BEGIN;`/
+`COMMIT;`:
+```sql
+BEGIN;
+
+-- <כל תוכן הקובץ שהעתקת, ללא שינוי>
+
+COMMIT;
+```
+**כאן, בניגוד ל-`db push`, העטיפה הידנית כן נדרשת** - ל-SQL Editor אין את אותה ערבות טרנזקציונית
+אוטומטית שיש ל-`pgx` `ExecBatch` של ה-CLI. אם פקודה נכשלת: הרץ `ROLLBACK;` מיד (שורה נפרדת),
+ואמת עם שתי השאילתות בסעיף 5 למעלה. **אזהרה**: הנתיב הזה **לא** ירשום שורה ב-
+`supabase_migrations.schema_migrations` - `npx supabase migration list --linked` ימשיך להראות
+את הקובץ כ-`Not Applied` גם אחרי שהוא רץ בפועל, מה שעלול לבלבל ריצות עתידיות של `db push`. אם
+השתמשת בנתיב הזה, תעד זאת ותתייעץ לפני `db push` עתידי על אותו פרויקט.
+זהה גם ל-`db push`: **אל תריץ את הקובץ פעם שנייה** דרך הנתיב הזה - ה-`create trigger` בקובץ
+**אינם אידמפוטנטיים** (Postgres לא תומך ב-`CREATE TRIGGER IF NOT EXISTS`) - הרצה שנייה תיכשל
+מיד ב-`create trigger dohefes_payment_orders_touch_updated_at` ("already exists"). זו שגיאה
+**צפויה ובטוחה** (בתוך `BEGIN;`/`COMMIT;` היא פשוט תבטל את הריצה השנייה כולה) - היא הסימן
+שהריצה הקודמת כבר הצליחה, לא תקלה לתקן.
 
 ---
 
@@ -123,7 +141,8 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 
 ### הגדרת JWT - `dohefes-cardcom-payment-indicator` בלבד עם `verify_jwt=false`
 
-צור (אם לא קיים) `supabase/config.toml` עם:
+`supabase/config.toml` **כבר קיים בריפו** (הוכן מראש, ר' commit `1ef0584`) עם בדיוק ההגדרה
+הדרושה - אין צורך ליצור/לערוך אותו:
 
 ```toml
 [functions.dohefes-cardcom-payment-indicator]
@@ -135,26 +154,27 @@ verify_jwt = false
 # אחרת מלבד dohefes-cardcom-payment-indicator דורש החלטה מפורשת ונפרדת, לא נגזר מהחריג הזה.
 ```
 
-חלופה (אם אתה מעדיף לא לשמור קובץ config): דגל `--no-verify-jwt` בפקודת ה-deploy עצמה
-(ר' למטה) - עושה בדיוק אותו דבר, רק לא "נדבק" לפרויקט בין פריסות.
-
 ### פריסה בפועל (CLI)
 
+Supabase CLI מותקן כתלות dev מקומית (`npm install supabase --save-dev`, לא global) - כל פקודה
+דרך `npx`:
+
 ```bash
-supabase functions deploy dohefes-create-payment-order
-supabase functions deploy dohefes-get-product-access
-supabase functions deploy dohefes-cardcom-payment-indicator --no-verify-jwt
+npx supabase functions deploy dohefes-create-payment-order
+npx supabase functions deploy dohefes-get-product-access
+npx supabase functions deploy dohefes-cardcom-payment-indicator --no-verify-jwt
 ```
 
-(אם השתמשת ב-`config.toml` למעלה, הדגל `--no-verify-jwt` מיותר אך לא מזיק - שני המנגנונים
-אומרים את אותו דבר.)
+(הדגל `--no-verify-jwt` על השלישית מיותר בפועל בהינתן `config.toml` הקיים, אך לא מזיק - שני
+המנגנונים אומרים את אותו דבר; שמור אותו כביטוח למקרה שה-`config.toml` לא נטען מסיבה כלשהי.)
 
 **ציפייה**: כל פקודה מדפיסה "Deployed Function" עם כתובת. **עכשיו** יש לך את הכתובת
 ל-`DOHEFES_CARDCOM_INDICATOR_URL` (שלב 2) - חזור, הזן אותה, ופרוס מחדש רק את `dohefes-cardcom-payment-indicator`.
 
-**איך לוודא שה-JWT הוגדר נכון**: Dashboard → **Edge Functions** → לחץ על `cardcom-payment-
-indicator` → לשונית **Details/Settings** - אמור להופיע "JWT verification: Disabled" (או ניסוח
-דומה, תלוי גרסת ה-Dashboard). עבור שתי הפונקציות האחרות - אמור להופיע "Enabled" (ברירת המחדל).
+**איך לוודא שה-JWT הוגדר נכון**: Dashboard → **Edge Functions** → לחץ על `dohefes-cardcom-
+payment-indicator` → לשונית **Details/Settings** - אמור להופיע "JWT verification: Disabled"
+(או ניסוח דומה, תלוי גרסת ה-Dashboard). עבור שתי הפונקציות האחרות - אמור להופיע "Enabled"
+(ברירת המחדל).
 
 ---
 
@@ -281,17 +301,16 @@ curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/dohefes-get-prod
 
 ## מה קורה אם שלב נכשל (Rollback)
 
-- **שלב 3 (migration) נכשל**: ר' §3 סעיף 6 למעלה - `ROLLBACK;` מיידי, ואז אימות בפועל
-  (`pg_tables`/`pg_proc`) שלא נשאר כלום חלקי - **אל תניח** שזה קרה אוטומטית רק כי עטפת ב-
-  `BEGIN;`/`COMMIT;`. אם בכל זאת נשאר משהו חלקי - בלוק ה-Rollback המתועד בתחתית
-  `supabase/payment-schema.sql` (מריצים אותו **גם** עטוף ב-`BEGIN;`/`COMMIT;`, לא כפקודות
-  בודדות).
-- **פונקציה נכשלת בפריסה (שלב 4)**: `supabase functions delete <name>` ונסה שוב אחרי שתיקנת.
+- **שלב 3 (migration) נכשל**: `db push` - ה-CLI כבר עוטף אוטומטית (implicitly transactional,
+  ר' §3), אבל עדיין אמת בפועל עם `pg_tables`/`pg_proc` (§3 סעיף 5) - אל תניח בלי לבדוק. אם
+  השתמשת בנתיב הגיבוי (SQL Editor ידני): `ROLLBACK;` מיידי, ואז אותו אימות. אם נשאר משהו חלקי
+  בכל מקרה - בלוק ה-Rollback המתועד בתחתית `supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql`.
+- **פונקציה נכשלת בפריסה (שלב 4)**: `npx supabase functions delete <name>` ונסה שוב אחרי שתיקנת.
 - **תשלום אמיתי בוצע (שלב 7) אך שלב 8 מראה שההזמנה לא הפכה `paid`**: זה **לא** משהו שרולבק
   טכני פותר - הכסף כבר עבר אצל Cardcom. פנה לתמיכת Cardcom לבירור/זיכוי (פעולה עסקית, לא
   טכנית) - **אל תריץ UPDATE ידני** על `dohefes_payment_orders`/`dohefes_product_entitlements`
   כדי "לתקן" את המצב בעצמך; זה עוקף את כל שכבות האימות שנבנו. אם צריך לסמן הזמנה כ-paid ידנית
   אחרי אימות ישיר מול Cardcom (לא ניחוש) - זו החלטה נפרדת שדורשת דיון, לא צעד רוטיני ברשימה הזו.
-- **לבטל את כל התשתית (חזרה למצב לפני הענף הזה)**: בלוק ה-Rollback + `supabase functions
+- **לבטל את כל התשתית (חזרה למצב לפני הענף הזה)**: בלוק ה-Rollback + `npx supabase functions
   delete` לשלוש הפונקציות. שום דבר ב-`dohefes_reports` לא נגע, כך שהמערכת הקיימת (baseReport
   דרך המנגנון הישן) ממשיכה לעבוד ללא שינוי.

@@ -11,7 +11,7 @@
 // לא מקור מידע.
 //
 // **כתיבה יחידה מותרת**: database.finalizeVerifiedPayment (עוטפת את ה-RPC dohefes_finalize_verified_payment,
-// ר' payment-schema.sql). אין כאן, ולא יהיה כאן, שום UPDATE/INSERT ישיר על payment_orders/
+// ר' migrations/20260828062934_dohefes_payment_infrastructure.sql). אין כאן, ולא יהיה כאן, שום UPDATE/INSERT ישיר על payment_orders/
 // product_entitlements - אם משהו דורש mutation שה-RPC לא תומך בו (למשל "סימון failed"), הפתרון
 // הוא להרחיב את ה-RPC בהמשך, לא לעקוף אותו מכאן.
 
@@ -54,7 +54,7 @@ export interface PaymentIndicatorDatabase {
   /** קריאה בלבד - לא mutation. נדרשת כדי להשוות את מה ש-Cardcom אישרה מול מה שאנחנו כבר יודעים
    *  על ההזמנה (ReturnValue/CoinId/Sum36 מול provider_order_reference/currency_code/expected_amount_agorot) -
    *  זו בדיקה **ראשונה, מוקדמת** (fast-path: נמנעת מקריאת RPC מיותרת ורושמת אירוע אבטחה כאן
-   *  ישירות) - ה-RPC עצמו (ר' payment-schema.sql, commit חמישי) **גם הוא** מבצע את אותה השוואה
+   *  ישירות) - ה-RPC עצמו (ר' migrations/20260828062934_dohefes_payment_infrastructure.sql, commit חמישי) **גם הוא** מבצע את אותה השוואה
    *  באופן עצמאי מול השורה שהוא נועל, כהגנת-עומק - שתי הבדיקות מכוונות, לא כפילות מיותרת: זו
    *  כאן ממשיכה לעבוד גם אם ה-RPC אי-פעם ישונה/יוסר את הבדיקה הפנימית שלו, וההפך. */
   getOrderByLowProfileCode(lowProfileCode: string): Promise<OrderForVerification | null>;

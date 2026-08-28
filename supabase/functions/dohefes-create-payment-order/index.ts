@@ -100,7 +100,7 @@ function mapOrderRow(row: OrderRow): OrderRecord {
 
 const ORDER_SELECT_COLUMNS = "id, status, report_id, product_type, provider_order_reference, checkout_url";
 
-/** שם ה-index המדויק מ-payment-schema.sql (commit שישי) - חייב להישאר זהה מילה-במילה. משמש
+/** שם ה-index המדויק מ-migrations/20260828062934_dohefes_payment_infrastructure.sql (commit שישי) - חייב להישאר זהה מילה-במילה. משמש
  *  אך ורק לזיהוי **איזה** unique constraint נכשל בהודעת השגיאה של Postgres (הטבלה כוללת עוד
  *  כמה unique נפרדים - idempotency_key/provider_order_reference/וכו' - צריך להבחין ביניהם, לא
  *  להתייחס לכל 23505 כאילו הוא בהכרח ה-race שאנחנו יודעים לטפל בו). */
@@ -176,7 +176,7 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
 
     async claimCheckoutCreation(orderId: string, claimToken: string, leaseSeconds: number): Promise<ClaimResult> {
       // RPC בלבד - UPDATE אטומי יחיד בתבנית CAS (ר' dohefes_claim_checkout_creation,
-      // payment-schema.sql commit שביעי) - לא select+update נפרד מכאן.
+      // migrations/20260828062934_dohefes_payment_infrastructure.sql commit שביעי) - לא select+update נפרד מכאן.
       const { data, error } = await supabase
         .rpc("dohefes_claim_checkout_creation", { p_order_id: orderId, p_claim_token: claimToken, p_lease_seconds: leaseSeconds })
         .single<{ claimed: boolean }>();
