@@ -842,12 +842,42 @@ describe("אין דליפה של claim token, access token או פרטי Cardcom
     expect(JSON.stringify(result)).not.toContain("054-1234567");
   });
 
-  it("תגובת ההצלחה מכילה רק orderId/checkoutUrl/accessToken/status - אין שדות נוספים (כולל לא claim token)", async () => {
+  it("תגובת ההצלחה מכילה רק orderId/checkoutUrl/accessToken/paymentContextId/status - אין שדות נוספים (כולל לא claim token)", async () => {
     const deps = buildDeps({ database: db });
     const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
     if (result.status === 200 && "orderId" in result.body) {
-      expect(Object.keys(result.body).sort()).toEqual(["accessToken", "checkoutUrl", "orderId", "status"]);
+      expect(Object.keys(result.body).sort()).toEqual(["accessToken", "checkoutUrl", "orderId", "paymentContextId", "status"]);
     }
+  });
+});
+
+describe("paymentContextId - זהה בדיוק ל-ReturnValue שנשלח ל-Cardcom, לא ניתן לניחוש/לא מסופק על ידי הלקוח", () => {
+  it("paymentContextId שווה בדיוק ל-returnValue שנשלח בפועל ל-cardcomClient.createLowProfile, ולא ל-orderId/reportId/idempotencyKey", async () => {
+    const cardcom = fakeCardcomClient({ ok: true, result: { lowProfileCode: "lpc-1", checkoutUrl: "https://secure.cardcom.solutions/EA/EA5/xyz/PaymentSP" } });
+    const deps = buildDeps({ database: db, cardcomClient: cardcom });
+
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+
+    if (result.status !== 200 || !("orderId" in result.body)) throw new Error("expected success shape");
+    expect(cardcom.calls.length).toBe(1);
+    const sentReturnValue = (cardcom.calls[0] as { returnValue: string }).returnValue;
+    expect(result.body.paymentContextId).toBe(sentReturnValue);
+    // לא UUID (הפורמט המתועד ב-generateProviderOrderReference: "po_" + hex, לא 8-4-4-4-12) ולא ערך
+    // שהלקוח סיפק (reportId/idempotencyKey) - מוכיח שהערך נוצר בשרת, לא צפוי מראש ולא נגזר מקלט הלקוח.
+    expect(result.body.paymentContextId).toMatch(/^po_fake_\d+$/);
+    expect(result.body.paymentContextId).not.toBe(REPORT_ID);
+    expect(result.body.paymentContextId).not.toBe(IDEMPOTENCY_KEY);
+    expect(result.body.paymentContextId).not.toBe(result.body.orderId);
+  });
+
+  it("ידיעת paymentContextId בלבד (בלי access token) לא מופיעה כמפתח קלט אפשרי לשום endpoint אחר - אין getOrderByPaymentContextId/lookup-by-reference ב-PaymentOrderDatabase", () => {
+    // בדיקת-תיעוד: מוודאת שהממשק שה-service תלוי בו לא נושא שום מתודת חיפוש לפי providerOrderReference -
+    // כלומר, מבנית, ידיעת ה-reference (paymentContextId) לבדה לא יכולה להעניק גישה לשום דבר דרך
+    // הקוד הזה, כי אין דרך לשאול עליו כלל. אם מתודה כזו תתווסף בעתיד, הבדיקה הזו תיכשל ותאלץ בדיקה
+    // מחדש של ההחלטה הזו במפורש.
+    const dbMethodNames = Object.getOwnPropertyNames(Object.getPrototypeOf(db)).filter((name) => name !== "constructor");
+    const suspicious = dbMethodNames.filter((name) => /providerorderreference|paymentcontext|returnvalue/i.test(name) && !/^set|Calls$/.test(name));
+    expect(suspicious).toEqual([]);
   });
 });
 

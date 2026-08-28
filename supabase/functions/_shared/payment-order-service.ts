@@ -139,7 +139,7 @@ export interface CreatePaymentOrderRequest {
 }
 
 export type CreatePaymentOrderResult =
-  | { status: 200; body: { orderId: string; checkoutUrl: string; accessToken: string; status: "pending" } }
+  | { status: 200; body: { orderId: string; checkoutUrl: string; accessToken: string; paymentContextId: string; status: "pending" } }
   | { status: 200; body: { status: "paid" | "failed" | "cancelled" | "refunded" } }
   | { status: 403; body: { error: "report_not_eligible" } }
   | { status: 409; body: { error: "idempotency_key_conflict" } }
@@ -183,7 +183,10 @@ function isAmbiguousCardcomFailure(failureCode: string): boolean {
  *    את המנצח ופועלים לפי מצבו, **לא** מחזירים שגיאת unique גולמית.
  * 5. יצירת/המשך checkout: תמיד דרך advanceOrderToCheckout, שעוטפת claim אטומי - רק בעל ה-claim
  *    קורא בפועל ל-Cardcom. מפסיד ה-claim מקבל checkout_creation_in_progress (503), בלי token.
- * 6. מחזירה רק orderId/checkoutUrl/accessToken/status - לא entitlement, לא פרטי Cardcom גולמיים.
+ * 6. מחזירה רק orderId/checkoutUrl/accessToken/paymentContextId/status - לא entitlement, לא פרטי
+ *    Cardcom גולמיים. paymentContextId (=providerOrderReference הפנימי) הוא מזהה הקשר בלבד -
+ *    ר' ההערה ליד ה-return בפועל ב-rotateTokenAndEnsureCheckout - אינו secret, אינו access token,
+ *    אינו הוכחת תשלום, ואינו נשלח בחזרה לשום endpoint.
  */
 export async function createPaymentOrder(
   deps: PaymentOrderServiceDeps,
@@ -291,7 +294,23 @@ async function rotateTokenAndEnsureCheckout(
   const accessTokenHash = await deps.tokenGenerator.hashAccessToken(rawToken);
   await deps.database.updateAccessTokenHash(order.id, accessTokenHash);
 
-  return { status: 200, body: { orderId: order.id, checkoutUrl: advance.checkoutUrl, accessToken: rawToken, status: "pending" } };
+  return {
+    status: 200,
+    body: {
+      orderId: order.id,
+      checkoutUrl: advance.checkoutUrl,
+      accessToken: rawToken,
+      // ה-ReturnValue המדויק שכבר נשלח ל-Cardcom ביצירת ה-LowProfile session (ר' advanceOrderToCheckout
+      // -> cardcomClient.createLowProfile -> returnValue: order.providerOrderReference). שם ציבורי
+      // מכוון - "paymentContextId" לא "providerOrderReference"/"cardcomReturnValue" - כדי לא לחשוף
+      // ב-response שם ספק פנימי. ידיעת הערך הזה **לא** מקנה גישה לשום דבר - הוא לעולם לא נשלח
+      // בחזרה לשום Edge Function, משמש רק כמפתח local-only למפת ה-pendingPurchase בצד הלקוח (ר'
+      // GEN2_CASHFLOW_UI_DESIGN.md §0.1.5) כדי לדעת לאיזו רשומה מקומית להתאים את חזרת הדפדפן
+      // מ-Cardcom - ההרשאה בפועל תמיד עוברת רק דרך dohefes-get-product-access + access token.
+      paymentContextId: order.providerOrderReference,
+      status: "pending",
+    },
+  };
 }
 
 /**
