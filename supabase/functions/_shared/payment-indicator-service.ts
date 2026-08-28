@@ -1,4 +1,4 @@
-// שכבת orchestration טהורה ל-cardcom-payment-indicator - כל תלות חיצונית (מסד נתונים, Cardcom)
+// שכבת orchestration טהורה ל-dohefes-cardcom-payment-indicator - כל תלות חיצונית (מסד נתונים, Cardcom)
 // מוזרקת דרך PaymentIndicatorServiceDeps, לא נקראת ישירות. מאפשר בדיקת ה-orchestration המלאה
 // דרך Vitest עם fakes, בלי Deno runtime בכלל - ר' payment-indicator-service.test.ts. index.ts
 // הוא ה-adapter הדק היחיד שמזריק את המימושים האמיתיים (Supabase, Cardcom).

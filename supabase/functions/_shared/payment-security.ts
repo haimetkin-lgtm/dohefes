@@ -22,7 +22,7 @@ function toHex(bytes: Uint8Array): string {
     .join("");
 }
 
-/** לעולם לא נשמר גולמי בשום מקום - רק מוחזר ללקוח פעם אחת (ר' create-payment-order/index.ts) */
+/** לעולם לא נשמר גולמי בשום מקום - רק מוחזר ללקוח פעם אחת (ר' dohefes-create-payment-order/index.ts) */
 export function generateAccessToken(): string {
   const bytes = new Uint8Array(ACCESS_TOKEN_BYTES);
   crypto.getRandomValues(bytes);
@@ -54,7 +54,7 @@ export function generateClaimToken(): string {
   return `claim_${toHex(bytes)}`;
 }
 
-/** ALLOWED_ORIGINS: רשימה מופרדת בפסיקים, בלי רווחים מיותרים, בלי ערכים ריקים */
+/** DOHEFES_ALLOWED_ORIGINS: רשימה מופרדת בפסיקים, בלי רווחים מיותרים, בלי ערכים ריקים */
 export function parseAllowedOrigins(raw: string | null | undefined): string[] {
   if (!raw) return [];
   return raw

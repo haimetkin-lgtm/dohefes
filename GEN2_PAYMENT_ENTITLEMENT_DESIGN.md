@@ -82,7 +82,7 @@ Function נפרדת - זול/מהיר יותר להקמה, אך יוצר תלו�
 4. הרשאה רק אחרי אימות שרת אמיתי מול Cardcom, דרך LowProfileCode/GetLowProfileIndicator (או
    webhook מאומת אם יתברר שקיים) - העדכון המהותי ביותר במסמך, ר' §4/§4.2 - סוגר בפועל את הפער
    שה-audit הראה שמשותף לכל המיזמים, לא רק תיאורטי יותר מהם.
-5. מחיר ו-productType נקבעים בצד שרת - כבר היה עיקרון מאושר (§4.1), מוקצה כעת במפורש ל-`create-payment-order`.
+5. מחיר ו-productType נקבעים בצד שרת - כבר היה עיקרון מאושר (§4.1), מוקצה כעת במפורש ל-`dohefes-create-payment-order`.
 6. Rollout מדורג (תשתית → הפעלה ל-cashFlowAnalysis תחילה → בדיקות אמיתיות → מעבר baseReport →
    סגירת policies ישנות רק בסוף) - ר' §6.2 המעודכן לגמרי.
 7. אין לשנות מיד את ה-RLS הקיים על dohefes_reports - נשאר בדיוק כפי שהוא עד שהאתר הישן
@@ -279,7 +279,7 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
   │  (הצגה בלבד - "תודה, בודקים" - עדיין לא entitlement!)                                        │
   │◀──────────────────────────────────────────────────────────────────────────────────────────│
   │  הדף הנטען קורא                │                                  │                         │
-  │  cardcom-payment-indicator     │                                  │                         │
+  │  dohefes-cardcom-payment-indicator     │                                  │                         │
   │  עם ה-LowProfileCode           │                                  │                         │
   │─────────────────────────────▶│─────────────────────────────────▶│                         │
   │                              │                                  │  GetLowProfileIndicator   │
@@ -299,13 +299,13 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
   │◀─────────────────────────────│◀─────────────────────────────────│                         │
   │  /cashflow טוען, שואל          │                                  │                         │
   │  "יש entitlement משולם?"      │                                  │                         │
-  │─────────────────────────────▶│──────────────────────────────────▶│ get-product-access       │
+  │─────────────────────────────▶│──────────────────────────────────▶│ dohefes-get-product-access       │
   │                              │                                  │ (קריאה בלבד, לא כתיבה)   │
 ```
 
 **ההבדל המהותי מהיום**: ה-`SuccessRedirectUrl` **אינו** המקור לקביעת "שולם" יותר - הוא רק מחזיר
 את המשתמש למסך שמראה סטטוס, יחד עם `LowProfileCode` שCardcom עצמו מחזיר. הסטטוס האמיתי נכתב
-**רק** על ידי `cardcom-payment-indicator` (§4.2), **רק** אחרי ששאלה את Cardcom ישירות (`GetLowProfileIndicator`)
+**רק** על ידי `dohefes-cardcom-payment-indicator` (§4.2), **רק** אחרי ששאלה את Cardcom ישירות (`GetLowProfileIndicator`)
 מה קרה בפועל עם אותו `LowProfileCode` - לא הצהרה מהדפדפן, שאילתה יזומה מהשרת שלנו אל הספק. זה
 המנגנון המדויק שה-audit (§0.2) מצא שחסר בכל ארבעת המיזמים האחרים - כולל אלה עם שרת אמיתי.
 
@@ -314,10 +314,10 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
 | עיקרון | יישום מתוכנן |
 |---|---|
 | מחיר נקבע בצד שרת לפי `productType` | טבלת מחירים קבועה **בתוך קוד ה-Edge Function** (או טבלת `product_prices` נפרדת) - `amountNis` שמגיע מהלקוח **לא נקרא בכלל** בצד השרת, רק לתצוגה מקדימה ב-UI |
-| entitlement נוצר רק אחרי אימות | `cardcom-payment-indicator` (§4.2) היא **היחידה** עם `service_role key` שיכולה לכתוב ל-`product_entitlements`, ורק אחרי `GetLowProfileIndicator` מוצלח מול Cardcom - ר' §5 RLS |
+| entitlement נוצר רק אחרי אימות | `dohefes-cardcom-payment-indicator` (§4.2) היא **היחידה** עם `service_role key` שיכולה לכתוב ל-`product_entitlements`, ורק אחרי `GetLowProfileIndicator` מוצלח מול Cardcom - ר' §5 RLS |
 | unique constraint על `(reportId, productType)` | `unique (report_id, product_type)` ב-`product_entitlements` - לא ניתן שיהיו שני entitlements פעילים לאותו זוג |
 | אסמכתת ספק ייחודית, לא לשימוש חוזר | `unique (payment_reference)` ב-`payment_orders`, מאוכלס מ-`LowProfileCode`/`TranzactionId` שמתקבל מ-`GetLowProfileIndicator` - קריאה שנייה עם אותו קוד נדחית/מזוהה כ-idempotent replay, לא יוצרת entitlement שני |
-| idempotency ל-callback/webhook | `payment_reference` (`LowProfileCode`) כמפתח idempotency - קריאה חוזרת ל-`cardcom-payment-indicator` עם אותו קוד = no-op, לא שגיאה ולא כפילות |
+| idempotency ל-callback/webhook | `payment_reference` (`LowProfileCode`) כמפתח idempotency - קריאה חוזרת ל-`dohefes-cardcom-payment-indicator` עם אותו קוד = no-op, לא שגיאה ולא כפילות |
 | סטטוסים מפורשים | `created / pending / paid / failed / cancelled / refunded` - `enum`/`check` ב-`payment_orders.status`, ר' §5 |
 | `cashFlowAnalysis` דורש `baseReport` משולם | נבדק בצד שרת בזמן יצירת ה-`payment_order` (לא רק ב-UI) - Edge Function מסרבת ליצור `payment_order` ל-`cashFlowAnalysis` בלי `product_entitlements` קיים עם `paymentStatus:"paid"` ל-`(reportId,"baseReport")` |
 | הרשאה קשורה ל-`reportId` **וגם** `productType` | מפתח מורכב בכל שאילתה/constraint - לעולם לא "יש למשתמש הזה תשלום", תמיד "יש entitlement ל-(X,Y) הספציפיים" |
@@ -327,7 +327,7 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
 
 שלושה functions נפרדים, כל אחד עם תפקיד יחיד - לא function אחד "עושה הכל":
 
-**`create-payment-order`**
+**`dohefes-create-payment-order`**
 - קלט: `reportId`, `productType`.
 - קובעת מחיר **בצד שרת** לפי `productType` (טבלת/קבוע מחירים בקוד ה-function, לא לפי מה שהלקוח
   שלח - ר' §4.1).
@@ -338,10 +338,10 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
   API נפרדת ליצירת LowProfile session - תלוי איך בדיוק Cardcom מנגיש את זה, ר' §8) מפיקה קישור
   תשלום עם `LowProfileCode`, ומחזירה אותו ללקוח להפניה.
 
-**`cardcom-payment-indicator`**
+**`dohefes-cardcom-payment-indicator`**
 - מופעלת אחרי שהמשתמש חוזר מ-Cardcom (מ-`SuccessRedirectUrl`, נושא `LowProfileCode`) - **לא**
   webhook נכנס מ-Cardcom בהכרח (אלא אם יתברר שקיים ונרצה להוסיף גם אותו כערוץ נוסף, לא תחליף) -
-  זו הקריאה שהלקוח (או `get-product-access`, ר' למטה) יוזם.
+  זו הקריאה שהלקוח (או `dohefes-get-product-access`, ר' למטה) יוזם.
 - קלט: `LowProfileCode`.
 - קוראת ל-Cardcom `GetLowProfileIndicator` (או שם ה-API המדויק לפי §8) **בעצמה**, לא סומכת על
   שום דבר שהגיע מהלקוח מעבר לקוד עצמו.
@@ -352,7 +352,7 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
 - רק בהתאמה מלאה: מעדכנת `payment_orders.status→"paid"`, כותבת/מעדכנת `product_entitlements`
   (idempotent לפי `payment_reference` ייחודי - ר' §4.1).
 
-**`get-product-access`**
+**`dohefes-get-product-access`**
 - קלט: `reportId`, `productType`.
 - מחזירה **רק** `{ paymentStatus: "pending"|"paid"|"refunded" }` (או דומה) - **לא** את שורת
   ה-`payment_orders`/`entitlements` המלאה, לא נתונים אחרים. זו נקודת הקריאה **היחידה** שה-UI
@@ -366,12 +366,12 @@ idempotency key שמזהה "זו אותה עסקת תשלום" בצד השרת -
 (שמוטבע בקוד הלקוח הציבורי), **לא** בקובץ בריפו, **לא** ב-`.env` שנכנס ל-git, **לא** מוצגים
 בשום דוח/מסמך תכנון (כולל המסמך הזה) אפילו כדוגמה חלקית.
 
-**דרישת פריסה: `cardcom-payment-indicator` בלבד עם `verify_jwt=false`** (ממצא ביקורת, ר' הערה
-מלאה בראש `supabase/functions/cardcom-payment-indicator/index.ts`) - הקורא לפונקציה הזו הוא
+**דרישת פריסה: `dohefes-cardcom-payment-indicator` בלבד עם `verify_jwt=false`** (ממצא ביקורת, ר' הערה
+מלאה בראש `supabase/functions/dohefes-cardcom-payment-indicator/index.ts`) - הקורא לפונקציה הזו הוא
 Cardcom עצמה (webhook, שרת חיצוני), שאין לה שום דרך לצרף JWT/מפתח Supabase לבקשה - ברירת המחדל
-(`verify_jwt=true`) הייתה חוסמת אותה. `create-payment-order` ו-`get-product-access` **אינן**
+(`verify_jwt=true`) הייתה חוסמת אותה. `dohefes-create-payment-order` ו-`dohefes-get-product-access` **אינן**
 זקוקות לאותו פטור ולא אמורות לקבל אותו - הן נקראות מהדפדפן עם מפתח ה-anon (JWT תקין כשלעצמו,
-עובר `verify_jwt` הרגיל בהצלחה). ביטול `verify_jwt` על פונקציה אחרת מלבד `cardcom-payment-indicator`
+עובר `verify_jwt` הרגיל בהצלחה). ביטול `verify_jwt` על פונקציה אחרת מלבד `dohefes-cardcom-payment-indicator`
 דורש החלטה מפורשת ונפרדת, לא נגזר אוטומטית מהחריג הזה.
 
 ---
@@ -487,10 +487,10 @@ on conflict (report_id, product_type) do nothing;
    (§5) + שלושת ה-Edge Functions (§4.2), עדיין **מנותקות מכל UI קיים**. `/calculator` ממשיך
    לקרוא/לכתוב `payment_status` בדיוק כמו היום - **לא משנה שום התנהגות קיימת**.
 2. **הפעלה תחילה עבור `cashFlowAnalysis` בלבד** - `/cashflow` (כשייכתב) הוא **הצרכן הראשון
-   והיחיד** של התשתית החדשה. `create-payment-order`/`get-product-access` נקראים רק ממנו.
+   והיחיד** של התשתית החדשה. `dohefes-create-payment-order`/`dohefes-get-product-access` נקראים רק ממנו.
    `baseReport` עדיין לא נוגע בתשתית הזו כלל בשלב הזה.
 3. **בדיקות תשלום אמיתיות** - עסקאות אמיתיות (סכומים קטנים/test אם קיים ב-Cardcom, ר' §8 סעיף 3)
-   על `cashFlowAnalysis` בלבד, כדי לאמת ש-`cardcom-payment-indicator` באמת סוגר entitlement נכון
+   על `cashFlowAnalysis` בלבד, כדי לאמת ש-`dohefes-cardcom-payment-indicator` באמת סוגר entitlement נכון
    על תנועה אמיתית - **לפני** שנוגעים ב-`baseReport` שכבר יש לו לקוחות משלמים.
 4. **מעבר `baseReport` לתשתית החדשה** - רק אחרי שלב 3 הוכיח את עצמו: `/start`/`/calculator`
    עוברים ליצור/לקרוא דרך אותם שלושה Edge Functions (§4.2) במקום `?paid=true`/`payment_status`
@@ -515,10 +515,10 @@ on conflict (report_id, product_type) do nothing;
 
 1. **Schema** - שתי הטבלאות + RLS (§5), **בלי** migration המיפוי (§6.1 - זה עבר לשלב 6 למטה,
    תואם §6.2). מנותק לגמרי מכל UI קיים - שלב שאפשר לבדוק שהוא לא שובר כלום.
-2. **`create-payment-order` - שלד** - קובעת מחיר לפי `productType` בצד שרת, בודקת דרישת
+2. **`dohefes-create-payment-order` - שלד** - קובעת מחיר לפי `productType` בצד שרת, בודקת דרישת
    `baseReport` משולם עבור `cashFlowAnalysis`, יוצרת `payment_order`. **עדיין בלי חיבור אמיתי
    ל-Cardcom** (stub/mock ליצירת LowProfile session, לבדיקה).
-3. **`cardcom-payment-indicator` + `get-product-access`** - חיבור Cardcom בפועל
+3. **`dohefes-cardcom-payment-indicator` + `dohefes-get-product-access`** - חיבור Cardcom בפועל
    (`GetLowProfileIndicator`, תלוי ב-§8) + נקודת הקריאה היחידה ל-UI. **הכי מסוכן משלב פיתוח** -
    נבדק בסביבת test/sandbox של Cardcom אם קיימת (§8 סעיף 3), לפני production.
 4. **חיבור `/cashflow` בלבד** - שלב 2 ב-rollout (§6.2): `/cashflow` (כשייכתב) הוא הצרכן הראשון
@@ -540,7 +540,7 @@ webhook נכנס כברירת מחדל. מה שנשאר לברר מול הספק
 
 1. **אימות שם ה-API המדויק וזרימת ה-`LowProfileCode` בחשבון הזה** - לוודא מול תיעוד Cardcom
    (או תמיכה) את השם/הפרמטרים המדויקים של `GetLowProfileIndicator` (או המקביל העדכני בגרסת
-   ה-API של החשבון הזה), ואת האופן שבו יוצרים LowProfile session מלכתחילה (`create-payment-order`,
+   ה-API של החשבון הזה), ואת האופן שבו יוצרים LowProfile session מלכתחילה (`dohefes-create-payment-order`,
    §4.2) - קריאת API נפרדת מ-Cardcom, לא רק בניית URL כמו היום. **אם יתברר שקיים גם webhook/IPN
    אמיתי בנוסף** - אפשר להוסיף אותו כערוץ משלים (מיידי יותר מ-polling בחזרת המשתמש), לא כתחליף
    ל-`GetLowProfileIndicator` (שממילא צריך לרוץ בכל מקרה בתור אימות).

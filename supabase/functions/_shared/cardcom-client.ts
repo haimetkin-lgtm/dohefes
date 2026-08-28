@@ -112,7 +112,7 @@ export function createCardcomClient(credentials: CardcomCredentials) {
     /**
      * יוצרת "דף תשלום" (LowProfile session, API Level 10) אצל Cardcom. **הצלחה כאן פירושה אך
      * ורק "נוצר דף תשלום"** - לא "שולם"/"אושר". אין קריאה כלשהי כאן שמסמנת תשלום כמאושר - זה
-     * תפקידה הבלעדי של cardcom-payment-indicator (Edge Function נפרדת, עתידית, לא נכתבת כאן -
+     * תפקידה הבלעדי של dohefes-cardcom-payment-indicator (Edge Function נפרדת, עתידית, לא נכתבת כאן -
      * ר' תיעוד הממשק המאומת שלה בתחתית הקובץ הזה) אחרי חזרת המשתמש/הגעת ה-IndicatorUrl.
      *
      * **בכוונה בלי `AutoRedirect=true`** - אנחנו צריכים את ה-url בתגובה כדי להחזיר אותו ללקוח
@@ -194,7 +194,7 @@ export function createCardcomClient(credentials: CardcomCredentials) {
 
     /**
      * מאמתת תשלום אצל Cardcom (server-to-server) - הדרך **היחידה** לדעת אם LowProfileCode
-     * מסוים אכן שולם בפועל. נקראת רק מ-cardcom-payment-indicator, לעולם לא על סמך תוכן ה-webhook
+     * מסוים אכן שולם בפועל. נקראת רק מ-dohefes-cardcom-payment-indicator, לעולם לא על סמך תוכן ה-webhook
      * הנכנס עצמו (ר' payment-indicator-service.ts - הפרמטר היחיד שנקרא מה-webhook הוא lowProfileCode,
      * לא שום "עובדה" אחרת שעשויה להגיע בו).
      *

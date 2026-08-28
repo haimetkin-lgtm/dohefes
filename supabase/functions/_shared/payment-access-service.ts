@@ -1,4 +1,4 @@
-// שכבת orchestration טהורה ל-get-product-access - כל תלות חיצונית (מסד נתונים, חישוב hash)
+// שכבת orchestration טהורה ל-dohefes-get-product-access - כל תלות חיצונית (מסד נתונים, חישוב hash)
 // מוזרקת דרך PaymentAccessServiceDeps, לא נקראת ישירות. מאפשר בדיקת ה-orchestration המלאה דרך
 // Vitest עם fakes, בלי Deno runtime בכלל - ר' payment-access-service.test.ts. index.ts הוא
 // ה-adapter הדק היחיד שמזריק את המימושים האמיתיים (Supabase, Web Crypto).

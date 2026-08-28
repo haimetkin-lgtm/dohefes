@@ -5,7 +5,7 @@
 כסף אמיתי מסומן באזהרה נפרדת.
 
 מבנה הענף כרגע (`secure-payment-foundation`): schema (`supabase/payment-schema.sql`) + שלוש
-Edge Functions (`create-payment-order`, `cardcom-payment-indicator`, `get-product-access`) -
+Edge Functions (`dohefes-create-payment-order`, `dohefes-cardcom-payment-indicator`, `dohefes-get-product-access`) -
 קוד בלבד, שום דבר לא רץ/פרוס.
 
 ## מה תוקן מאז הביקורת הקודמת
@@ -57,16 +57,16 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 
 | שם ה-secret | מה נכנס בו | מקור |
 |---|---|---|
-| `CARDCOM_TERMINAL_NUMBER` | מספר המסוף משלב 1 | Cardcom |
-| `CARDCOM_API_USERNAME` | שם המשתמש משלב 1 | Cardcom |
-| `CARDCOM_SUCCESS_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי תשלום מוצלח | האתר שלך |
-| `CARDCOM_ERROR_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי כישלון/ביטול | האתר שלך |
-| `CARDCOM_INDICATOR_URL` | הכתובת המלאה של `cardcom-payment-indicator` **אחרי** שהיא נפרסת (שלב 4) - בפורמט `https://<project-ref>.supabase.co/functions/v1/cardcom-payment-indicator` | הפרויקט שלך, נקבע רק אחרי הפריסה |
-| `ALLOWED_ORIGINS` | רשימת origins מופרדת בפסיקים (למשל `https://haimetkin-lgtm.github.io`) - ר' `_shared/payment-security.ts` | האתר שלך |
+| `DOHEFES_CARDCOM_TERMINAL_NUMBER` | מספר המסוף משלב 1 | Cardcom |
+| `DOHEFES_CARDCOM_API_USERNAME` | שם המשתמש משלב 1 | Cardcom |
+| `DOHEFES_CARDCOM_SUCCESS_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי תשלום מוצלח | האתר שלך |
+| `DOHEFES_CARDCOM_ERROR_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי כישלון/ביטול | האתר שלך |
+| `DOHEFES_CARDCOM_INDICATOR_URL` | הכתובת המלאה של `dohefes-cardcom-payment-indicator` **אחרי** שהיא נפרסת (שלב 4) - בפורמט `https://<project-ref>.supabase.co/functions/v1/dohefes-cardcom-payment-indicator` | הפרויקט שלך, נקבע רק אחרי הפריסה |
+| `DOHEFES_ALLOWED_ORIGINS` | רשימת origins מופרדת בפסיקים (למשל `https://haimetkin-lgtm.github.io`) - ר' `_shared/payment-security.ts` | האתר שלך |
 
-`CARDCOM_INDICATOR_URL` תלוי בשלב 4 (הפריסה) - לכן סדר מומלץ בפועל: הזן קודם את חמשת השדות
-הראשונים, פרוס את שלוש הפונקציות (שלב 4), ואז חזור והזן את `CARDCOM_INDICATOR_URL` עם הכתובת
-האמיתית שקיבלת, ופרוס מחדש רק את `cardcom-payment-indicator` (secrets נטענים מחדש אוטומטית
+`DOHEFES_CARDCOM_INDICATOR_URL` תלוי בשלב 4 (הפריסה) - לכן סדר מומלץ בפועל: הזן קודם את חמשת השדות
+הראשונים, פרוס את שלוש הפונקציות (שלב 4), ואז חזור והזן את `DOHEFES_CARDCOM_INDICATOR_URL` עם הכתובת
+האמיתית שקיבלת, ופרוס מחדש רק את `dohefes-cardcom-payment-indicator` (secrets נטענים מחדש אוטומטית
 עם כל deploy).
 
 ---
@@ -121,18 +121,18 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 
 ## שלב 4 - פריסת שלוש הפונקציות + הגדרת JWT
 
-### הגדרת JWT - `cardcom-payment-indicator` בלבד עם `verify_jwt=false`
+### הגדרת JWT - `dohefes-cardcom-payment-indicator` בלבד עם `verify_jwt=false`
 
 צור (אם לא קיים) `supabase/config.toml` עם:
 
 ```toml
-[functions.cardcom-payment-indicator]
+[functions.dohefes-cardcom-payment-indicator]
 verify_jwt = false
 
-# create-payment-order ו-get-product-access: לא מוזכרות כאן בכוונה - נשארות עם ברירת המחדל
+# dohefes-create-payment-order ו-dohefes-get-product-access: לא מוזכרות כאן בכוונה - נשארות עם ברירת המחדל
 # (verify_jwt=true). הדפדפן קורא להן דרך supabase.functions.invoke עם מפתח ה-anon, שהוא
 # כשלעצמו JWT תקין וחתום שעובר את הבדיקה - אין להן צורך בפטור. שינוי ההגדרה הזו לפונקציה
-# אחרת מלבד cardcom-payment-indicator דורש החלטה מפורשת ונפרדת, לא נגזר מהחריג הזה.
+# אחרת מלבד dohefes-cardcom-payment-indicator דורש החלטה מפורשת ונפרדת, לא נגזר מהחריג הזה.
 ```
 
 חלופה (אם אתה מעדיף לא לשמור קובץ config): דגל `--no-verify-jwt` בפקודת ה-deploy עצמה
@@ -141,16 +141,16 @@ verify_jwt = false
 ### פריסה בפועל (CLI)
 
 ```bash
-supabase functions deploy create-payment-order
-supabase functions deploy get-product-access
-supabase functions deploy cardcom-payment-indicator --no-verify-jwt
+supabase functions deploy dohefes-create-payment-order
+supabase functions deploy dohefes-get-product-access
+supabase functions deploy dohefes-cardcom-payment-indicator --no-verify-jwt
 ```
 
 (אם השתמשת ב-`config.toml` למעלה, הדגל `--no-verify-jwt` מיותר אך לא מזיק - שני המנגנונים
 אומרים את אותו דבר.)
 
 **ציפייה**: כל פקודה מדפיסה "Deployed Function" עם כתובת. **עכשיו** יש לך את הכתובת
-ל-`CARDCOM_INDICATOR_URL` (שלב 2) - חזור, הזן אותה, ופרוס מחדש רק את `cardcom-payment-indicator`.
+ל-`DOHEFES_CARDCOM_INDICATOR_URL` (שלב 2) - חזור, הזן אותה, ופרוס מחדש רק את `dohefes-cardcom-payment-indicator`.
 
 **איך לוודא שה-JWT הוגדר נכון**: Dashboard → **Edge Functions** → לחץ על `cardcom-payment-
 indicator` → לשונית **Details/Settings** - אמור להופיע "JWT verification: Disabled" (או ניסוח
@@ -171,7 +171,7 @@ number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע
 
 ## שלב 6 - יצירת הזמנת `cashFlowAnalysis`
 
-**תנאי מקדים חשוב**: `cashFlowAnalysis` דורש (ב-`create-payment-order`) שהדוח כבר `paid` עבור
+**תנאי מקדים חשוב**: `cashFlowAnalysis` דורש (ב-`dohefes-create-payment-order`) שהדוח כבר `paid` עבור
 `baseReport` (המנגנון **הישן**, `dohefes_reports.payment_status` - עדיין לא הוחלף, ר'
 `GEN2_PAYMENT_ENTITLEMENT_DESIGN.md` §6.2 שלב 4). כדי לבדוק, צריך דוח קיים עם
 `payment_status='paid'`. אין React מחובר עדיין (מכוון), אז הבדיקה כאן היא דרך `curl` ישירות.
@@ -185,11 +185,11 @@ number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע
    זה מסמן את ה-baseReport כמשולם **למטרת הבדיקה בלבד** (המנגנון הישן) - לא קשור לתשתית
    החדשה שאנחנו בודקים כאן.
 
-2. **קרא ל-create-payment-order**:
+2. **קרא ל-dohefes-create-payment-order**:
    ```bash
-   curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/create-payment-order" \
+   curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/dohefes-create-payment-order" \
      -H "Content-Type: application/json" \
-     -H "Origin: <אחד מה-origins שהוגדרו ב-ALLOWED_ORIGINS>" \
+     -H "Origin: <אחד מה-origins שהוגדרו ב-DOHEFES_ALLOWED_ORIGINS>" \
      -H "Authorization: Bearer <ANON_KEY של הפרויקט>" \
      -H "Idempotency-Key: $(uuidgen)" \
      -d '{"reportId":"<test-report-id>","productType":"cashFlowAnalysis"}'
@@ -212,8 +212,8 @@ number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע
 
 1. פתח את ה-`checkoutUrl` משלב 6 בדפדפן.
 2. השלם תשלום עם כרטיס אמיתי (או פרטי בדיקה, אם ב-sandbox).
-3. אחרי הצלחה, אתה מגיע ל-`CARDCOM_SUCCESS_URL` שהגדרת. **בשלב הזה** (אם ה-IndicatorUrl הוגדר
-   נכון ו-Cardcom קוראת לו) - `cardcom-payment-indicator` אמורה כבר לרוץ ברקע. אם ה-IndicatorUrl
+3. אחרי הצלחה, אתה מגיע ל-`DOHEFES_CARDCOM_SUCCESS_URL` שהגדרת. **בשלב הזה** (אם ה-IndicatorUrl הוגדר
+   נכון ו-Cardcom קוראת לו) - `dohefes-cardcom-payment-indicator` אמורה כבר לרוץ ברקע. אם ה-IndicatorUrl
    לא מוגדר נכון, או ש-Cardcom לא קוראת לו אוטומטית, תצטרך לגרות אותו ידנית - ר' שלב 9.
 
 ---
@@ -239,7 +239,7 @@ where report_id = '<test-report-id>' and product_type = 'cashFlowAnalysis';
 
 **ציפייה**: **שורה אחת בלבד**, `entitlement_status='active'`, `payment_order_id` תואם ל-`orderId`.
 
-אם ה-`status` עדיין `pending`: `cardcom-payment-indicator` עוד לא רצה (ר' שלב 9, קריאה ידנית).
+אם ה-`status` עדיין `pending`: `dohefes-cardcom-payment-indicator` עוד לא רצה (ר' שלב 9, קריאה ידנית).
 
 ---
 
@@ -248,10 +248,10 @@ where report_id = '<test-report-id>' and product_type = 'cashFlowAnalysis';
 בלי Authorization header (ר' שלב 4 - הפונקציה הזו מוגדרת `verify_jwt=false`, זו בדיוק הסיבה):
 
 ```bash
-curl -i "https://<project-ref>.supabase.co/functions/v1/cardcom-payment-indicator?LowProfileCode=<ה-LowProfileCode האמיתי מ-Cardcom>"
+curl -i "https://<project-ref>.supabase.co/functions/v1/dohefes-cardcom-payment-indicator?LowProfileCode=<ה-LowProfileCode האמיתי מ-Cardcom>"
 ```
 
-(אם אין לך את ה-LowProfileCode בהישג יד - הוא לא נחשף בתגובת create-payment-order בכוונה; ניתן
+(אם אין לך את ה-LowProfileCode בהישג יד - הוא לא נחשף בתגובת dohefes-create-payment-order בכוונה; ניתן
 לשלוף אותו מ-`select cardcom_low_profile_code from dohefes_payment_orders where id='<orderId>'`.)
 
 **קרא לזה פעמיים ברצף** (זה בדיוק ה"retry"). **ציפייה**: `200` בשתי הפעמים, ושורת ה-entitlement
@@ -264,7 +264,7 @@ curl -i "https://<project-ref>.supabase.co/functions/v1/cardcom-payment-indicato
 
 **token נכון** (מ-שלב 6, `accessToken`):
 ```bash
-curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/get-product-access" \
+curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/dohefes-get-product-access" \
   -H "Content-Type: application/json" \
   -H "Origin: <אחד מה-origins שהוגדרו>" \
   -H "Authorization: Bearer <ANON_KEY>" \
@@ -275,7 +275,7 @@ curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/get-product-acce
 
 **token שגוי**: אותה קריאה עם `X-Access-Token: garbage-value-123`.
 **ציפייה**: `{"status":"unavailable"}` - **אותה תגובה בדיוק** שהייתה מתקבלת עבור דוח לא-קיים
-או מוצר-לא-נרכש (זה הכוונה, לא באג - ר' ממצאי get-product-access).
+או מוצר-לא-נרכש (זה הכוונה, לא באג - ר' ממצאי dohefes-get-product-access).
 
 ---
 

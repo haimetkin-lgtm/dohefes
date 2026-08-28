@@ -22,14 +22,14 @@
 // --- דרישת פריסה עתידית (ממצא ביקורת, מתועד כאן - לא מבוצע, אין פריסה בשלב הזה בכלל) ---
 //
 // **הפונקציה הזו, ורק היא, חייבת להיפרס עם אימות JWT מבוטל** (Supabase CLI: `supabase functions
-// deploy cardcom-payment-indicator --no-verify-jwt`, או `verify_jwt = false` תחת
-// `[functions.cardcom-payment-indicator]` ב-supabase/config.toml אם ייווצר בעתיד) - הסיבה:
+// deploy dohefes-cardcom-payment-indicator --no-verify-jwt`, או `verify_jwt = false` תחת
+// `[functions.dohefes-cardcom-payment-indicator]` ב-supabase/config.toml אם ייווצר בעתיד) - הסיבה:
 // הקורא כאן הוא **Cardcom עצמה** (שרת חיצוני), לא דפדפן/לקוח של הפרויקט - אין לה אפשרות לצרף
 // שום JWT/מפתח Supabase לבקשת ה-webhook שלה (לא anon key, לא session token - היא לא מכירה
 // אותם בכלל). ברירת המחדל של Supabase Edge Functions (`verify_jwt=true`) הייתה דוחה כל בקשה
 // כזו לפני שהקוד כאן בכלל רץ.
 //
-// **אזהרה מפורשת - לא לגזור מכך מסקנה כללית**: `create-payment-order` וה-`get-product-access`
+// **אזהרה מפורשת - לא לגזור מכך מסקנה כללית**: `dohefes-create-payment-order` וה-`dohefes-get-product-access`
 // העתידית **לא** צריכות (ולא אמורות לקבל) את אותו פטור - הן נקראות מהדפדפן של הפרויקט, שתמיד
 // מצרף את מפתח ה-anon כ-Authorization header, וזהו כשלעצמו JWT תקין (חתום באותו secret של
 // הפרויקט) שעובר את בדיקת verify_jwt הרגילה בהצלחה - אין כאן שום בעיה מקבילה לזו של Cardcom,
@@ -52,8 +52,8 @@ import type {
 // --- Secrets: שמות בלבד, אין ערכים בקוד. ---
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const CARDCOM_TERMINAL_NUMBER = Deno.env.get("CARDCOM_TERMINAL_NUMBER") ?? "";
-const CARDCOM_API_USERNAME = Deno.env.get("CARDCOM_API_USERNAME") ?? "";
+const DOHEFES_CARDCOM_TERMINAL_NUMBER = Deno.env.get("DOHEFES_CARDCOM_TERMINAL_NUMBER") ?? "";
+const DOHEFES_CARDCOM_API_USERNAME = Deno.env.get("DOHEFES_CARDCOM_API_USERNAME") ?? "";
 
 type OrderRow = {
   id: string;
@@ -128,7 +128,7 @@ function buildDatabase(supabase: SupabaseClient): PaymentIndicatorDatabase {
 }
 
 /** חילוץ LowProfileCode בלבד מהבקשה הנכנסת - זה השדה היחיד שנקרא ממנה. GET: query string.
- *  POST: גוף הבקשה (Name-To-Value), עם הגבלת גודל (אותה מגבלה כמו create-payment-order) לפני
+ *  POST: גוף הבקשה (Name-To-Value), עם הגבלת גודל (אותה מגבלה כמו dohefes-create-payment-order) לפני
  *  שקוראים את הגוף בכלל - הגנה בסיסית מפני payload גדול מדי על נקודת קצה ציבורית וללא אימות. */
 async function extractLowProfileCode(req: Request): Promise<{ ok: true; lowProfileCode: string | null } | { ok: false }> {
   const url = new URL(req.url);
@@ -167,7 +167,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-  const cardcomClient = createCardcomClient({ terminalNumber: CARDCOM_TERMINAL_NUMBER, userName: CARDCOM_API_USERNAME });
+  const cardcomClient = createCardcomClient({ terminalNumber: DOHEFES_CARDCOM_TERMINAL_NUMBER, userName: DOHEFES_CARDCOM_API_USERNAME });
 
   try {
     const result = await handleIndicatorCallback({ database: buildDatabase(supabase), cardcomClient }, extracted.lowProfileCode);

@@ -6,7 +6,7 @@
 // גודל body/פענוח JSON/חילוץ הטוקן מה-header) ו-(ב) בונה את התלויות האמיתיות (Supabase, Web
 // Crypto) ומזריק אותן ל-checkProductAccess.
 //
-// נקראת מהדפדפן (כמו create-payment-order) - **צריכה CORS**, בניגוד ל-cardcom-payment-indicator.
+// נקראת מהדפדפן (כמו dohefes-create-payment-order) - **צריכה CORS**, בניגוד ל-dohefes-cardcom-payment-indicator.
 //
 // חתימה: POST בלבד. גוף: { reportId: string (uuid), productType: "baseReport"|"cashFlowAnalysis" }.
 // הטוקן הגולמי מגיע ב-header ייעודי (X-Access-Token), **לא** בגוף הבקשה ולא ב-query string -
@@ -33,7 +33,7 @@ import type { AccessEntitlementLookup, AccessOrderLookup, PaymentAccessDatabase,
 // --- Secrets: שמות בלבד, אין ערכים בקוד. ---
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const ALLOWED_ORIGINS = parseAllowedOrigins(Deno.env.get("ALLOWED_ORIGINS"));
+const DOHEFES_ALLOWED_ORIGINS = parseAllowedOrigins(Deno.env.get("DOHEFES_ALLOWED_ORIGINS"));
 
 const ALLOWED_REQUEST_HEADERS = "Content-Type, X-Access-Token";
 
@@ -43,7 +43,7 @@ interface RequestBody {
 }
 
 /** דוחה במפורש שדות עודפים (amount/paymentStatus/entitlement וכו', ר' הערת הכותרת) - לא רק
- *  מתעלמת מהם - שדה עודף = קלט לא-תקין, לא ניחוש כוונה. אותו דפוס בדיוק כמו create-payment-order. */
+ *  מתעלמת מהם - שדה עודף = קלט לא-תקין, לא ניחוש כוונה. אותו דפוס בדיוק כמו dohefes-create-payment-order. */
 function parseRequestBody(raw: unknown): { ok: true; body: RequestBody } | { ok: false; error: string } {
   if (typeof raw !== "object" || raw === null) return { ok: false, error: "invalid_body" };
   const record = raw as Record<string, unknown>;
@@ -107,46 +107,46 @@ Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
 
   if (req.method === "OPTIONS") {
-    return corsPreflightResponse(origin, ALLOWED_ORIGINS, ALLOWED_REQUEST_HEADERS);
+    return corsPreflightResponse(origin, DOHEFES_ALLOWED_ORIGINS, ALLOWED_REQUEST_HEADERS);
   }
 
-  if (!origin || !isAllowedOrigin(origin, ALLOWED_ORIGINS)) {
-    return jsonResponse({ error: "origin_not_allowed" }, 403, origin, ALLOWED_ORIGINS);
+  if (!origin || !isAllowedOrigin(origin, DOHEFES_ALLOWED_ORIGINS)) {
+    return jsonResponse({ error: "origin_not_allowed" }, 403, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, 405, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: "method_not_allowed" }, 405, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   const rawAccessToken = req.headers.get("X-Access-Token");
   if (!rawAccessToken) {
-    return jsonResponse({ error: "missing_access_token" }, 400, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: "missing_access_token" }, 400, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   const contentLengthHeader = req.headers.get("Content-Length");
   if (contentLengthHeader && Number(contentLengthHeader) > MAX_REQUEST_BODY_BYTES) {
-    return jsonResponse({ error: "body_too_large" }, 413, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: "body_too_large" }, 413, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   const rawBody = await req.text();
   if (byteLength(rawBody) > MAX_REQUEST_BODY_BYTES) {
-    return jsonResponse({ error: "body_too_large" }, 413, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: "body_too_large" }, 413, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(rawBody);
   } catch {
-    return jsonResponse({ error: "invalid_json" }, 400, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: "invalid_json" }, 400, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   const parsed = parseRequestBody(parsedJson);
   if (!parsed.ok) {
-    return jsonResponse({ error: parsed.error }, 400, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: parsed.error }, 400, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return jsonResponse({ error: "internal_error" }, 500, origin, ALLOWED_ORIGINS);
+    return jsonResponse({ error: "internal_error" }, 500, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
@@ -156,10 +156,10 @@ Deno.serve(async (req: Request) => {
       { database: buildDatabase(supabase), tokenHasher: { hashAccessToken } },
       { reportId: parsed.body.reportId, productType: parsed.body.productType, rawAccessToken }
     );
-    return jsonResponse(result, 200, origin, ALLOWED_ORIGINS);
+    return jsonResponse(result, 200, origin, DOHEFES_ALLOWED_ORIGINS);
   } catch {
     // תקלת DB/רשת בלתי-צפויה - לא חושפים פרטים פנימיים ללקוח, ולא מחזירים "unavailable" (שהוא
-    // תשובה תקנית ל"אין גישה", לא ל"קרתה תקלה") - 500 גנרי, כמו create-payment-order.
-    return jsonResponse({ error: "internal_error" }, 500, origin, ALLOWED_ORIGINS);
+    // תשובה תקנית ל"אין גישה", לא ל"קרתה תקלה") - 500 גנרי, כמו dohefes-create-payment-order.
+    return jsonResponse({ error: "internal_error" }, 500, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 });
