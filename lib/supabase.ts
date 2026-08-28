@@ -26,3 +26,6 @@ export interface CustomOrderRow {
 export const BASIC_PRICE_NIS = 980;
 export const CUSTOM_PRICE_NIS = 1800;
 export const CONSULTATION_PRICE_NIS = 1180;
+/** מוצר נפרד מ-baseReport, entitlement נפרד - ר' GEN2_CASHFLOW_UI_DESIGN.md §0.1. תצוגה בלבד -
+ *  המחיר המחייב בפועל נקבע בצד Cardcom/השרת, לא נשלח מכאן ל-dohefes-create-payment-order. */
+export const CASHFLOW_ANALYSIS_PRICE_NIS = 980;
