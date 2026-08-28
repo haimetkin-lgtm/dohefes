@@ -15,7 +15,7 @@
 // נרשמת. הקורא (React, commit נפרד) אחראי אם/איך להציג שגיאה למשתמש.
 
 import type { ProductType } from "./payment-storage";
-import { addPending, type StorageLike } from "./payment-storage";
+import { addPending, resolvePendingByContext, promoteToActive, type StorageLike } from "./payment-storage";
 
 /** תת-הממשק היחיד שנדרש בפועל מ-SupabaseClient - supabase.functions מיישם אותו ישירות
  *  (`@supabase/functions-js`), כך שקריאה אמיתית מזריקה את ה-client הקיים ללא עטיפה נוספת. */
@@ -41,7 +41,9 @@ export function generateIdempotencyKey(): string {
  *  לגמרי - **לא** מפנים אליה בשום מקרה. */
 const ALLOWED_CHECKOUT_HOSTS = ["secure.cardcom.solutions"];
 
-function isTrustedCheckoutUrl(url: string): boolean {
+/** מיוצא (לא רק פנימי) - נבדק שוב לפני resume ב-resumePendingCheckout, לא רק בזמן היצירה -
+ *  הגנת-עומק כפולה נגד checkoutUrl שנשמר ב-localStorage ונחשוד (תיאורטית) בשיבוש/עריכה ידנית. */
+export function isTrustedCheckoutUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     return parsed.protocol === "https:" && ALLOWED_CHECKOUT_HOSTS.includes(parsed.hostname);
@@ -84,6 +86,20 @@ function errorReasonFromBody(body: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * `null` (כשל רשת/relay - אין תשובת HTTP בכלל, ר' readHttpErrorBody) - תמיד retryable.
+ * `500`/`503` - תקלת שרת חולפת/claim פעיל (503 מ-dohefes-create-payment-order במפורש) - retryable.
+ * `404` - ה-Function טרם נפרסה/שם שגוי - **retryable**, לא error סופי: ברגע שהיא תיפרס, אותה
+ *  בקשה בדיוק תצליח - זה בדיוק המצב בפרויקט הזה כרגע (Functions בקוד, טרם פרוסות).
+ * `429` - rate limit - retryable מטבעו (backoff וניסיון חוזר, לא שגיאה קבועה).
+ * כל שאר הקודים (400/401/403/409/502 וכו') - **לא** retryable: 401/403 הם בעיית הרשאה/מקור
+ *  שלא תיפתר בניסיון זהה חוזר; 409 (idempotency_key_conflict) ו-502 (payment_provider_error)
+ *  הם החלטות ודאיות מהשרת, לא תקלות חולפות (ר' payment-order-service.ts).
+ */
+function isRetryableHttpStatus(status: number | null): boolean {
+  return status === null || status === 404 || status === 429 || status === 500 || status === 503;
+}
+
 export async function createPaymentOrder(
   invoker: FunctionsInvoker,
   input: { reportId: string; productType: ProductType; idempotencyKey: string }
@@ -101,10 +117,8 @@ export async function createPaymentOrder(
 
   if (error) {
     const { status, body } = await readHttpErrorBody(error);
-    if (status === null) return { kind: "retryable" }; // כשל רשת/relay - אין תשובה מהשרת בכלל
-    if (status === 503) return { kind: "retryable" };
-    if (status === 500) return { kind: "retryable" };
-    return { kind: "error", reason: errorReasonFromBody(body, `http_${status}`) };
+    if (isRetryableHttpStatus(status)) return { kind: "retryable" };
+    return { kind: "error", reason: errorReasonFromBody(body, status === null ? "network_error" : `http_${status}`) };
   }
 
   if (!data || typeof data.status !== "string") return { kind: "error", reason: "invalid_response_shape" };
@@ -150,9 +164,8 @@ export async function getProductAccess(
 
   if (error) {
     const { status, body } = await readHttpErrorBody(error);
-    if (status === null) return { kind: "retryable" };
-    if (status === 500) return { kind: "retryable" };
-    return { kind: "error", reason: errorReasonFromBody(body, `http_${status}`) };
+    if (isRetryableHttpStatus(status)) return { kind: "retryable" };
+    return { kind: "error", reason: errorReasonFromBody(body, status === null ? "network_error" : `http_${status}`) };
   }
 
   if (!data || typeof data.status !== "string") return { kind: "error", reason: "invalid_response_shape" };
@@ -189,10 +202,111 @@ export async function purchaseProduct(
   const stored = addPending(
     storage,
     orderResult.paymentContextId,
-    { reportId: input.reportId, productType: input.productType, accessToken: orderResult.accessToken },
+    {
+      reportId: input.reportId,
+      productType: input.productType,
+      accessToken: orderResult.accessToken,
+      checkoutUrl: orderResult.checkoutUrl,
+      idempotencyKey: input.idempotencyKey,
+    },
     now
   );
   if (!stored.ok) return { kind: "storage_failed" };
 
   return { kind: "redirect", checkoutUrl: orderResult.checkoutUrl };
+}
+
+// ---------- אורכסטרציה: חידוש pending קיים (חזרה ל-checkout, לא הזמנה חדשה) ----------
+
+export type ResumeCheckoutResult =
+  /** dohefes-get-product-access כבר מחזירה active - קודמה ל-productAccess, **אין** צורך/היתר
+   *  לפתוח את Cardcom בכלל. */
+  | { kind: "already_active" }
+  /** בטוח להפנות - ה-checkoutUrl המוחזר כאן **תמיד** אומת מחדש (isTrustedCheckoutUrl), גם אם
+   *  הוא זהה לישן שכבר היה שמור. */
+  | { kind: "redirect"; checkoutUrl: string }
+  /** ה-pending לא נמצא בכלל (לא קיים/פג TTL) - **אין** ניסיון ליצור הזמנה חדשה אוטומטית כאן -
+   *  זו תמיד פעולה נפרדת ומודעת של הקורא (purchaseProduct, עם idempotencyKey חדש). */
+  | { kind: "not_found" }
+  /** כתיבת העדכון המקומי (token/checkoutUrl שסובבו בחידוש) נכשלה - **בכוונה בלי checkoutUrl
+   *  בתוצאה**, אין דרך מבנית להפנות בטעות. הרשומה המקומית הישנה (הלא-מעודכנת) עדיין נשארת -
+   *  לא נמחקת בשום מקרה כשל. */
+  | { kind: "storage_failed" }
+  | { kind: "retryable" }
+  | { kind: "error"; reason: string };
+
+/**
+ * נקראת לפני "המשך לתשלום" על pending קיים - **לעולם לא** יוצרת idempotencyKey חדש (משתמשת
+ * תמיד באותו אחד שכבר שמור ברשומה). רצף:
+ * 1. dohefes-get-product-access עם ה-accessToken השמור - `active` => promoteToActive, לא פותחים
+ *    Cardcom בכלל.
+ * 2. `pending` => ה-checkoutUrl השמור עדיין קאנוני לפי השרת - מוחזר כמו שהוא (אחרי ולידציה חוזרת
+ *    ל-host, הגנת-עומק).
+ * 3. `unavailable`/error מבני (ספק אמיתי לגבי תקפות הקישור) => קריאה חוזרת ל-dohefes-create-payment-order
+ *    עם **אותו** idempotencyKey - מקבלת את מצב ההזמנה הנוכחי דטרמיניסטית מהשרת, לא מנחשת.
+ *    אם עדיין `pending` - טוקן/checkoutUrl **מסתובבים בשרת בכל קריאה כזו** (ר' rotateTokenAndEnsureCheckout
+ *    ב-Edge Function) - הרשומה המקומית מתעדכנת אטומית **לפני** ההפניה, לא אחריה.
+ *    אם התברר `paid` (שולם במקביל, למשל Indicator שרק עכשיו הגיע) - נבדק שוב מול ה-accessToken
+ *    שכבר יש (לא משתנה על ידי "paid" - הוא נשאר מהיצירה המקורית).
+ * 4. `retryable` בכל שלב => מוחזר כמו שהוא, **בלי** לנסות renewal - תקלה חולפת, לא ספק אמיתי.
+ */
+export async function resumePendingCheckout(invoker: FunctionsInvoker, storage: StorageLike, paymentContextId: string, now: Date): Promise<ResumeCheckoutResult> {
+  const pending = resolvePendingByContext(storage, paymentContextId, now);
+  if (!pending) return { kind: "not_found" };
+
+  const access = await getProductAccess(invoker, { reportId: pending.reportId, productType: pending.productType, accessToken: pending.accessToken });
+
+  if (access.kind === "active") {
+    const promoted = promoteToActive(storage, paymentContextId, now);
+    return promoted.ok ? { kind: "already_active" } : { kind: "storage_failed" };
+  }
+
+  if (access.kind === "pending") {
+    if (!isTrustedCheckoutUrl(pending.checkoutUrl)) {
+      // הגנת-עומק בלבד - לא אמור לקרות (כבר אומת בזמן היצירה) - אם בכל זאת, מתייחסים כמו לספק
+      // אמיתי ומחדשים, לא פותחים כתובת לא-מאומתת.
+      return renewPendingCheckout(invoker, storage, paymentContextId, pending, now);
+    }
+    return { kind: "redirect", checkoutUrl: pending.checkoutUrl };
+  }
+
+  if (access.kind === "retryable") return { kind: "retryable" };
+
+  // unavailable / error מבני - ספק אמיתי לגבי תקפות ההזמנה/הקישור
+  return renewPendingCheckout(invoker, storage, paymentContextId, pending, now);
+}
+
+async function renewPendingCheckout(
+  invoker: FunctionsInvoker,
+  storage: StorageLike,
+  paymentContextId: string,
+  pending: { reportId: string; productType: ProductType; accessToken: string; idempotencyKey: string },
+  now: Date
+): Promise<ResumeCheckoutResult> {
+  const renewed = await createPaymentOrder(invoker, { reportId: pending.reportId, productType: pending.productType, idempotencyKey: pending.idempotencyKey });
+
+  if (renewed.kind === "retryable") return { kind: "retryable" };
+  if (renewed.kind === "error") return renewed;
+
+  if (renewed.kind === "paid") {
+    // ה-accessToken לא מתחלף על ידי "paid" (לא הוחזר token חדש כאן בכלל - נשאר מהיצירה
+    // המקורית) - בודקים שוב מולו כדי לקבל אישור entitlement עדכני.
+    const recheck = await getProductAccess(invoker, { reportId: pending.reportId, productType: pending.productType, accessToken: pending.accessToken });
+    if (recheck.kind === "active") {
+      const promoted = promoteToActive(storage, paymentContextId, now);
+      return promoted.ok ? { kind: "already_active" } : { kind: "storage_failed" };
+    }
+    return { kind: "retryable" }; // paid אך עוד לא השתקף כ-active - סביר לנסות שוב בעוד רגע
+  }
+
+  // renewed.kind === "pending" - token/checkoutUrl סובבו בשרת (rotateTokenAndEnsureCheckout
+  // רץ בכל קריאה כזו) - מעדכנים אטומית **לפני** ההפניה, אותו paymentContextId/idempotencyKey.
+  const updated = addPending(
+    storage,
+    paymentContextId,
+    { reportId: pending.reportId, productType: pending.productType, accessToken: renewed.accessToken, checkoutUrl: renewed.checkoutUrl, idempotencyKey: pending.idempotencyKey },
+    now
+  );
+  if (!updated.ok) return { kind: "storage_failed" };
+  return { kind: "redirect", checkoutUrl: renewed.checkoutUrl };
 }

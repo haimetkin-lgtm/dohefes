@@ -27,6 +27,15 @@ export interface PendingPurchaseRecord {
   reportId: string;
   productType: ProductType;
   accessToken: string;
+  /** נדרש כדי לחדש הזמנה קיימת בבטחה (ר' resumePendingCheckout ב-payment-client.ts) - **תמיד**
+   *  אותו מפתח שכבר שימש ליצירת ההזמנה; לעולם לא מוחלף כדי "לחדש" pending קיים - מחייב על ידי
+   *  התבנית, לא רק מוסכמה: אין שום פונקציה בקובץ הזה שמייצרת idempotencyKey חדש. */
+  idempotencyKey: string;
+  /** ה-checkoutUrl המאומת (host+HTTPS, ר' isTrustedCheckoutUrl ב-payment-client.ts) שכבר הוחזר
+   *  מהשרת - מאפשר לחזור לתשלום בלי לפתוח הזמנה חדשה. **לא** נשמר orderId (לא נדרש בפועל -
+   *  אין endpoint שמקבל אותו כקלט מהלקוח) ולא LowProfileCode (לא נחשף ללקוח כלל, ר' חוזה
+   *  dohefes-create-payment-order - "לא פרטי Cardcom גולמיים"). */
+  checkoutUrl: string;
   createdAt: string; // ISO
 }
 
@@ -44,7 +53,11 @@ export const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 
 const PENDING_KEY = "dohefes.pendingPurchases";
 const ACTIVE_KEY = "dohefes.productAccess";
-const SCHEMA_VERSION = 1;
+/** גרסאות נפרדות בכוונה - שינוי מבנה ה-pending (הוספת checkoutUrl/idempotencyKey, סבב זה) לא
+ *  אמור לפסול productAccess קיים ותקף (ה-credential הקבוע שכבר תוקן פעם אחת שלא יאבד, ר' §0.1.5ג) -
+ *  אילו שתי המאגרים חלקו גרסה אחת, כל שינוי סכמה ל-pending היה מוחק בטעות גם productAccess תקין. */
+const PENDING_SCHEMA_VERSION = 2;
+const ACTIVE_SCHEMA_VERSION = 1;
 
 interface PendingStoreShape {
   schemaVersion: number;
@@ -60,10 +73,32 @@ function activeKey(reportId: string, productType: ProductType): string {
   return `${reportId}:${productType}`;
 }
 
-/** קריאה + פענוח "נכשל סגור" - JSON פגום/schemaVersion לא תואם/צורה לא צפויה => מאגר ריק,
- *  לעולם לא חריגה. לא ממש קורא ל-JSON.parse ישירות בשום מקום אחר בקובץ - כל קריאה עוברת כאן. */
+function isNonEmptyStr(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/** ולידציה per-entry, לא רק ברמת ה-store כולו - שומרת מרשומות עם שדות חסרים/מסוג שגוי (JSON
+ *  תקין אך "מזוהם" - למשל אחרי שינוי ידני ב-DevTools, או קורוצפיה חלקית) - שורדת "נכשל סגור"
+ *  ברמת רשומה בודדת, לא מפילה את כל המאגר בגלל רשומה אחת פגומה. */
+function isValidPendingRecord(value: unknown): value is PendingPurchaseRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    isNonEmptyStr(r.reportId) &&
+    (r.productType === "baseReport" || r.productType === "cashFlowAnalysis") &&
+    isNonEmptyStr(r.accessToken) &&
+    isNonEmptyStr(r.idempotencyKey) &&
+    isNonEmptyStr(r.checkoutUrl) &&
+    isNonEmptyStr(r.createdAt)
+  );
+}
+
+/** קריאה + פענוח "נכשל סגור" - JSON פגום/schemaVersion לא תואם (**כולל migration משמעותי**:
+ *  רשומות מ-schemaVersion 1 הישן, בלי checkoutUrl/idempotencyKey, נופלות כאן ומוחזרות כמאגר ריק -
+ *  לא מנסים "להשלים" שדות חסרים בניחוש) /צורה לא צפויה => מאגר ריק, לעולם לא חריגה. לא ממש
+ *  קורא ל-JSON.parse ישירות בשום מקום אחר בקובץ - כל קריאה עוברת כאן. */
 function readPendingStore(storage: StorageLike): PendingStoreShape {
-  const empty: PendingStoreShape = { schemaVersion: SCHEMA_VERSION, entries: {} };
+  const empty: PendingStoreShape = { schemaVersion: PENDING_SCHEMA_VERSION, entries: {} };
   const raw = storage.getItem(PENDING_KEY);
   if (!raw) return empty;
   try {
@@ -71,20 +106,25 @@ function readPendingStore(storage: StorageLike): PendingStoreShape {
     if (
       typeof parsed !== "object" ||
       parsed === null ||
-      (parsed as { schemaVersion?: unknown }).schemaVersion !== SCHEMA_VERSION ||
+      (parsed as { schemaVersion?: unknown }).schemaVersion !== PENDING_SCHEMA_VERSION ||
       typeof (parsed as { entries?: unknown }).entries !== "object" ||
       (parsed as { entries?: unknown }).entries === null
     ) {
       return empty;
     }
-    return parsed as PendingStoreShape;
+    const rawEntries = (parsed as PendingStoreShape).entries;
+    const validEntries: Record<string, PendingPurchaseRecord> = {};
+    for (const [key, value] of Object.entries(rawEntries)) {
+      if (isValidPendingRecord(value)) validEntries[key] = value;
+    }
+    return { schemaVersion: PENDING_SCHEMA_VERSION, entries: validEntries };
   } catch {
     return empty;
   }
 }
 
 function readActiveStore(storage: StorageLike): ActiveStoreShape {
-  const empty: ActiveStoreShape = { schemaVersion: SCHEMA_VERSION, entries: {} };
+  const empty: ActiveStoreShape = { schemaVersion: ACTIVE_SCHEMA_VERSION, entries: {} };
   const raw = storage.getItem(ACTIVE_KEY);
   if (!raw) return empty;
   try {
@@ -92,7 +132,7 @@ function readActiveStore(storage: StorageLike): ActiveStoreShape {
     if (
       typeof parsed !== "object" ||
       parsed === null ||
-      (parsed as { schemaVersion?: unknown }).schemaVersion !== SCHEMA_VERSION ||
+      (parsed as { schemaVersion?: unknown }).schemaVersion !== ACTIVE_SCHEMA_VERSION ||
       typeof (parsed as { entries?: unknown }).entries !== "object" ||
       (parsed as { entries?: unknown }).entries === null
     ) {
@@ -133,17 +173,22 @@ export function cleanupPending(storage: StorageLike, now: Date): void {
     }
   }
   if (removedAny) {
-    writeStore(storage, PENDING_KEY, { schemaVersion: SCHEMA_VERSION, entries: kept });
+    writeStore(storage, PENDING_KEY, { schemaVersion: PENDING_SCHEMA_VERSION, entries: kept });
   }
 }
 
-/** נקראת מיד אחרי תגובת 200 מוצלחת מ-dohefes-create-payment-order, לפני הניווט ל-checkoutUrl.
- *  paymentContextId הוא תמיד ערך שנוצר בשרת (ר' GEN2_CASHFLOW_UI_DESIGN.md §0.1.5ב) - הפונקציה
- *  הזו לא מייצרת/ממציאה מפתחות. אינה מוחקת רשומות קיימות אחרות (ר' בדיקת "שתי לשוניות"). */
+/**
+ * נקראת מיד אחרי תגובת 200 מוצלחת מ-dohefes-create-payment-order, לפני הניווט ל-checkoutUrl -
+ * **וגם** מ-resumePendingCheckout (payment-client.ts) כשמעדכנים רשומה קיימת אחרי חידוש מוצלח
+ * (token/checkoutUrl סובבו, אותו paymentContextId/idempotencyKey). paymentContextId הוא תמיד
+ * ערך שנוצר בשרת - הפונקציה הזו לא מייצרת/ממציאה מפתחות. אינה מוחקת רשומות קיימות אחרות (ר'
+ * בדיקת "שתי לשוניות"). checkoutUrl **אינו** מאומת כאן שוב (כבר מאומת לפני הקריאה, ב-
+ * isTrustedCheckoutUrl ב-payment-client.ts) - המודול הזה לא יודע כלום על Cardcom/hosts.
+ */
 export function addPending(
   storage: StorageLike,
   paymentContextId: string,
-  input: { reportId: string; productType: ProductType; accessToken: string },
+  input: { reportId: string; productType: ProductType; accessToken: string; checkoutUrl: string; idempotencyKey: string },
   now: Date
 ): { ok: boolean } {
   const store = readPendingStore(storage);
@@ -153,10 +198,12 @@ export function addPending(
       reportId: input.reportId,
       productType: input.productType,
       accessToken: input.accessToken,
+      checkoutUrl: input.checkoutUrl,
+      idempotencyKey: input.idempotencyKey,
       createdAt: now.toISOString(),
     },
   };
-  return writeStore(storage, PENDING_KEY, { schemaVersion: SCHEMA_VERSION, entries: nextEntries });
+  return writeStore(storage, PENDING_KEY, { schemaVersion: PENDING_SCHEMA_VERSION, entries: nextEntries });
 }
 
 /** משמשת את /payment-return - מריצה ניקוי TTL קודם, ואז מחפשת התאמה מדויקת. `null` אם חסר/פג -
@@ -205,12 +252,12 @@ export function promoteToActive(storage: StorageLike, paymentContextId: string, 
     ...activeStore.entries,
     [key]: { accessToken: pendingRecord.accessToken, activatedAt: nowIso, lastVerifiedAt: nowIso },
   };
-  const writeResult = writeStore(storage, ACTIVE_KEY, { schemaVersion: SCHEMA_VERSION, entries: nextActiveEntries });
+  const writeResult = writeStore(storage, ACTIVE_KEY, { schemaVersion: ACTIVE_SCHEMA_VERSION, entries: nextActiveEntries });
   if (!writeResult.ok) return { ok: false };
 
   const remainingPending = { ...pendingStore.entries };
   delete remainingPending[paymentContextId];
-  writeStore(storage, PENDING_KEY, { schemaVersion: SCHEMA_VERSION, entries: remainingPending });
+  writeStore(storage, PENDING_KEY, { schemaVersion: PENDING_SCHEMA_VERSION, entries: remainingPending });
   return { ok: true };
 }
 
@@ -230,7 +277,7 @@ export function touchActiveAccess(storage: StorageLike, reportId: string, produc
   const existing = store.entries[key];
   if (!existing) return;
   const nextEntries = { ...store.entries, [key]: { ...existing, lastVerifiedAt: now.toISOString() } };
-  writeStore(storage, ACTIVE_KEY, { schemaVersion: SCHEMA_VERSION, entries: nextEntries });
+  writeStore(storage, ACTIVE_KEY, { schemaVersion: ACTIVE_SCHEMA_VERSION, entries: nextEntries });
 }
 
 /** revoked/refunded/unavailable - מסירה **רק** את הרשומה של report/product הספציפיים, לא נוגעת
@@ -241,5 +288,5 @@ export function revokeActiveAccess(storage: StorageLike, reportId: string, produ
   if (!(key in store.entries)) return;
   const nextEntries = { ...store.entries };
   delete nextEntries[key];
-  writeStore(storage, ACTIVE_KEY, { schemaVersion: SCHEMA_VERSION, entries: nextEntries });
+  writeStore(storage, ACTIVE_KEY, { schemaVersion: ACTIVE_SCHEMA_VERSION, entries: nextEntries });
 }
