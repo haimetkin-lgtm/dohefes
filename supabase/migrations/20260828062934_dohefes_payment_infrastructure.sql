@@ -625,27 +625,12 @@ $$;
 revoke execute on function dohefes_claim_checkout_creation(uuid, text, integer) from public, anon, authenticated;
 grant execute on function dohefes_claim_checkout_creation(uuid, text, integer) to service_role;
 
--- --- Rollback (מתועד בלבד, לא מבוצע) ---
+-- --- Rollback ---
 --
--- drop function if exists dohefes_claim_checkout_creation(uuid, text, integer);
--- drop index if exists idx_dohefes_payment_orders_one_active_per_report_product;
--- drop function if exists dohefes_finalize_verified_payment(text, text, text, integer, integer);
--- drop function if exists dohefes_upsert_active_entitlement(uuid, uuid, text);
--- drop trigger if exists dohefes_product_entitlements_require_verified_order on dohefes_product_entitlements;
--- drop trigger if exists dohefes_product_entitlements_touch_updated_at on dohefes_product_entitlements;
--- drop trigger if exists dohefes_payment_orders_touch_updated_at on dohefes_payment_orders;
--- drop table if exists dohefes_product_entitlements;
--- drop table if exists dohefes_payment_orders;
--- drop function if exists dohefes_payment_entitlement_requires_verified_order();
--- drop function if exists dohefes_payment_touch_updated_at();
---
--- (drop index if exists, בניגוד ל-drop trigger, כן אידמפוטנטי - ניתן להריץ פעמיים בבטחה.)
---
--- בטוח לביצוע בכל שלב: אין foreign key בכיוון ההפוך (dohefes_reports לא מפנה לשתי הטבלאות
--- האלה), ואין קוד קיים (React/Edge Function) שתלוי בהן - הן לא נצרכות על ידי שום דבר עד commit
--- עתידי. הסדר למעלה (index -> RPC -> triggers -> entitlements -> orders -> functions) חשוב:
--- entitlements תלויה ב-orders דרך foreign key, שתי פונקציות ה-RPC נמחקות ראשונות כי אינן תלות
--- של אף אובייקט אחר, וכל טריגר/פונקציה אחרת נמחקת רק אחרי שמי שמשתמש בה כבר לא קיים.
+-- **הופרד לקובץ נפרד לגמרי**, מחוץ ל-supabase/migrations/, כדי שלא יוכל לרוץ בטעות כחלק
+-- מהתקנה (`db push`/`migration list` סורקים רק את supabase/migrations/*.sql - לא תיקיות
+-- אחרות) - ר' supabase/migrations_rollback/20260828062934_dohefes_payment_infrastructure_rollback.sql.
+-- אינו חלק מה-migration המופעל בשום צורה - קובץ נפרד, לא בהערה בתוך הקובץ הזה.
 
 -- --- תרחישי בדיקה ידניים (מתועדים בלבד - לא מבוצעים אוטומטית, לא כחלק מה-commit הזה) ---
 --

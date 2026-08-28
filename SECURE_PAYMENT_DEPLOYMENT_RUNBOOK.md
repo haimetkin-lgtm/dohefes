@@ -127,9 +127,12 @@ list`) בזכות מיקומו (`supabase/migrations/`) ותבנית שמו (`<t
    select count(*) from pg_proc where proname like 'dohefes_%';
    ```
    (דרך `npx supabase db query --linked "<שאילתה>"` - קריאה בלבד, לא דורש סיסמת DB). **ציפייה**:
-   `0` בשתיהן אם הכשל היה אמיתי. אם יש תוצאה חלקית - השתמש בבלוק ה-Rollback המתועד בתחתית
-   קובץ ה-migration (מריצים אותו כ-migration חדש נפרד עם `supabase migration new`, לא מדביקים
-   ידנית), ואז התייעץ לפני ניסיון חוזר.
+   `0` בשתיהן אם הכשל היה אמיתי. אם יש תוצאה חלקית - הרץ את
+   `supabase/migrations_rollback/20260828062934_dohefes_payment_infrastructure_rollback.sql`
+   (**קובץ נפרד, מחוץ ל-`supabase/migrations/`** - לא נסרק על ידי `db push`/`migration list`
+   בכלל, ולכן לא ירוץ בטעות כחלק מהתקנה עתידית) - ידנית ב-SQL Editor, **לא** דרך
+   `supabase migration new` (זו לא מיגרציה קדימה, אלא ביטול - אין טעם לרשום אותה ב-
+   `schema_migrations`), ואז התייעץ לפני ניסיון חוזר.
 6. **אל תריץ `supabase db push` פעם שנייה "סתם"** - ברגע שה-migration כבר מיושם (רשום ב-
    `schema_migrations`), ה-CLI עצמו לא ינסה להריץ אותו שוב (זו בדיוק המטרה של טבלת המעקב) -
    הרצה חוזרת "ליתר ביטחון" לא אמורה לגרום נזק דרך ה-CLI (בניגוד להדבקה ידנית ב-SQL Editor,
@@ -328,15 +331,16 @@ curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/dohefes-get-prod
 - **שלב 3 (migration) נכשל**: `db push` - ה-CLI כבר עוטף אוטומטית (implicitly transactional,
   ר' §3), אבל עדיין אמת בפועל עם `pg_tables`/`pg_proc` (§3 סעיף 5) - אל תניח בלי לבדוק. אם
   השתמשת בנתיב הגיבוי (SQL Editor ידני): `ROLLBACK;` מיידי, ואז אותו אימות. אם נשאר משהו חלקי
-  בכל מקרה - בלוק ה-Rollback המתועד בתחתית `supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql`.
+  בכל מקרה - `supabase/migrations_rollback/20260828062934_dohefes_payment_infrastructure_rollback.sql`
+  (קובץ נפרד, לא בתוך `supabase/migrations/`).
 - **פונקציה נכשלת בפריסה (שלב 4)**: `npx supabase functions delete <name>` ונסה שוב אחרי שתיקנת.
 - **תשלום אמיתי בוצע (שלב 7) אך שלב 8 מראה שההזמנה לא הפכה `paid`**: זה **לא** משהו שרולבק
   טכני פותר - הכסף כבר עבר אצל Cardcom. פנה לתמיכת Cardcom לבירור/זיכוי (פעולה עסקית, לא
   טכנית) - **אל תריץ UPDATE ידני** על `dohefes_payment_orders`/`dohefes_product_entitlements`
   כדי "לתקן" את המצב בעצמך; זה עוקף את כל שכבות האימות שנבנו. אם צריך לסמן הזמנה כ-paid ידנית
   אחרי אימות ישיר מול Cardcom (לא ניחוש) - זו החלטה נפרדת שדורשת דיון, לא צעד רוטיני ברשימה הזו.
-- **לבטל את כל התשתית (חזרה למצב לפני הענף הזה)**: בלוק ה-Rollback + `npx supabase functions
-  delete` לשלוש הפונקציות. שום דבר ב-`dohefes_reports` לא נגע, כך שהמערכת הקיימת (baseReport
+- **לבטל את כל התשתית (חזרה למצב לפני הענף הזה)**: קובץ ה-rollback הנפרד + `npx supabase
+  functions delete` לשלוש הפונקציות. שום דבר ב-`dohefes_reports` לא נגע, כך שהמערכת הקיימת (baseReport
   דרך המנגנון הישן) ממשיכה לעבוד ללא שינוי.
 
 ---
