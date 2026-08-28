@@ -29,6 +29,30 @@
 
 ---
 
+## גבול האימות (חובה לקרוא לפני כל פריסה)
+
+> **המערכת נבדקה טכנית באמצעות בדיקות וסימולציות. לא בוצעה עסקה כספית חיה. האינטגרציה החיה
+> מול Cardcom לא אומתה מקצה לקצה באמצעות חיוב בפועל.**
+
+**מה כן נבדק, אוטומטית, בלי חיוב** (527 בדיקות, `npx vitest run`):
+
+| קטגוריה | איפה |
+|---|---|
+| Unit tests | כל מודול ב-`_shared/` (money, name-to-value, payment-products, payment-security, cors) |
+| Integration עם fakes/mocks | `payment-order-service.test.ts`, `payment-indicator-service.test.ts`, `payment-access-service.test.ts` - כל ה-orchestration נבדק מול DB/Cardcom מזויפים |
+| Idempotency ומרוצים | Idempotency-Key כפול, claim/lease (פעיל/פג/מרוץ מקביל), partial unique index (מתועד ב-SQL, ר' למטה) |
+| Timeout/retry | `AbortSignal.timeout` מדומה, סיווג כשל ודאי מול לא-ודאי (`isAmbiguousCardcomFailure`), retry לא יוצר session/חיוב כפול |
+| Cardcom - תגובות תקינות/כושלות/כפולות/חלקיות | `cardcom-client.test.ts` (ResponseCode שגוי, שדות חסרים, host לא מאושר, timeout), `payment-indicator-service.test.ts` (callback כפול, אי-התאמת סכום/מטבע/ReturnValue, תגובה לא-ודאית) |
+| CORS | `cors.test.ts` (חדש) - Origin echo מדויק, בלי `*`, Methods/Headers מוגבלים, בלי Allow-Credentials |
+| Access tokens | `payment-security.test.ts` (generateAccessToken/hashAccessToken/generateClaimToken), נבדק גם ב-orchestration שטוקן לא נשלח/נדרס בטעות |
+
+**מה לא ניתן לבדוק אוטומטית בשלב הזה, ולמה**:
+- **RLS בפועל** - נבדק בקוד (`using(true)`/`grant`/`policy` grep, ר' ביקורות קודמות) ומתועד כתרחישי SQL בתחתית קובץ ה-migration, אבל **לא הורץ בפועל** - RLS נאכפת רק מול Postgres חי עם roles אמיתיים, ואין הרשאה להריץ migration בשלב הזה.
+- **JWT ברמת השער** - `verify_jwt=false` על `dohefes-cardcom-payment-indicator` מוגדר נכון ב-`config.toml` (קוד תקין, אומת), אבל האכיפה בפועל קורית ב-gateway של Supabase, לפני שהקוד רץ בכלל - ניתן לאמת רק **אחרי** פריסה אמיתית (Dashboard, ר' שלב 4).
+- **Cardcom חי (sandbox או production)** - שום קריאת רשת אמיתית ל-Cardcom לא בוצעה בשום שלב של העבודה הזו. אם קיים מסוף בדיקה/sandbox בחשבון Cardcom - זה לא אומת (ר' שלב 1: "שאל מפורשות", לא "הנח שקיים").
+
+---
+
 ## שלב 1 - אילו פרטים לקבל מ-Cardcom
 
 לפני שמתחילים, ודא שיש בידך מ-Cardcom (או מהפאנל שלהם):
@@ -314,3 +338,61 @@ curl -i -X POST "https://<project-ref>.supabase.co/functions/v1/dohefes-get-prod
 - **לבטל את כל התשתית (חזרה למצב לפני הענף הזה)**: בלוק ה-Rollback + `npx supabase functions
   delete` לשלוש הפונקציות. שום דבר ב-`dohefes_reports` לא נגע, כך שהמערכת הקיימת (baseReport
   דרך המנגנון הישן) ממשיכה לעבוד ללא שינוי.
+
+---
+
+## Rollout למיזמים נוספים ללא עסקה חיה
+
+### ההקשר
+
+"הפניה מוצלחת = תשלום מאושר" הוא **באג רוחבי**, לא ייחודי ל-dohefes - הסקר שנעשה לפני בניית
+התשתית הזו (ר' `GEN2_PAYMENT_ENTITLEMENT_DESIGN.md` §0) מצא את אותו דפוס ב-`insure-vda`
+(`case/[id]/page.tsx` מפעיל ניתוח אמיתי על סמך `?paid=true` מהלקוח, בלי אימות שרת), `rami`
+ו-`hetel-hasbaha`/machria (אותו דפוס בדיוק דרך `insure-vda`'s API routes), ו-`shlish-dira`/viager
+(אין entitlement/מעקב תשלום בכלל). **dohefes הוא כעת יישום הייחוס** לתיקון הזה - הכוונה הסופית
+היא להעביר את כולם לאותו מנגנון, אך **שום קוד/מסד נתונים של מיזם אחר לא שונה במסגרת העבודה
+הזו** - זו תכנית בלבד.
+
+### רכיבים ניתנים לשכפול (עם מיקום מדויק ב-dohefes)
+
+| רכיב | קובץ(ים) | עד כמה גנרי |
+|---|---|---|
+| לקוח Cardcom (LowProfile + Indicator) | `_shared/cardcom-client.ts` | ספציפי-לספק, לא ספציפי-למוצר - ניתן להעתיק כמעט as-is אם המיזם היעד משתמש באותו חשבון/מסוף Cardcom; דורש רק secrets ו-callback URLs משלו |
+| Name-To-Value parsing (case-insensitive) | `_shared/name-to-value.ts` | **100% גנרי** - בלי שום דבר ספציפי ל-dohefes, ניתן להעתיק מילה-במילה |
+| Access-token hashing | `_shared/payment-security.ts` (generateAccessToken/hashAccessToken/generateClaimToken) | **100% גנרי** - Web Crypto טהור, בלי שום דבר ספציפי ל-dohefes |
+| CORS helper | `_shared/cors.ts` | **100% גנרי** - ניתן להעתיק מילה-במילה |
+| דפוס idempotency-key + הזמנה חוסמת | `_shared/payment-order-service.ts` (findOrderByIdempotencyKey/findBlockingOrderForProduct) + partial unique index במיגרציה | **מבנה** גנרי (לא ה-SQL המילולי - שמות טבלאות ישתנו) |
+| claim/lease אטומי | `dohefes_claim_checkout_creation` (RPC) + `advanceOrderToCheckout` | **מבנה** גנרי - lease קבוע > timeout ה-fetch, CAS יחיד, שחרור מותנה-token |
+| אימות Indicator (webhook) | `_shared/payment-indicator-service.ts` | **מבנה** גנרי: לסמוך רק על LowProfileCode מה-webhook, אימות server-to-server, כתיבה יחידה דרך RPC |
+| מודל entitlement | טבלת product_entitlements + trigger מגן + finalize RPC אטומי | **מבנה** גנרי - טבלת orders נפרדת מטבלת entitlements, שתיהן מתעדכנות אטומית יחד |
+| סיווג timeout/retry | `CARDCOM_FETCH_TIMEOUT_MS`, `isAmbiguousCardcomFailure` | **מבנה** גנרי - כשל ודאי מול לא-ודאי, lease כמדיניות ל"לא ודאי" |
+
+### תבנית rollout לכל מיזם (insure-vda / hetel-hasbaha / rami / shlish-dira-viager)
+
+לכל מיזם, **בנפרד**, כשמגיע הזמן:
+
+1. **Audit** - אותה מתודולוגיה כמו הסקר שכבר נעשה ל-dohefes (`GEN2_PAYMENT_ENTITLEMENT_DESIGN.md`
+   §0): מה קיים היום (טבלאות, RLS, זרימת תשלום), האם המיזם באותו פרויקט Supabase משותף
+   (`giygjmacxquucwexmfdd`) או פרויקט/פלטפורמה אחרת (למשל `insure-vda` על Vercel).
+2. **התאמת namespace ומחיר** - prefix משלו ל-Functions/secrets/טבלאות/RPCs (לא `dohefes_`),
+   product registry ומחירים משלו (לא `_shared/payment-products.ts` של dohefes), callback URLs
+   משלו.
+3. **Migration מבודד** - קובץ `supabase/migrations/` נפרד, עם ה-prefix של המיזם, לא נוגע
+   בטבלאות dohefes/מיזמים אחרים.
+4. **פריסת Functions** - עם ה-prefix של המיזם, `verify_jwt=false` רק על ה-Indicator שלו.
+5. **בדיקות אוטומטיות וסימולציות** - **לפני כל כסף אמיתי** - אותה רמת קפדנות כמו הטבלה למעלה
+   (unit, integration עם fakes, idempotency/מרוצים, timeout/retry, סימולציית Cardcom, CORS/JWT/
+   access tokens).
+6. **הפעלה הדרגתית עם אפשרות rollback** - לא סגירת הישן בבת אחת; בלוק rollback מתועד לכל שלב,
+   בדיוק כמו ב-`payment-schema.sql`/`payment-order-service.ts` של dohefes.
+7. **סימון מפורש** שהאינטגרציה החיה עם Cardcom **טרם אומתה** באמצעות חיוב, עד שמישהו מבצע
+   בפועל את שלבי הניסוי האמיתי (כמו §5-11 למעלה, עבור המיזם הספציפי) **בכוונה מפורשת**.
+
+### מה נשאר קבוע בכל מיזם (לא משתנה ברולאאוט)
+
+- **אין** סגירת זרימת התשלום הישנה או ה-RLS הישן של אף מיזם - במסגרת התכנון הזה בלבד. סגירה
+  בפועל (אם בכלל) היא החלטה נפרדת, לכל מיזם, אחרי שהמנגנון החדש שלו הוכח.
+- **אין** הפיכת טבלאות dohefes (`dohefes_payment_orders`/`dohefes_product_entitlements`/וכו')
+  לטבלאות כלליות משותפות - כל מיזם מקבל את הטבלאות/Functions/secrets **שלו**, עם ה-prefix שלו,
+  לא שיתוף מבנה נתונים בין מוצרים/מיזמים.
+- **אין** שינוי קוד/מסד נתונים בשום ריפו אחר כרגע - הסעיף הזה הוא תכנית בלבד.
