@@ -11,8 +11,12 @@ import { defineConfig } from "vitest/config";
 // אותה כאן, בלי לשכפל את הלוגיקה בקובץ בדיקה נפרד. התנהגות ברמת ה-handler (retry/CORS/Cardcom
 // failure וכו', שדורשת Deno.serve/mocking של fetch ל-Cardcom) לא נבדקה אוטומטית בסבב הזה - ר'
 // דיווח המגבלה בדוח ה-commit.
+//
+// עדכון (audit מחזור חיים של access token, 2026-08-28): נוסף lib/payment (payment-storage.ts) -
+// מודול טהור לניהול pendingPurchases/productAccess ב-localStorage, ללא תלות ב-React/window (ר'
+// StorageLike ב-payment-storage.ts) - אותה סיבה בדיוק כמו lib/calc: ניתן לבדוק ישירות ב-Vitest.
 export default defineConfig({
   test: {
-    include: ["lib/calc/**/*.test.ts", "supabase/functions/_shared/**/*.test.ts"],
+    include: ["lib/calc/**/*.test.ts", "lib/payment/**/*.test.ts", "supabase/functions/_shared/**/*.test.ts"],
   },
 });
