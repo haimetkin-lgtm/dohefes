@@ -87,7 +87,7 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 |---|---|---|
 | `DOHEFES_CARDCOM_TERMINAL_NUMBER` | מספר המסוף משלב 1 | Cardcom |
 | `DOHEFES_CARDCOM_API_USERNAME` | שם המשתמש משלב 1 | Cardcom |
-| `DOHEFES_CARDCOM_SUCCESS_URL` | **סוכם 2026-08-28, מתוקן 2026-08-28** (ר' `GEN2_CASHFLOW_UI_DESIGN.md` §0.1.5/§0.1.5א-ו): `https://haimetkin-lgtm.github.io/dohefes/payment-return/?outcome=success` | האתר שלך |
+| `DOHEFES_CARDCOM_SUCCESS_URL` | **סוכם 2026-08-28, מתוקן 2026-08-28** (ר' `GEN2_CASHFLOW_UI_DESIGN.md` §0.1.5/§0.1.5א-ט): `https://haimetkin-lgtm.github.io/dohefes/payment-return/?outcome=success` | האתר שלך |
 | `DOHEFES_CARDCOM_ERROR_URL` | **סוכם 2026-08-28, מתוקן 2026-08-28**: `https://haimetkin-lgtm.github.io/dohefes/payment-return/?outcome=cancelled` | האתר שלך |
 | `DOHEFES_CARDCOM_INDICATOR_URL` | הכתובת המלאה של `dohefes-cardcom-payment-indicator` **אחרי** שהיא נפרסת (שלב 4) - בפורמט `https://<project-ref>.supabase.co/functions/v1/dohefes-cardcom-payment-indicator` | הפרויקט שלך, נקבע רק אחרי הפריסה |
 | `DOHEFES_ALLOWED_ORIGINS` | רשימת origins מופרדת בפסיקים (למשל `https://haimetkin-lgtm.github.io`) - ר' `_shared/payment-security.ts` | האתר שלך |
@@ -100,14 +100,21 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 **למה `DOHEFES_CARDCOM_SUCCESS_URL`/`DOHEFES_CARDCOM_ERROR_URL` לא כוללות `reportId`**: הן נשארות
 כתובות **קבועות** (לא נבנות דינמית per-בקשה - כך גם בקוד הקיים, `dohefes-create-payment-order/index.ts:305-306`)
 בכוונה - `reportId`/`productType`/`accessToken` נשמרים ב-`localStorage` בצד הלקוח **לפני** המעבר
-ל-Cardcom, במפה (`dohefes.pendingPurchases`) שמפתחה הוא `paymentContextId` (שדה חדש בתגובת
+ל-Cardcom, במפת `dohefes.pendingPurchases` שמפתחה הוא `paymentContextId` (שדה בתגובת
 `dohefes-create-payment-order`, ר' `payment-order-service.ts` - זהה בדיוק ל-`ReturnValue` שנשלח
-ל-Cardcom). **תיקון חשוב (2026-08-28)**: בניגוד למה שנרשם כאן במקור, ה-URL של החזרה **כן** נקרא
-בפועל - Cardcom כן מתעדת רשמית שהיא מחזירה את `ReturnValue` גם לעמוד ההצלחה, לא רק ל-Indicator
+ל-Cardcom). Cardcom כן מתעדת רשמית שהיא מחזירה את `ReturnValue` גם לעמוד ההצלחה, לא רק ל-Indicator
 (ר' המקור הרשמי שצוטט ב-§0.1.5א) - הוא משמש כמפתח לאיתור הרשומה הנכונה במפה כשיש כמה הזמנות
 פתוחות בו-זמנית (כמה לשוניות), ונקרא **case-insensitively** כי לתיעוד/לדוגמאות של Cardcom יש
-חוסר-עקביות casing מתועד. פירוט מלא (כולל TTL, ניקוי, ו-8 שלבי הזרימה): `GEN2_CASHFLOW_UI_DESIGN.md`
-§0.1.5א-ו.
+חוסר-עקביות casing מתועד.
+
+**עדכון נוסף (audit מחזור חיים של access token, 2026-08-28)**: `dohefes.pendingPurchases` הוא
+מאגר **זמני בלבד** (TTL 24 שעות - מדיניות שלנו, לא ערך מתועד של Cardcom, ר' §0.1.5ד) - ה-token
+עובר ממנו למאגר שני, קבוע, `dohefes.productAccess` (מפתח `reportId:productType`) ברגע ה-`active`,
+**לפני** מחיקת ה-pending, לא אחריה (`promoteToActive`, ר' §0.1.5ג) - זה ה-credential שמאפשר
+רענון/חזרה ביום אחר/פתיחה חוזרת מאותו מכשיר. שכבת האחסון הזו **כבר ממומשת ובדוקה בפועל**
+(`lib/payment/payment-storage.ts`, 28 בדיקות) - לא רק תכנון, למרות שאין עדיין React שקורא לה.
+פירוט מלא (שני המאגרים, TTL, מגבלות שימוש-במכשיר-אחד, ו-9 שלבי הזרימה): `GEN2_CASHFLOW_UI_DESIGN.md`
+§0.1.5א-ט.
 
 ---
 

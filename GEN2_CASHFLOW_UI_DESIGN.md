@@ -222,9 +222,15 @@ paymentContextId, status:"pending"}`. נבדק (`payment-order-service.test.ts`,
   אטומי (`dohefes_finalize_verified_payment`, קיים) → `dohefes-get-product-access` (קיים) - שרשרת
   שלמה שלא נוגעת ב-`paymentContextId` בשום נקודה.
 
-### 0.1.5ג - אחסון בצד הלקוח: מפה, לא רשומה יחידה
+### 0.1.5ג - אחסון בצד הלקוח: שני מאגרים נפרדים (תוקן 2026-08-28 - ר' 0.1.5ז)
 
-**מבנה** (`localStorage`, מפתח קבוע `dohefes.pendingPurchases`):
+**פער אמיתי שנמצא ותוקן**: הגרסה הקודמת של הסעיף הזה תכננה מפה יחידה (`dohefes.pendingPurchases`)
+שנמחקת ברגע `active`. **אבל ה-access token ששוכן בה הוא ה-credential היחיד לגישה למוצר** -
+מחיקתו הייתה מונעת רענון של `/cashflow`, חזרה למוצר ביום אחר, פתיחה מחדש מאותו מכשיר, ובדיקת
+entitlement חוזרת אחרי `revoked`/`refunded`. **תוקן**: שני מאגרים נפרדים, ומודול ממומש בפועל
+(`lib/payment/payment-storage.ts`, 28 בדיקות - ר' §0.1.6) - לא רק תכנון עוד.
+
+**מאגר 1 - `dohefes.pendingPurchases`** (זמני, לשימוש מעבר-וחזרה מ-Cardcom בלבד):
 
 ```ts
 type PendingPurchases = Record<string /* paymentContextId, מהשרת */, {
@@ -235,109 +241,164 @@ type PendingPurchases = Record<string /* paymentContextId, מהשרת */, {
 }>;
 ```
 
-**כללים**:
-- **המפתח הוא `paymentContextId` שהשרת יצר** - נכתב **רק** מיד אחרי תגובת 200 מוצלחת מ-
-  `dohefes-create-payment-order`, **לפני** הניווט ל-`checkoutUrl`. הלקוח לעולם לא ממציא מפתח.
-- **access token לעולם לא ב-URL** - נכתב ל-`localStorage` בלבד, ונשלח בחזרה רק ב-header
-  `X-Access-Token` (התאמה מלאה לחוזה הקיים של `dohefes-get-product-access`) - לעולם לא ב-URL,
-  ב-`history`, בלוג, או ב-analytics (האתר ממילא לא כולל שום סקריפט צד-שלישי, ר' §0.1.5ד).
-- **אין פרטי Cardcom או PII נשמרים** - רק `reportId`/`productType`/`accessToken`/`createdAt` -
-  לא `checkoutUrl`, לא `lowProfileCode`, לא שם/טלפון/מייל.
-- **TTL וניקוי אוטומטי**: כל רשומה נושאת `createdAt`; בכל קריאה/כתיבה למפה (לא טיימר רקע - אתר
-  סטטי בלי JS רץ כשהעמוד סגור), רשומות ישנות מ-30 דקות **נמחקות בשקט** לפני שהמפה נקראת/נבדקת -
-  משך נדיב מספיק להשלמת תשלום בפועל (כולל 3DS/הקלדת פרטים), קצר מספיק שלא יצטבר "זבל" לנצח.
-- **כמה לשוניות/הזמנות לא דורסות זו את זו** - **מבנית**, לא במקרה: `paymentContextId` הוא ייחודי
-  לכל הזמנה (נוצר מחדש בכל קריאה מוצלחת ל-`dohefes-create-payment-order`), והמפה שומרת לפי
-  מפתח, לא דורסת ערך קיים בכתיבה חדשה תחת מפתח **שונה**. שתי לשוניות פותחות שתי הזמנות → שתי
-  רשומות נפרדות במפה (המשותפת בין הלשוניות, כי `localStorage` משותף ל-origin) → כל חזרה קוראת
-  את ה-`ReturnValue` **שלה** ומאתרת **רק** את הרשומה התואמת, בלי תלות בסדר החזרה.
-- **ניקוי ממוקד בלבד** - `active` מוחק **רק** את המפתח (`paymentContextId`) שאומת בפועל, לא את
-  כל המפה. שום outcome אחר (`pending`/`unavailable`/`cancelled`) לא מוחק שום רשומה - כולל לא
-  את הרשומה של עצמו - כדי לא לאבד יכולת retry אחרי race אפשרי (ר' 0.1.5א, אזהרת Cardcom על
-  popup/exit) ובוודאי לא רשומה של הזמנה **אחרת**.
-- **אם אין `paymentContextId` תקין בחזרה** (`ReturnValue` חסר מה-URL, או קיים אך לא נמצא במפה,
-  או נמצא אך פג-תוקף) - **מסך "unavailable" גנרי, בלי שום ניסיון לנחש "ההזמנה האחרונה"** - גם
-  אם יש בדיוק רשומה אחת פתוחה במפה. זה כלל מוחלט, לא היוריסטיקה מותנית-מספר-רשומות: העדר
-  `paymentContextId` תקין הוא תמיד "לא ניתן לזהות הקשר", לא "כנראה זה זה".
+**מאגר 2 - `dohefes.productAccess`** (קבוע, ה-credential לגישה חוזרת למוצר שכבר נרכש):
 
-### 0.1.5ד - `sessionStorage` מול `localStorage` - נבדק, לא הונח
+```ts
+type ProductAccess = Record<string /* `${reportId}:${productType}` */, {
+  accessToken: string;
+  activatedAt: string; // ISO
+  lastVerifiedAt: string; // ISO, מתעדכן בכל בדיקה חוזרת מוצלחת
+}>;
+```
 
-**נבדק**: הזרימה הקיימת (למוצר הבסיסי, `app/start/page.tsx`) היא הפניה מלאה של הדפדפן
-(`window.location`, לא iframe/popup - ר' §0.1.1 למעלה) - במקרה כזה
-`sessionStorage` **היה שורד** טכנית (נשאר לכל אורך חיי הלשונית, כולל ניווט יוצא וחוזר). **בכל
-זאת, `localStorage` נבחר, מנומק**:
+**מעבר בין המאגרים - סדר פעולות מחייב, לא "תעביר את זה"** (`promoteToActive` ב-
+`payment-storage.ts`): (1) קריאת ה-`accessToken` מרשומת ה-pending, (2) כתיבתו ל-`productAccess`,
+(3) **רק אם** הכתיבה הצליחה בפועל (נבדק - לא רק "לא זרקה חריגה", גם לא quota error) - מחיקת
+רשומת ה-pending. אם הכתיבה נכשלת - הפונקציה מחזירה `ok:false`, **ורשומת ה-pending נשארת שלמה**
+(נבדק: "כשל כתיבה ל-productAccess (quota) - pending נשאר שלם") - כדי שניסיון חוזר בטעינה הבאה
+עדיין ימצא את ה-token, במקום לאבד אותו.
+
+**כללים משותפים לשני המאגרים**:
+- **המפתח ב-pending הוא `paymentContextId` שהשרת יצר** - הלקוח לעולם לא ממציא מפתח.
+- **access token לעולם לא ב-URL** - רק ב-`localStorage`, ונשלח בחזרה רק ב-header `X-Access-Token`.
+- **אין פרטי Cardcom או PII נשמרים** באף אחד מהמאגרים.
+- **כמה לשוניות/הזמנות לא דורסות זו את זו** - מבנית: `paymentContextId` ייחודי לכל הזמנה, המאגר
+  שומר לפי מפתח, לא דורס ערך תחת מפתח שונה (נבדק: "שתי הזמנות עם paymentContextId שונה נשמרות
+  שתיהן").
+- **ניקוי ממוקד בלבד** - `active` מוחק **רק** את מפתח ה-pending שאומת (נבדק: "קידום לשונית אחת
+  לא מוחק pending של לשונית אחרת"); `revokeActiveAccess` (revoked/refunded/unavailable) מוחקת
+  **רק** את `reportId:productType` הספציפי מ-`productAccess`, לא נוגעת במוצר אחר על אותו דוח או
+  באותו מוצר על דוח אחר (נבדק).
+- **`productAccess` ללא TTL אוטומטי** - בניגוד ל-pending, המוצר נרכש לשימוש חוזר, לא חד-פעמי -
+  `cleanupPending` (המנקה pending לפי TTL) **לעולם לא נוגעת** ב-`productAccess` (נבדק במפורש).
+  ראה §0.1.5ז למגבלות שנובעות מהיעדר תפוגה אוטומטית.
+- **אם אין `paymentContextId` תקין בחזרה** - מסך "unavailable" גנרי, בלי ניחוש "ההזמנה האחרונה"
+  (ר' §0.1.5ח לזרימת fallback הנכונה, לא ניחוש).
+
+### 0.1.5ד - TTL של `pendingPurchases`: 24 שעות, מדיניות שלנו - לא ערך מתועד של Cardcom
+
+**נבדק בפועל, לא הונח**: תיעוד Cardcom הרשמי (שני המאמרים העיקריים שנקראו על LowProfile,
+`cardcomapinametovalue.zendesk.com`) **אינו מציין שום זמן תפוגה רשמי** ל-session של LowProfile
+עצמו. **לכן**: אין להתייחס לשום TTL כאן כ"זמן Cardcom" - `PENDING_TTL_MS` (`lib/payment/payment-storage.ts`)
+= **24 שעות, מדיניות שלנו בלבד**, שמרנית בכוונה - מספיק זמן לחזור לתשלום שהתחיל ולא הושלם (כולל
+3DS/העברה לאפליקציית בנק), קצר מספיק שלא יצטבר "זבל" לצמיתות. ה-30 דקות שהופיעו כאן בטיוטה קודמת
+**היו ניחוש שגוי** שהוצג כאילו הוא קשור למשך session אמיתי אצל Cardcom - תוקן.
+
+**מגבלות מפורשות על ה-TTL**: (1) **לא מוחק pending פעיל באמצע polling** - `resolvePendingByContext`
+מריץ ניקוי TTL לפי הזמן שקיבל, לא לפי טיימר עצמאי - polling תכוף (כל 2-5 שניות, ר' §0.1.5ה) לא
+"מזדמן" לחצות את סף ה-24 שעות; (2) `productAccess` **אינו** כפוף לאותו TTL כלל (ר' §0.1.5ג) - אם
+נשמר ללא תפוגה אוטומטית, הוא נשאר במכשיר עד ניקוי נתוני הדפדפן, `revoked`/`refunded` מהשרת, או
+פעולה מפורשת של המשתמש (ר' §0.1.5ז).
+
+### 0.1.5ה - `sessionStorage` מול `localStorage` - נבדק, לא הונח
+
+חל על שני המאגרים כאחד (`pendingPurchases`+`productAccess`) - שניהם צריכים לשרוד מעבר לחיי
+לשונית בודדת (`productAccess` בפרט - כל מטרתו לשרוד ליום אחר). **נבדק**: הזרימה הקיימת (למוצר
+הבסיסי, `app/start/page.tsx`) היא הפניה מלאה של הדפדפן (`window.location`, לא iframe/popup - ר'
+§0.1.1) - במקרה כזה `sessionStorage` **היה שורד** טכנית לצורך ה-pending בלבד (לא ל-`productAccess`,
+שצריך לשרוד ממילא ימים/שבועות - שם `sessionStorage` פסול מבנית, לא רק "לא אידיאלי"). **גם עבור
+ה-pending, `localStorage` נבחר, מנומק**:
 
 1. **אזהרת Cardcom הרשמית עצמה** (0.1.5א): "the card holder can receive POPUP and exit the
-   page" - כלומר גם הזרימה הרשמית של Cardcom **לא** מבטיחה הפניה מלאה באותה לשונית תמיד (למשל
-   כשמופעל PayPal/Bit - שני כפתורי תשלום חלופיים המתועדים באותו עמוד LowProfile, שמעבירים את
-   המשתמש לאפליקציה/אתר חיצוני, לא רק הפניה רגילה בתוך הדפדפן).
-2. **מצבי רקע במובייל** - דפדפן מובייל שמושהה (backgrounding) בזמן 3DS/אימות בנק ארוך עלול
-   לאבד `sessionStorage` בהתאם למדיניות ה-OS/דפדפן, בעוד `localStorage` שורד.
+   page" - הזרימה הרשמית של Cardcom לא מבטיחה הפניה מלאה באותה לשונית תמיד (PayPal/Bit - שני
+   כפתורי תשלום חלופיים באותו עמוד LowProfile, שמעבירים לאפליקציה/אתר חיצוני).
+2. **מצבי רקע במובייל** - דפדפן מושהה בזמן 3DS/אימות בנק ארוך עלול לאבד `sessionStorage`.
 
-**ההקשחה שמפצה על הבחירה ב-`localStorage` (רחב-חיים יותר מ-`sessionStorage`)**:
-- TTL של 30 דקות (0.1.5ג) - לא נשאר "לנצח" כמו `localStorage` גולמי.
-- שם מפתח ייעודי (`dohefes.pendingPurchases`) - לא namespace גנרי (`data`/`state`) שעלול
-  להתנגש עם שימוש עתידי אחר באותו origin.
-- ניקוי מיידי של רשומה שאומתה בהצלחה (`active`) - לא נשארת אחרי שכבר שימשה את מטרתה.
-- **אין סקריפטים צד-שלישי בעמודי התשלום** - נבדק: `package.json` הנוכחי כולל רק `xlsx`+
-  `@supabase/supabase-js` כתלויות ריצה, אין אנליטיקס/פרסום/tag manager בשום `app/layout.tsx` -
-  זה נשאר תנאי-סף ל-`app/cashflow`/`app/payment-return` העתידיים: **לא** להוסיף סקריפט צד-שלישי
-  לעמודים האלה בלי בדיקת ההשפעה על ה-`localStorage` הזה במפורש.
+**ההקשחה שמפצה על הבחירה ב-`localStorage`**: TTL של 24 שעות ל-pending בלבד (0.1.5ד); שמות מפתח
+ייעודיים (`dohefes.pendingPurchases`/`dohefes.productAccess`, לא namespace גנרי); ניקוי מיידי
+וממוקד של pending שאומת (0.1.5ג); **אין סקריפטים צד-שלישי בעמודי התשלום** - נבדק: `package.json`
+כולל רק `xlsx`+`@supabase/supabase-js` כתלויות ריצה - תנאי-סף ל-`app/cashflow`/`app/payment-return`
+העתידיים: לא להוסיף סקריפט צד-שלישי לעמודים האלה בלי בדיקת ההשפעה על שני המאגרים במפורש.
 
-### 0.1.5ה - זרימת `/payment-return/` המתוקנת (שלבים 1-8)
+### 0.1.5ו - זרימת `/payment-return/` המתוקנת (שלבים 1-8)
 
-1. **קריאת ה-`ReturnValue`** מה-querystring של `window.location.search`, **case-insensitive**
-   (0.1.5א) - התאמת כל מפתח ששווה ל-`"returnvalue"` אחרי `toLowerCase()`, לא רק המחרוזת
-   המדויקת `ReturnValue`.
-2. **איתור הרשומה** ב-`dohefes.pendingPurchases[returnValue]` (אחרי ניקוי TTL, 0.1.5ג). אם
-   `returnValue` חסר, או לא נמצא, או פג-תוקף → §0.1.5ו ("unavailable"), עצירה - לא ממשיכים
-   לשלב 3.
-3. **קריאה ל-`dohefes-get-product-access`** עם `reportId`/`productType` מהרשומה שנמצאה,
-   `accessToken` שלה ב-header `X-Access-Token`.
-4. `active` → ניקוי **הרשומה הזו בלבד** מהמפה, מעבר (`router.replace`, לא `push` - כפתור
-   "אחורה" לא יחזיר ל-Cardcom) לכתובת #4 (`/cashflow/?id=<reportId>`), **בלי** שום דגל ב-URL
-   (כללים 4+7).
-5. `pending` → **polling מוגבל עם backoff**: התחלה כל 2 שניות (עד כ-10 ניסיונות), אחר כך כל 5
-   שניות, עד תקרת זמן כוללת (מוצע: 90 שניות) - לא מרווח קבוע לנצח.
-6. `unavailable` → §0.1.5ו, הודעה גנרית.
-7. **תום זמן (timeout)** - הגעה לתקרת ה-polling בלי הכרעה: כפתור "בדוק שוב" **ידני** בלבד -
-   ממשיך לבדוק את **אותו** `paymentContextId`/הזמנה, **לא** קורא ל-`dohefes-create-payment-order`
-   מחדש ולא יוצר הזמנה חדשה אוטומטית (כלל מפורש - יצירת הזמנה חדשה היא פעולה מודעת ונפרדת,
-   דרך #3/#4, לא תוצר-לוואי של timeout).
-8. `outcome=success|cancelled` (0.1.5) הוא **תמיד** רמז ניסוח בלבד לאורך כל השלבים למעלה -
-   אף שלב לא בודק אותו לצורך החלטה, רק לבחירת הטקסט הראשוני לפני התשובה הראשונה מהשרת.
+1. **קריאת ה-`ReturnValue`** מה-querystring, **case-insensitive** (0.1.5א).
+2. **איתור הרשומה** ב-`pendingPurchases` (`resolvePendingByContext`, מריץ ניקוי TTL קודם). אם
+   `returnValue` חסר, לא נמצא, או פג-תוקף → §0.1.5ח (fallback לפי `reportId`+`productType` אם
+   ידוע מה-URL של הדף עצמו) ואז §0.1.5ט ("unavailable") אם גם זה לא מניב תוצאה חד-משמעית.
+3. **קריאה ל-`dohefes-get-product-access`** עם `reportId`/`productType`/`accessToken` מהרשומה.
+4. `active` → **`promoteToActive`** (0.1.5ג - כותב ל-`productAccess` **לפני** מחיקת ה-pending,
+   לא מוחק קודם), ואז מעבר (`router.replace`) לכתובת #4 (`/cashflow/?id=<reportId>`), בלי דגל
+   ב-URL. אם `promoteToActive` מחזירה `ok:false` (כשל כתיבה) - **לא** ממשיכים למחיקה/מעבר -
+   מוצגת הודעת שגיאה זמנית עם "נסה שוב" (לא "unavailable" - זו לא בעיית הרשאה, אלא כשל storage
+   מקומי).
+5. `pending` → polling מוגבל עם backoff: כל 2 שניות (עד כ-10 ניסיונות), אחר כך כל 5 שניות, עד
+   תקרה כוללת (מוצע 90 שניות).
+6. `unavailable` → §0.1.5ט, הודעה גנרית + `revokeActiveAccess` **אם** קיימת רשומת `productAccess`
+   ישנה לאותו `reportId`+`productType` (מכסה `revoked`/`refunded` שהתגלו רק עכשיו, ר' §0.1.5ז).
+7. **תום זמן (timeout)** - כפתור "בדוק שוב" ידני, ממשיך לבדוק **אותה** הזמנה, **לא** קורא
+   ל-`dohefes-create-payment-order` מחדש.
+8. `outcome=success|cancelled` הוא **תמיד** רמז ניסוח בלבד - אף שלב לא בודק אותו לצורך החלטה.
 
-### 0.1.5ו - מסך "unavailable"/אין הקשר - זהה בכל מקרה, לא חושף פרטים
+### 0.1.5ז - מגבלות שיש להציג ביושר, והודעה למשתמש אחרי רכישה
 
-הודעה גנרית **זהה** לכל אחת מהסיבות הבאות - `ReturnValue` חסר, לא נמצא במפה, פג-תוקף, טוקן שגוי
-(תשובת `dohefes-get-product-access` עצמה), או מוצר שלא נרכש (תואם במדויק את התגובה האחידה של
-`dohefes-get-product-access`, ר' ה-comment בקובץ עצמו: "אותה תגובה בדיוק... אי אפשר להבחין
-ביניהם מבחוץ") - עם קישור חזרה לכתובת #3/#4 (`/cashflow/?id=<reportId>`, אם `reportId` ידוע
-מהרשומה שנמצאה; אם אף רשומה לא נמצאה כלל - קישור כללי חזרה לדוח, בלי לנחש `reportId`).
+**בהיעדר משתמשים מחוברים או מנגנון recovery** (לא בהיקף המסמך הזה, ר' §10):
+- הגישה נשמרת **במכשיר ובדפדפן שבהם בוצעה הרכישה** בלבד.
+- ניקוי `localStorage`/נתוני האתר עלול לאבד את הגישה המקומית.
+- **אין כרגע שחזור אוטומטי במכשיר אחר** - אם המשתמש עובר מכשיר, אין דרך היום לשחזר גישה בלי
+  לפנות אליי ישירות (אין מנגנון "שלח לי קישור" - ר' למטה, לא נבנה בלי החלטה נפרדת).
+- אין `accessToken` בשום URL רגיל, query string, לוג, או analytics - נבדק (`lib/payment/payment-storage.test.ts`,
+  "אין access token בפלט שגיאה/חריגה").
+- **לא נבנה כרגע** קישור שיתוף או מערכת שחזור - דורש החלטה נפרדת (טרייד-אוף בין נוחות שחזור
+  לחשיפת credential בקישור נשלח/מאוחסן במקום נוסף).
 
-### 0.1.6 - תרחישי בדיקה שיתווספו כשייכתב `app/payment-return` (טרם ממומשים - תכנון בלבד)
+**הודעה קצרה שתוצג למסך המוצר מיד אחרי רכישה מוצלחת** (`status:"active"` לראשונה):
 
-לבדיקה מול `dohefes-get-product-access`/`dohefes.pendingPurchases` הממומשים כשה-UI ייכתב
-(Vitest עם fakes, כמו כל שאר הפרויקט - לא Cardcom אמיתי, ר' §0.1.7):
+> הגישה למוצר נשמרת בדפדפן הזה. מומלץ לא למחוק את נתוני האתר.
 
-1. שתי הזמנות בשתי לשוניות, חזרה בסדר הפוך מסדר היצירה - כל חזרה מאתרת את הרשומה שלה לפי
-   `paymentContextId` שלה, לא לפי סדר.
-2. `ReturnValue` לא מוכר (לא קיים במפה) → unavailable גנרי.
-3. `ReturnValue` חסר לגמרי מה-URL → unavailable גנרי (לא ניחוש "ההזמנה האחרונה", גם אם יש רשומה
-   יחידה במפה).
-4. `casing` שונה של הפרמטר (`returnvalue`/`RETURNVALUE`/`ReturnValue`) - כולם מזוהים.
-5. `accessToken` חסר או פג (תשובת `dohefes-get-product-access` עצמה - unavailable).
-6. רשומה במפה שפג תוקפה (TTL, 30 דקות) - מנוקה בשקט, לא נמצאת, unavailable.
-7. `active` מנקה **רק** את ההקשר המתאים - רשומה אחרת (הזמנה אחרת/לשונית אחרת) נשארת שלמה במפה.
-8. `cancelled` (outcome) אינו מוחק אף רשומה - לא את שלו, בוודאי לא של הזמנה אחרת.
-9. רענון עמוד באמצע `pending` - polling ממשיך מהתחלה (אין state בזיכרון שאבד, המפה ב-`localStorage`
-   שורדת רענון).
-10. משתמש שמקליד ידנית `?outcome=success` בלי הקשר תקין - עדיין unavailable, לא "success" מזויף.
-11. ידיעת `paymentContextId` בלי `accessToken` תקין - `dohefes-get-product-access` דוחה (התאמת
-    hash נכשלת), unavailable - לא digest/hint שמסגיר האם ה-`paymentContextId` "נכון".
-12. אין `accessToken` בשום מקום ב-URL, `history`, לוג, או קריאת רשת חוץ מ-header `X-Access-Token`
-    לכתובת `dohefes-get-product-access` עצמה - נבדק via network assertion (בדיקת אינטגרציה
-    עתידית, לא Vitest טהור).
+### 0.1.5ח - Fallback כשה-`ReturnValue` חסר: איתור לפי `reportId`+`productType`
+
+`/payment-return/` **לעולם לא מנחשת הזמנה** (0.1.5ג). **אבל** אם המשתמש חוזר **ידנית** אל
+`/dohefes/cashflow/?id=<reportId>` (לא דרך `/payment-return/` בכלל - למשל שמר את הקישור וחזר
+מאוחר יותר, או ש-`ReturnValue` אבד בדרך) - עמוד `/cashflow` עצמו (לא `/payment-return`) רשאי
+להשתמש ב-`resolvePendingByReportAndProduct(storage, reportId, productType, now)` כדי לאתר
+**התאמה מדויקת** ב-`pendingPurchases` לפי `reportId`+`productType` הידועים מה-URL של העמוד הזה
+עצמו (לא מנחש `reportId` - הוא כבר ב-URL), ולבדוק אותה מול השרת לפני הצגת מסך רכישה. **אם יש
+יותר מהתאמה אחת** (לא אמור לקרות בזרימה תקינה - claim/lease מונע שתי הזמנות פעילות לאותו
+report+product בשרת - אך המודול לא סומך על כך) - `resolvePendingByReportAndProduct` מחזירה
+`{ok:false, reason:"ambiguous"}`, **לא בוחרת אחת מהן** - מוצג מסך רכישה רגיל (לא "unavailable" -
+פשוט מתעלמים מהמצב הלא-חד-משמעי ומתחילים זרימת רכישה נקייה, שתעבור בעצמה דרך ה-claim בשרת).
+
+### 0.1.5ט - מסך "unavailable"/אין הקשר - זהה בכל מקרה, לא חושף פרטים
+
+הודעה גנרית **זהה** לכל אחת מהסיבות הבאות - `ReturnValue` חסר, לא נמצא ב-pending, פג-תוקף, טוקן
+שגוי, מוצר שלא נרכש, או `revoked`/`refunded` (תואם במדויק את התגובה האחידה של
+`dohefes-get-product-access` עצמה) - עם קישור חזרה ל-`/cashflow/?id=<reportId>` (אם `reportId`
+ידוע; אם לא - קישור כללי חזרה לדוח, בלי לנחש `reportId`).
+
+### 0.1.6 - שכבת האחסון: ממומשת ובדוקה בפועל (`lib/payment/payment-storage.ts`)
+
+**בניגוד לשאר §0.1.5 (עדיין תכנון בלבד, אין React) - שכבת האחסון עצמה כבר ממומשת ובדוקה**, כמודול
+טהור ללא תלות ב-React/`window` (ר' `StorageLike` - הזרקת storage, לא גישה ישירה ל-`window.localStorage`).
+28 בדיקות (`lib/payment/payment-storage.test.ts`), כולן ירוקות:
+
+- `active` מעביר token ל-`productAccess` **לפני** מחיקת ה-pending; כשל כתיבה ל-`active` **לא**
+  מוחק את ה-pending; `paymentContextId` לא-קיים לא נוגע בכלום.
+- רענון (`reload`) מוצא `active` token מחדש (נבדק דרך storage "טרי" עם אותו raw JSON, לא state
+  בזיכרון).
+- שתי לשוניות: pending אחד לא נדרס על ידי אחר; קידום אחד לא מוחק pending של הזמנה אחרת.
+- `revokeActiveAccess` מוחקת **רק** את `report+product` המתאים - לא מוצר אחר/דוח אחר.
+- JSON פגום (בשני המאגרים), `schemaVersion` לא תואם, וצורה לא-צפויה (למשל מערך) - כולם "נכשל
+  סגור" למאגר ריק, אף פעם לא חריגה.
+- TTL: pending שפג מנוקה; רשומה בדיוק בגבול ה-TTL עדיין תקפה; pending לא נמחק **באמצע** polling
+  (סימולציה של 10 קריאות רצופות); `cleanupPending` (TTL של pending) **אף פעם** לא נוגעת ב-`productAccess`,
+  גם כש-"עכשיו" רחוק שנה קדימה.
+- `localStorage` quota error - `setItem` שזורק חריגה מטופל, לא מפיל את הפונקציה, מוחזר `ok:false`.
+- אין מוטציה של אובייקט הקלט שהועבר ל-`addPending`.
+- אין `accessToken` בשום `JSON.stringify` של תוצאת שגיאה/כשל.
+- `resolvePendingByReportAndProduct`: התאמה יחידה נמצאת; אין התאמה → `not_found`; מוצר שונה על
+  אותו דוח לא נחשב התאמה; **שתי התאמות סותרות → `ambiguous`, נכשל סגור, לא בוחר אחת** (0.1.5ח).
+- `touchActiveAccess` מעדכנת `lastVerifiedAt` בלבד, לא נוגעת ב-`accessToken`/`activatedAt`; אין
+  רשומה קיימת → לא יוצרת חדשה, לא זורקת.
+
+**מה עדיין לא ממומש/בדוק** (ברמת ה-UI, כשייכתב `app/payment-return`/`app/cashflow` בפועל):
+1. קריאת `ReturnValue` בפועל מ-`window.location.search` (case-insensitive) וחיבורה למודול הזה.
+2. polling מול `dohefes-get-product-access` אמיתי (fetch מדומה ב-Vitest, לא Cardcom אמיתי - ר'
+   §0.1.7) - כולל backoff, timeout, וכפתור "בדוק שוב" ידני.
+3. משתמש שמקליד ידנית `?outcome=success` בלי הקשר תקין - unavailable, לא "success" מזויף.
+4. בדיקת network-level שאין `accessToken` בשום מקום מלבד header `X-Access-Token` (הבדיקה שקיימת
+   כרגע מוודאת רק היעדרו מ-JSON.stringify של תוצאות שגיאה, לא בדיקת רשת אמיתית - ר' §0.1.6 לעיל
+   "אין accessToken בשום JSON.stringify").
 
 ### 0.1.7 - סביבת הבדיקות הרשמית של Cardcom - קיימת, לא הופעלה (החלטה מפורשת)
 
@@ -848,10 +909,23 @@ commit 2 מתאר `NEXT_PUBLIC_CARDCOM_LINK_CASHFLOW`/טבלת `ProductEntitleme
 
 ## 12. סטטוס
 
-מסמך תכנון בלבד. **לא בוצע שינוי קוד React, לא נקרא `computeCashFlow`/`prepareCashFlowInput`
-משום מקום, לא נוצרה עמודת Supabase, לא בוצע פרסום, לא נפרסה שום Edge Function, לא הוגדר שום
-secret.** עודכן 2026-08-28: כתובות סופיות לזרימת רכישה/חזרה (§0.1.5), תיקון קישור ReturnValue/
-`paymentContextId` (§0.1.5א-ו), תרחישי בדיקה עתידיים (§0.1.6), החלטה מפורשת שלא להפעיל את סביבת
-הבדיקות הרשמית של Cardcom (§0.1.7). שינוי הקוד היחיד שבוצע בפועל בעקבות הסבב הזה: `paymentContextId`
-בתגובת `dohefes-create-payment-order` (commit נפרד, ר' `payment-order-service.ts`+בדיקותיו) -
-עדיין לא נקרא משום קוד React, כי אין עדיין. ממתין לאישור סעיף 10 לפני commit 1 של ה-UI עצמו.
+מסמך תכנון בלבד לגבי ה-UI (React) עצמו. **לא נכתב שום קוד React, לא נקרא `computeCashFlow`/
+`prepareCashFlowInput` משום מקום, לא נוצרה עמודת Supabase, לא בוצע פרסום, לא נפרסה שום Edge
+Function, לא הוגדר שום secret, לא בוצעה פנייה ל-Cardcom (כולל לא לסביבת הבדיקות הרשמית שאותרה -
+ר' §0.1.7).**
+
+**עודכן 2026-08-28 (סבב ראשון)**: כתובות סופיות לזרימת רכישה/חזרה (§0.1.5), תיקון קישור
+ReturnValue/`paymentContextId` מול תיעוד Cardcom הרשמי (§0.1.5א-ב).
+
+**עודכן 2026-08-28 (סבב שני - audit מחזור חיים של access token)**: זוהה ותוקן פער אמיתי - מפת
+`pendingPurchases` יחידה שנמחקת ב-`active` הייתה משאירה את המשתמש בלי שום credential לגישה
+חוזרת (רענון/יום אחר/מכשיר אותו/revoked מחדש). תוקן למודל שני-מאגרים (`pendingPurchases`+
+`productAccess`, §0.1.5ג), TTL של 24 שעות **מתועד כמדיניות שלנו** (לא ערך Cardcom - §0.1.5ד),
+מגבלות שימוש-במכשיר-אחד מתועדות ביושר + הודעת משתמש אחרי רכישה (§0.1.5ז), ו-fallback מפורש
+כש-`ReturnValue` חסר שלא בוחר "התאמה אחרונה" בעת ריבוי (§0.1.5ח).
+
+**שכבת האחסון (`lib/payment/payment-storage.ts`) כבר ממומשת ובדוקה בפועל - 28 בדיקות, לא רק
+תכנון** (§0.1.6) - זה היחיד מבין הרכיבים שתוארו כאן שכבר יש לו קוד אמיתי, כי הוא לא תלוי ב-React
+כלל. שינוי הקוד השני שבוצע בעקבות הסבבים: `paymentContextId` בתגובת `dohefes-create-payment-order`
+(commit נפרד). עדיין אין `app/payment-return`/`app/cashflow` בפועל. ממתין לאישור סעיף 10 לפני
+commit 1 של ה-UI עצמו.
