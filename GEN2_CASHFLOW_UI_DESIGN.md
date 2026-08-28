@@ -106,6 +106,247 @@ interface ProductEntitlement {
 כי entitlement הוא ישות ברמת "מוצר×דוח", לא תכונה של הדוח עצמו) - **אך זו עדיין החלטת יישום
 עתידית, לא מבוצעת עכשיו**.
 
+### 0.1.3א - עדכון: תשתית האימות האמיתית כבר קיימת ורצה (2026-08-28)
+
+**את §0.1.1/§0.1.4/§10-סעיף-6 יש לקרוא כעת לאור עובדה חדשה, לא כפי שנכתבו במקור**: כשהסעיפים
+האלה נכתבו, "אין שרת בפרויקט בכלל" היה נכון עובדתית. זה כבר **לא** נכון - ענף
+`secure-payment-deployment` מוזג ל-`main`, וה-migration שמקים אותו (`dohefes_payment_orders`,
+`dohefes_product_entitlements`, RLS ללא policies אנונימיות, RPCs) **רץ בפועל** מול הפרויקט
+המרוחק (ר' `SECURE_PAYMENT_DEPLOYMENT_RUNBOOK.md` §3 "מצב בפועל"). שלוש Edge Functions
+(`dohefes-create-payment-order`, `dohefes-cardcom-payment-indicator`, `dohefes-get-product-access`)
+קיימות בקוד, מוכנות לפריסה (טרם פרוסות בפועל - זה עתידי, ר' §0.1.3 ברנבוק).
+
+**המשמעות**: "אפשרות 2" ב-§0.1.4 למטה (אימות אמיתי בצד שרת) **הוכרעה בפועל** - היא **חובה**,
+לא עוד שאלה פתוחה. §10 סעיף 6 (למטה) **הוכרע**: אימות תשלום עובר תמיד דרך
+`dohefes-get-product-access`, לעולם לא query parameter. **המודל ב-§0.1.3 המקורי (טבלת
+`ProductEntitlement` הכללית שהדפדפן היה קורא ישירות)`** גם הוא מוחלף בפועל: הדפדפן **לעולם לא**
+קורא לטבלאות (`dohefes_payment_orders`/`dohefes_product_entitlements`) ישירות - גם לא לקריאה
+בלבד, גם לא עם ה-anon key - כי אין להן שום RLS policy אנונימי (deny-all בכוונה). כל בדיקת סטטוס,
+כולל עבור `cashFlowAnalysis`, עוברת אך ורק דרך `dohefes-get-product-access` (`{status: "active" |
+"pending" | "unavailable"}` - ר' `supabase/functions/dohefes-get-product-access/index.ts`).
+
+**מיפוי מדויק בין השדות המתוכננים כאן לבין מה שכבר קיים בקוד**:
+
+| מתוכנן כאן (§0.1.2/§0.1.3) | קיים בפועל היום |
+|---|---|
+| `productType:"cashFlowAnalysis"` | ✅ כבר תומך - `_shared/payment-products.ts` מכיל `"cashFlowAnalysis"` לצד `"baseReport"`, כולל תלות שדוח הבסיס כבר `paid` (ר' רנבוק §6) |
+| `ProductEntitlement` (טיפוס מתוכנן) | ✅ קיים כטבלה אמיתית, `dohefes_product_entitlements` |
+| בדיקת סטטוס תשלום מהדפדפן | ✅ קיימת - `dohefes-get-product-access`, לא הטבלה ולא `payment_status` |
+| יצירת הזמנה + כתובת checkout | ✅ קיימת - `dohefes-create-payment-order` (מחזיר `{orderId, checkoutUrl, accessToken, status:"pending"}`) |
+| מניעת חיוב כפול (§0.1.4) | ✅ קיימת ברמת שרת (claim/lease אטומי + partial unique index) - **חזקה יותר** ממה שתוכנן כאן (`insertedRef`/`useRef` בצד לקוח בלבד) |
+
+**מה עדיין באמת פתוח**, ורק זה: ה-**UI עצמו** שקורא לפונקציות האלה (§3-§9 למטה) - כלום מזה לא
+נכתב בעבר. §0.1.5 ולמטה (חלק ב' של הביקורת מ-2026-08-28) קובעים את כתובות ה-URL הסופיות
+לזרימת החזרה מ-Cardcom, שהיו עד כה placeholder בלבד.
+
+### 0.1.5 - כתובות סופיות לזרימת הרכישה/חזרה (סוכם 2026-08-28, מתוקן 2026-08-28 - ר' 0.1.5א)
+
+**ארבע הכתובות, ועיקרון-העל שמחבר ביניהן**: אף אחת מהן לא "יודעת" לבד שהתשלום אושר - כל אחת
+בודקת בעצמה מול `dohefes-get-product-access` בכל טעינה, בלי לסמוך על כתובת ה-URL שהביאה אליה.
+
+| # | תפקיד | כתובת (יחסית ל-basePath `/dohefes`) |
+|---|---|---|
+| 1 | חזרה מ-Cardcom, הצלחה | `/payment-return/?outcome=success` |
+| 2 | חזרה מ-Cardcom, ביטול/כשל | `/payment-return/?outcome=cancelled` |
+| 3 | רכישת `cashFlowAnalysis` | `/cashflow/?id=<reportId>` (מצב "לא נרכש עדיין", ר' §3.1 - **אותה כתובת** כמו #4, לא כתובת נפרדת - ר' הסבר למטה) |
+| 4 | המוצר עצמו לאחר הרשאה | `/cashflow/?id=<reportId>` (מצב "נרכש", אותה כתובת, ה-wizard/תוצאות) |
+
+**למה #3 ו-#4 הן אותה כתובת, לא שתיים נפרדות**: זה בדיוק המודל התלת-מצבי שכבר **הוכרע** ב-§3.1/§3.2
+למטה (לפני העדכון הזה) - `/cashflow/?id=` בודק בעצמו (`dohefes-get-product-access`) האם המוצר
+נרכש, ומציג מסך רכישה **או** תוכן בפועל **מאותה כתובת בדיוק**, בלי הפניה נוספת. זה שונה מהתקדים
+`/start` מול `/calculator` (לדוח הבסיס) - שם יש היסטורית שתי כתובות כי `/start` נבנה **לפני**
+שהיה `reportId` בכלל (הדוח נוצר רק אחרי התשלום). כאן ה-`reportId` **כבר קיים** (תנאי סף, ר' §10)
+לפני שהרכישה מתחילה - אין סיבה טכנית לשתי כתובות, ואיחוד לכתובת אחת מונע מצב שבו קישור ישן
+("לרכישה") ממשיך לעבוד גם אחרי שהמוצר כבר נרכש. **אם בעתיד יוחלט אחרת** (שתי כתובות נפרדות),
+זו חריגה מהמסמך הזה שדורשת עדכון מפורש כאן, לא הנחה בשקט.
+
+**כתובת #1/#2 - אותה כתובת בפועל, `outcome` הוא רמז ניסוח בלבד, לעולם לא סטטוס תשלום (כלל 8)**:
+שתיהן מובילות לאותו קובץ (`app/payment-return/page.tsx`, טרם נכתב) - ה-querystring
+`outcome=success|cancelled` קובע רק איזה טקסט ראשוני מוצג ("מאמתים את התשלום..." מול "נראה
+שהתשלום לא הושלם, בודקים בכל זאת...") - **שתיהן**, בלי יוצא מהכלל, קוראות ל-`dohefes-get-product-access`
+ומחליטות לפי התשובה בפועל, לא לפי `outcome`. גם משתמש שמקליד ידנית `?outcome=success` (ר' §0.1.6,
+תרחיש בדיקה) לא מקבל שום דבר מעבר לרענון תצוגה - אין השפעה על סטטוס אמיתי.
+
+### 0.1.5א - תיקון 2026-08-28: קישור נכון בין החזרה מ-Cardcom להזמנה (ReturnValue/paymentContextId)
+
+**הסעיף הקודם (0.1.5) הניח בטעות ש-`localStorage` יחיד ("רשומת pending payment אחת") מספיק,
+ושלא צריך לקרוא שום דבר מה-URL בחזרה.** זה שגוי בשני מובנים, ותוקן:
+
+**(א) תיעוד Cardcom הרשמי נבדק בפועל** (`cardcomapinametovalue.zendesk.com`, מאמר "Low profile
+interface - EN (Step 1+2)", 2026-08-28) - פרמטר #18, `ReturnValue`: **"Value to transfer to the
+clearing system to be returned on the success page / INDICATOR"** - כלומר Cardcom **כן** מתעדת
+במפורש ש-`ReturnValue` (אותו ערך שנשלח ביצירת ה-LowProfile session, ר' §0.1.5ב למטה) חוזר גם
+לעמוד ההצלחה, לא רק ל-Indicator. **אין להתעלם מזה** - זה בדיוק המזהה שצריך לקשר בין החזרה
+להזמנה הנכונה, גם כשיש כמה הזמנות פתוחות בו-זמנית (כמה לשוניות).
+
+**(ב) אבל: אין בתיעוד דוגמת query string מפורשת דווקא ל-`SuccessRedirectUrl`/`ErrorRedirectUrl`
+עצמן** (בניגוד ל-`IndicatorUrl`, שיש לה דוגמה מפורשת: `...Indicator.aspx?terminalnumber=1000&...`).
+**וממצא קריטי מאותה דוגמה עצמה**: הדוגמה הזו כותבת `terminalnumber`/`lowprofilecode` (lowercase)
+למרות שבכל שאר המסמך אותם פרמטרים מוצהרים ב-PascalCase (`TerminalNumber`/`LowProfileCode`) -
+**חוסר-עקביות casing מתועד רשמית על ידי Cardcom עצמה**, לא רק חשש תיאורטי. בנוסף, אותו מסמך
+מזהיר במפורש (סעיף `IndicatorUrl`): **"Do not rely on the success page, its an open for bugs,
+the card holder can receive POPUP and exit the page and then your server did not know about
+making the order."** - קרי, Cardcom עצמה אומרת שדף ההצלחה עלול שלא לטעון כלל (popup שנסגר)
+ושה-Indicator (server-to-server, שכבר ממומש ומאומת - ר' `dohefes-cardcom-payment-indicator`) הוא
+מקור האמת היחיד למצב תשלום. **זו בדיוק ההצדקה הרשמית לארכיטקטורה שכבר קיימת כאן** - עמוד החזרה
+לעולם לא קובע סטטוס, רק מנחה לאיזו הזמנה לשאול.
+
+**המסקנה ההנדסית**: לקרוא את `ReturnValue` מה-querystring של עמוד החזרה **case-insensitively**
+(להתאים כל מפתח ששווה ל-`"returnvalue"` אחרי `toLowerCase()`, לא רק `ReturnValue` המדויק), **ולא
+להניח שהוא בהכרח יגיע** - אם הוא חסר, זו אפשרות תקנית וצפויה (לא שגיאה), ר' זרימה מתוקנת למטה.
+
+### 0.1.5ב - `paymentContextId`: המזהה הציבורי, המקור, והמגבלות עליו
+
+**המקור**: `provider_order_reference` הפנימי (כבר קיים בקוד - `generateProviderOrderReference()`
+ב-`_shared/payment-security.ts`: 16 בתים אקראיים מוצפנים → `"po_" + hex`, **לא UUID, לא נגזר
+מקלט לקוח בשום צורה**) - זה בדיוק הערך שכבר נשלח ל-Cardcom כ-`ReturnValue` בכל בקשת יצירת
+LowProfile session (`advanceOrderToCheckout` → `cardcomClient.createLowProfile({returnValue:
+order.providerOrderReference, ...})`, `_shared/payment-order-service.ts`).
+
+**מה בוצע בפועל (commit נפרד, ר' §9 המעודכן)**: `dohefes-create-payment-order` **כבר מחזיר**
+אותו בתגובת ההצלחה, תחת שם ציבורי מכוון - `paymentContextId` - **לא** `providerOrderReference`
+ולא שום שם שחושף שמדובר בקארדקום. תגובת ה-200 המלאה כעת: `{orderId, checkoutUrl, accessToken,
+paymentContextId, status:"pending"}`. נבדק (`payment-order-service.test.ts`, "paymentContextId -
+זהה בדיוק ל-ReturnValue..."): `paymentContextId` בתגובה שווה **בדיוק** ל-`returnValue` שנשלח
+בפועל ל-`cardcomClient.createLowProfile` - לא ערך מקורב, לא מחושב מחדש בנפרד.
+
+**כלל האבטחה, ואיך הוא ממומש בפועל** (לא רק כהצהרה):
+- `paymentContextId` הוא מזהה הקשר בלבד - **לא** secret, **לא** access token, **לא** הוכחת תשלום.
+- ידיעתו **לבדה** אינה מאפשרת גישה, קריאה או שינוי כלשהם: הוא **לעולם לא נשלח בחזרה לשום Edge
+  Function** - לא ל-`dohefes-get-product-access` (מקבלת רק `reportId`/`productType`+`X-Access-Token`,
+  ללא שדה כזה כלל בחוזה שלה), ולא לשום endpoint אחר. הוא נשאר **local-only** בצד הלקוח, משמש
+  אך ורק כמפתח למפת ה-`pendingPurchases` (ר' §0.1.5ג). **נבדק במפורש** (בדיקת-תיעוד שנייה ב-
+  `payment-order-service.test.ts`): אין שום מתודת `PaymentOrderDatabase` שמאפשרת חיפוש לפי
+  `providerOrderReference`/`paymentContextId`/`returnValue` - מבנית, אין דרך לשאול עליו בכלל.
+- ההרשאה בפועל תמיד וממשיכה להיקבע רק על ידי: Indicator מאומת (server-to-server, קיים) → RPC
+  אטומי (`dohefes_finalize_verified_payment`, קיים) → `dohefes-get-product-access` (קיים) - שרשרת
+  שלמה שלא נוגעת ב-`paymentContextId` בשום נקודה.
+
+### 0.1.5ג - אחסון בצד הלקוח: מפה, לא רשומה יחידה
+
+**מבנה** (`localStorage`, מפתח קבוע `dohefes.pendingPurchases`):
+
+```ts
+type PendingPurchases = Record<string /* paymentContextId, מהשרת */, {
+  reportId: string;
+  productType: ProductType;
+  accessToken: string;
+  createdAt: string; // ISO, לצורך TTL
+}>;
+```
+
+**כללים**:
+- **המפתח הוא `paymentContextId` שהשרת יצר** - נכתב **רק** מיד אחרי תגובת 200 מוצלחת מ-
+  `dohefes-create-payment-order`, **לפני** הניווט ל-`checkoutUrl`. הלקוח לעולם לא ממציא מפתח.
+- **access token לעולם לא ב-URL** - נכתב ל-`localStorage` בלבד, ונשלח בחזרה רק ב-header
+  `X-Access-Token` (התאמה מלאה לחוזה הקיים של `dohefes-get-product-access`) - לעולם לא ב-URL,
+  ב-`history`, בלוג, או ב-analytics (האתר ממילא לא כולל שום סקריפט צד-שלישי, ר' §0.1.5ד).
+- **אין פרטי Cardcom או PII נשמרים** - רק `reportId`/`productType`/`accessToken`/`createdAt` -
+  לא `checkoutUrl`, לא `lowProfileCode`, לא שם/טלפון/מייל.
+- **TTL וניקוי אוטומטי**: כל רשומה נושאת `createdAt`; בכל קריאה/כתיבה למפה (לא טיימר רקע - אתר
+  סטטי בלי JS רץ כשהעמוד סגור), רשומות ישנות מ-30 דקות **נמחקות בשקט** לפני שהמפה נקראת/נבדקת -
+  משך נדיב מספיק להשלמת תשלום בפועל (כולל 3DS/הקלדת פרטים), קצר מספיק שלא יצטבר "זבל" לנצח.
+- **כמה לשוניות/הזמנות לא דורסות זו את זו** - **מבנית**, לא במקרה: `paymentContextId` הוא ייחודי
+  לכל הזמנה (נוצר מחדש בכל קריאה מוצלחת ל-`dohefes-create-payment-order`), והמפה שומרת לפי
+  מפתח, לא דורסת ערך קיים בכתיבה חדשה תחת מפתח **שונה**. שתי לשוניות פותחות שתי הזמנות → שתי
+  רשומות נפרדות במפה (המשותפת בין הלשוניות, כי `localStorage` משותף ל-origin) → כל חזרה קוראת
+  את ה-`ReturnValue` **שלה** ומאתרת **רק** את הרשומה התואמת, בלי תלות בסדר החזרה.
+- **ניקוי ממוקד בלבד** - `active` מוחק **רק** את המפתח (`paymentContextId`) שאומת בפועל, לא את
+  כל המפה. שום outcome אחר (`pending`/`unavailable`/`cancelled`) לא מוחק שום רשומה - כולל לא
+  את הרשומה של עצמו - כדי לא לאבד יכולת retry אחרי race אפשרי (ר' 0.1.5א, אזהרת Cardcom על
+  popup/exit) ובוודאי לא רשומה של הזמנה **אחרת**.
+- **אם אין `paymentContextId` תקין בחזרה** (`ReturnValue` חסר מה-URL, או קיים אך לא נמצא במפה,
+  או נמצא אך פג-תוקף) - **מסך "unavailable" גנרי, בלי שום ניסיון לנחש "ההזמנה האחרונה"** - גם
+  אם יש בדיוק רשומה אחת פתוחה במפה. זה כלל מוחלט, לא היוריסטיקה מותנית-מספר-רשומות: העדר
+  `paymentContextId` תקין הוא תמיד "לא ניתן לזהות הקשר", לא "כנראה זה זה".
+
+### 0.1.5ד - `sessionStorage` מול `localStorage` - נבדק, לא הונח
+
+**נבדק**: הזרימה הקיימת (למוצר הבסיסי, `app/start/page.tsx`) היא הפניה מלאה של הדפדפן
+(`window.location`, לא iframe/popup - ר' §0.1.1 למעלה) - במקרה כזה
+`sessionStorage` **היה שורד** טכנית (נשאר לכל אורך חיי הלשונית, כולל ניווט יוצא וחוזר). **בכל
+זאת, `localStorage` נבחר, מנומק**:
+
+1. **אזהרת Cardcom הרשמית עצמה** (0.1.5א): "the card holder can receive POPUP and exit the
+   page" - כלומר גם הזרימה הרשמית של Cardcom **לא** מבטיחה הפניה מלאה באותה לשונית תמיד (למשל
+   כשמופעל PayPal/Bit - שני כפתורי תשלום חלופיים המתועדים באותו עמוד LowProfile, שמעבירים את
+   המשתמש לאפליקציה/אתר חיצוני, לא רק הפניה רגילה בתוך הדפדפן).
+2. **מצבי רקע במובייל** - דפדפן מובייל שמושהה (backgrounding) בזמן 3DS/אימות בנק ארוך עלול
+   לאבד `sessionStorage` בהתאם למדיניות ה-OS/דפדפן, בעוד `localStorage` שורד.
+
+**ההקשחה שמפצה על הבחירה ב-`localStorage` (רחב-חיים יותר מ-`sessionStorage`)**:
+- TTL של 30 דקות (0.1.5ג) - לא נשאר "לנצח" כמו `localStorage` גולמי.
+- שם מפתח ייעודי (`dohefes.pendingPurchases`) - לא namespace גנרי (`data`/`state`) שעלול
+  להתנגש עם שימוש עתידי אחר באותו origin.
+- ניקוי מיידי של רשומה שאומתה בהצלחה (`active`) - לא נשארת אחרי שכבר שימשה את מטרתה.
+- **אין סקריפטים צד-שלישי בעמודי התשלום** - נבדק: `package.json` הנוכחי כולל רק `xlsx`+
+  `@supabase/supabase-js` כתלויות ריצה, אין אנליטיקס/פרסום/tag manager בשום `app/layout.tsx` -
+  זה נשאר תנאי-סף ל-`app/cashflow`/`app/payment-return` העתידיים: **לא** להוסיף סקריפט צד-שלישי
+  לעמודים האלה בלי בדיקת ההשפעה על ה-`localStorage` הזה במפורש.
+
+### 0.1.5ה - זרימת `/payment-return/` המתוקנת (שלבים 1-8)
+
+1. **קריאת ה-`ReturnValue`** מה-querystring של `window.location.search`, **case-insensitive**
+   (0.1.5א) - התאמת כל מפתח ששווה ל-`"returnvalue"` אחרי `toLowerCase()`, לא רק המחרוזת
+   המדויקת `ReturnValue`.
+2. **איתור הרשומה** ב-`dohefes.pendingPurchases[returnValue]` (אחרי ניקוי TTL, 0.1.5ג). אם
+   `returnValue` חסר, או לא נמצא, או פג-תוקף → §0.1.5ו ("unavailable"), עצירה - לא ממשיכים
+   לשלב 3.
+3. **קריאה ל-`dohefes-get-product-access`** עם `reportId`/`productType` מהרשומה שנמצאה,
+   `accessToken` שלה ב-header `X-Access-Token`.
+4. `active` → ניקוי **הרשומה הזו בלבד** מהמפה, מעבר (`router.replace`, לא `push` - כפתור
+   "אחורה" לא יחזיר ל-Cardcom) לכתובת #4 (`/cashflow/?id=<reportId>`), **בלי** שום דגל ב-URL
+   (כללים 4+7).
+5. `pending` → **polling מוגבל עם backoff**: התחלה כל 2 שניות (עד כ-10 ניסיונות), אחר כך כל 5
+   שניות, עד תקרת זמן כוללת (מוצע: 90 שניות) - לא מרווח קבוע לנצח.
+6. `unavailable` → §0.1.5ו, הודעה גנרית.
+7. **תום זמן (timeout)** - הגעה לתקרת ה-polling בלי הכרעה: כפתור "בדוק שוב" **ידני** בלבד -
+   ממשיך לבדוק את **אותו** `paymentContextId`/הזמנה, **לא** קורא ל-`dohefes-create-payment-order`
+   מחדש ולא יוצר הזמנה חדשה אוטומטית (כלל מפורש - יצירת הזמנה חדשה היא פעולה מודעת ונפרדת,
+   דרך #3/#4, לא תוצר-לוואי של timeout).
+8. `outcome=success|cancelled` (0.1.5) הוא **תמיד** רמז ניסוח בלבד לאורך כל השלבים למעלה -
+   אף שלב לא בודק אותו לצורך החלטה, רק לבחירת הטקסט הראשוני לפני התשובה הראשונה מהשרת.
+
+### 0.1.5ו - מסך "unavailable"/אין הקשר - זהה בכל מקרה, לא חושף פרטים
+
+הודעה גנרית **זהה** לכל אחת מהסיבות הבאות - `ReturnValue` חסר, לא נמצא במפה, פג-תוקף, טוקן שגוי
+(תשובת `dohefes-get-product-access` עצמה), או מוצר שלא נרכש (תואם במדויק את התגובה האחידה של
+`dohefes-get-product-access`, ר' ה-comment בקובץ עצמו: "אותה תגובה בדיוק... אי אפשר להבחין
+ביניהם מבחוץ") - עם קישור חזרה לכתובת #3/#4 (`/cashflow/?id=<reportId>`, אם `reportId` ידוע
+מהרשומה שנמצאה; אם אף רשומה לא נמצאה כלל - קישור כללי חזרה לדוח, בלי לנחש `reportId`).
+
+### 0.1.6 - תרחישי בדיקה שיתווספו כשייכתב `app/payment-return` (טרם ממומשים - תכנון בלבד)
+
+לבדיקה מול `dohefes-get-product-access`/`dohefes.pendingPurchases` הממומשים כשה-UI ייכתב
+(Vitest עם fakes, כמו כל שאר הפרויקט - לא Cardcom אמיתי, ר' §0.1.7):
+
+1. שתי הזמנות בשתי לשוניות, חזרה בסדר הפוך מסדר היצירה - כל חזרה מאתרת את הרשומה שלה לפי
+   `paymentContextId` שלה, לא לפי סדר.
+2. `ReturnValue` לא מוכר (לא קיים במפה) → unavailable גנרי.
+3. `ReturnValue` חסר לגמרי מה-URL → unavailable גנרי (לא ניחוש "ההזמנה האחרונה", גם אם יש רשומה
+   יחידה במפה).
+4. `casing` שונה של הפרמטר (`returnvalue`/`RETURNVALUE`/`ReturnValue`) - כולם מזוהים.
+5. `accessToken` חסר או פג (תשובת `dohefes-get-product-access` עצמה - unavailable).
+6. רשומה במפה שפג תוקפה (TTL, 30 דקות) - מנוקה בשקט, לא נמצאת, unavailable.
+7. `active` מנקה **רק** את ההקשר המתאים - רשומה אחרת (הזמנה אחרת/לשונית אחרת) נשארת שלמה במפה.
+8. `cancelled` (outcome) אינו מוחק אף רשומה - לא את שלו, בוודאי לא של הזמנה אחרת.
+9. רענון עמוד באמצע `pending` - polling ממשיך מהתחלה (אין state בזיכרון שאבד, המפה ב-`localStorage`
+   שורדת רענון).
+10. משתמש שמקליד ידנית `?outcome=success` בלי הקשר תקין - עדיין unavailable, לא "success" מזויף.
+11. ידיעת `paymentContextId` בלי `accessToken` תקין - `dohefes-get-product-access` דוחה (התאמת
+    hash נכשלת), unavailable - לא digest/hint שמסגיר האם ה-`paymentContextId` "נכון".
+12. אין `accessToken` בשום מקום ב-URL, `history`, לוג, או קריאת רשת חוץ מ-header `X-Access-Token`
+    לכתובת `dohefes-get-product-access` עצמה - נבדק via network assertion (בדיקת אינטגרציה
+    עתידית, לא Vitest טהור).
+
+### 0.1.7 - סביבת הבדיקות הרשמית של Cardcom - קיימת, לא הופעלה (החלטה מפורשת)
+
+אותרה בפועל סביבת בדיקות/sandbox רשמית של Cardcom (support.cardcom.solutions, "התנסות במערכת
+טסטים"). **הוחלט במפורש שלא להפעיל אותה** - לא נוצרה עסקה, גם לא עסקת בדיקה, בסביבת ה-sandbox
+הזו או בכל סביבה אחרת של Cardcom. כל הבדיקות (527+ קיימות, ור' §0.1.6 העתידיות) נשארות אוטומטיות/
+מדומות בלבד (Vitest + fakes) - תיעוד זה קיים כדי שהחלטה זו לא תישחק בטעות בעתיד ("הרי יש סביבת
+בדיקות, למה לא להשתמש בה") בלי דיון מפורש חדש.
+
 ### 0.1.4 בטיחות תשלום - תכנון בלבד
 
 - **מניעת חיוב כפול ברענון/חזרה**: `SuccessRedirectUrl` מכיל `paid=true` - אם המשתמש מרענן את
@@ -529,6 +770,12 @@ entitlement (למשל שיתוף קישור, או חזרה ל-URL ישן) מצי
 
 ## 9. תכנית Commits
 
+**הערה - הרשימה למטה קדמה לתשתית האמיתית (ר' §0.1.3א/§0.1.5) וטרם עודכנה במלואה**: בפרט,
+commit 2 מתאר `NEXT_PUBLIC_CARDCOM_LINK_CASHFLOW`/טבלת `ProductEntitlement` גנרית - **אלה כבר
+קיימים בפועל בצורה אחרת** (`DOHEFES_CARDCOM_*` secrets, `dohefes_product_entitlements` אמיתית,
+`dohefes-create-payment-order` שכולל כעת גם `paymentContextId`). כשיתחיל commit 1 בפועל, יש
+לעדכן את הרשימה כאן לפני שממשיכים - **אל תבצע commit 2 כפי שמתואר מילולית למטה**.
+
 1. **טיפוסי מצב UI + המרות** - `lib/cashflow-ui/` (חדש): מיפוי תוויות עברית, `monthLabel()`,
    פונקציות אחוז↔שבר, טיפוסי wizard state. **ללא React, ללא חיבור מנוע.**
 2. **רכישה ו-entitlement** - `CASHFLOW_ANALYSIS_PRICE_NIS` ליד `BASIC_PRICE_NIS` (`lib/supabase.ts`),
@@ -566,9 +813,10 @@ entitlement (למשל שיתוף קישור, או חזרה ל-URL ישן) מצי
    יותר, פחות ניחוש שקט לפי סוג עסקה).
 5. **`maxIterations`** - נשאר פרמטר פנימי בלבד (מומלץ, כבר מתועד ב-`cashflow-complete-financing.ts`
    כ"לבדיקות בלבד"), לא נחשף למשתמש בשום UI.
-6. **אימות תשלום בצד שרת** (§0.1.4) - לשמר את אותה רמת סיכון כמו המוצר הקיים (query-param
-   בלבד, ללא תשתית חדשה) מול בניית תשתית אימות שרת אמיתית (Edge Function/webhook) - **החלטת
-   תשתית שחורגת מהיקף UI לתזרים בלבד**, מומלץ לדון בה בנפרד, אולי גם עבור דוח האפס הקיים.
+6. ~~**אימות תשלום בצד שרת** (§0.1.4)~~ - **הוכרע ב-2026-08-28, ר' §0.1.3א**: אימות אמיתי בצד
+   שרת (`dohefes-get-product-access`) הוא התשתית שכבר קיימת ורצה - לא עוד שאלה פתוחה. שאלת
+   הרחבתה **גם** לדוח האפס הקיים (`baseReport`, שממשיך כרגע ב-`?paid=true` הישן) נשארת פתוחה,
+   אך מחוץ להיקף המסמך הזה.
 
 ---
 
@@ -600,6 +848,10 @@ entitlement (למשל שיתוף קישור, או חזרה ל-URL ישן) מצי
 
 ## 12. סטטוס
 
-מסמך תכנון בלבד, מאושר לכתיבה על `gen2-cashflow-ui`. **לא בוצע שינוי קוד React, לא נקרא
-`computeCashFlow`/`prepareCashFlowInput` משום מקום, לא נוצרה עמודת Supabase, לא בוצע פרסום.**
-ממתין לאישור סעיף 10 לפני commit 1.
+מסמך תכנון בלבד. **לא בוצע שינוי קוד React, לא נקרא `computeCashFlow`/`prepareCashFlowInput`
+משום מקום, לא נוצרה עמודת Supabase, לא בוצע פרסום, לא נפרסה שום Edge Function, לא הוגדר שום
+secret.** עודכן 2026-08-28: כתובות סופיות לזרימת רכישה/חזרה (§0.1.5), תיקון קישור ReturnValue/
+`paymentContextId` (§0.1.5א-ו), תרחישי בדיקה עתידיים (§0.1.6), החלטה מפורשת שלא להפעיל את סביבת
+הבדיקות הרשמית של Cardcom (§0.1.7). שינוי הקוד היחיד שבוצע בפועל בעקבות הסבב הזה: `paymentContextId`
+בתגובת `dohefes-create-payment-order` (commit נפרד, ר' `payment-order-service.ts`+בדיקותיו) -
+עדיין לא נקרא משום קוד React, כי אין עדיין. ממתין לאישור סעיף 10 לפני commit 1 של ה-UI עצמו.

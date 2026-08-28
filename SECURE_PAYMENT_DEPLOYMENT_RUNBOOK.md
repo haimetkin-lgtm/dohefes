@@ -87,8 +87,8 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 |---|---|---|
 | `DOHEFES_CARDCOM_TERMINAL_NUMBER` | מספר המסוף משלב 1 | Cardcom |
 | `DOHEFES_CARDCOM_API_USERNAME` | שם המשתמש משלב 1 | Cardcom |
-| `DOHEFES_CARDCOM_SUCCESS_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי תשלום מוצלח | האתר שלך |
-| `DOHEFES_CARDCOM_ERROR_URL` | כתובת בדף שלך שהמשתמש חוזר אליה אחרי כישלון/ביטול | האתר שלך |
+| `DOHEFES_CARDCOM_SUCCESS_URL` | **סוכם 2026-08-28, מתוקן 2026-08-28** (ר' `GEN2_CASHFLOW_UI_DESIGN.md` §0.1.5/§0.1.5א-ו): `https://haimetkin-lgtm.github.io/dohefes/payment-return/?outcome=success` | האתר שלך |
+| `DOHEFES_CARDCOM_ERROR_URL` | **סוכם 2026-08-28, מתוקן 2026-08-28**: `https://haimetkin-lgtm.github.io/dohefes/payment-return/?outcome=cancelled` | האתר שלך |
 | `DOHEFES_CARDCOM_INDICATOR_URL` | הכתובת המלאה של `dohefes-cardcom-payment-indicator` **אחרי** שהיא נפרסת (שלב 4) - בפורמט `https://<project-ref>.supabase.co/functions/v1/dohefes-cardcom-payment-indicator` | הפרויקט שלך, נקבע רק אחרי הפריסה |
 | `DOHEFES_ALLOWED_ORIGINS` | רשימת origins מופרדת בפסיקים (למשל `https://haimetkin-lgtm.github.io`) - ר' `_shared/payment-security.ts` | האתר שלך |
 
@@ -96,6 +96,18 @@ secrets set <NAME>=<value>` מה-CLI) - **שמות בלבד, אין ערכים �
 הראשונים, פרוס את שלוש הפונקציות (שלב 4), ואז חזור והזן את `DOHEFES_CARDCOM_INDICATOR_URL` עם הכתובת
 האמיתית שקיבלת, ופרוס מחדש רק את `dohefes-cardcom-payment-indicator` (secrets נטענים מחדש אוטומטית
 עם כל deploy).
+
+**למה `DOHEFES_CARDCOM_SUCCESS_URL`/`DOHEFES_CARDCOM_ERROR_URL` לא כוללות `reportId`**: הן נשארות
+כתובות **קבועות** (לא נבנות דינמית per-בקשה - כך גם בקוד הקיים, `dohefes-create-payment-order/index.ts:305-306`)
+בכוונה - `reportId`/`productType`/`accessToken` נשמרים ב-`localStorage` בצד הלקוח **לפני** המעבר
+ל-Cardcom, במפה (`dohefes.pendingPurchases`) שמפתחה הוא `paymentContextId` (שדה חדש בתגובת
+`dohefes-create-payment-order`, ר' `payment-order-service.ts` - זהה בדיוק ל-`ReturnValue` שנשלח
+ל-Cardcom). **תיקון חשוב (2026-08-28)**: בניגוד למה שנרשם כאן במקור, ה-URL של החזרה **כן** נקרא
+בפועל - Cardcom כן מתעדת רשמית שהיא מחזירה את `ReturnValue` גם לעמוד ההצלחה, לא רק ל-Indicator
+(ר' המקור הרשמי שצוטט ב-§0.1.5א) - הוא משמש כמפתח לאיתור הרשומה הנכונה במפה כשיש כמה הזמנות
+פתוחות בו-זמנית (כמה לשוניות), ונקרא **case-insensitively** כי לתיעוד/לדוגמאות של Cardcom יש
+חוסר-עקביות casing מתועד. פירוט מלא (כולל TTL, ניקוי, ו-8 שלבי הזרימה): `GEN2_CASHFLOW_UI_DESIGN.md`
+§0.1.5א-ו.
 
 ---
 
@@ -274,8 +286,10 @@ number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע
    (בלי `-H "Origin: ..."` תקבל `403 origin_not_allowed` - זו התנהגות תקינה, לא באג; ר'
    ממצאי ה-CORS בדוח.)
 
-3. **ציפייה**: `200`, גוף עם `{ orderId, checkoutUrl, accessToken, status: "pending" }`.
-   **שמור את שלושתם** - `orderId` לשלב 8, `checkoutUrl` לשלב 7, `accessToken` לשלב 10.
+3. **ציפייה**: `200`, גוף עם `{ orderId, checkoutUrl, accessToken, paymentContextId, status: "pending" }`.
+   **שמור את כולם** - `orderId` לשלב 8, `checkoutUrl` לשלב 7, `accessToken` לשלב 10, `paymentContextId`
+   לאימות ידני שהוא זהה ל-`ReturnValue` שחוזר בפועל בכתובת ה-`SuccessRedirectUrl`/`ErrorRedirectUrl`
+   בשלב 7 (ר' `GEN2_CASHFLOW_UI_DESIGN.md` §0.1.5ב).
 4. **אם קיבלת `503 {"error":"checkout_creation_in_progress"}`**: זו תגובה תקינה, לא שגיאה -
    אומרת שיש כבר ניסיון פעיל ליצור checkout לאותה הזמנה (claim פעיל, ר' `b735c0f`) - למשל אם
    הרצת את הקריאה פעמיים כמעט בו-זמנית. פשוט המתן כמה שניות ונסה שוב.
@@ -292,6 +306,11 @@ number/username נפרדים, אם קיימים) ב-secrets (שלב 2), ובצע
 3. אחרי הצלחה, אתה מגיע ל-`DOHEFES_CARDCOM_SUCCESS_URL` שהגדרת. **בשלב הזה** (אם ה-IndicatorUrl הוגדר
    נכון ו-Cardcom קוראת לו) - `dohefes-cardcom-payment-indicator` אמורה כבר לרוץ ברקע. אם ה-IndicatorUrl
    לא מוגדר נכון, או ש-Cardcom לא קוראת לו אוטומטית, תצטרך לגרות אותו ידנית - ר' שלב 9.
+   **הזדמנות לאמת ידנית** (רלוונטי כש-`app/payment-return` ייכתב, ר' `GEN2_CASHFLOW_UI_DESIGN.md`
+   §0.1.5א) - בדוק את ה-querystring שחזר בפועל בכתובת הדפדפן: האם מופיע `ReturnValue` (או casing
+   אחר), והאם ערכו זהה ל-`paymentContextId` שנשמר משלב 6. תיעוד Cardcom הרשמי טוען שכן, אך ללא
+   דוגמת URL מפורשת לעמוד ההצלחה עצמו (רק ל-Indicator) - זו ההזדמנות היחידה לאמת בפועל, לא רק
+   מהתיעוד.
 
 ---
 
