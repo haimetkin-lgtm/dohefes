@@ -197,7 +197,7 @@ function buildDeps(overrides: Partial<PaymentOrderServiceDeps> & { database: Pay
     anomalyLogger: overrides.anomalyLogger ?? fakeAnomalyLogger(),
     successRedirectUrl: overrides.successRedirectUrl ?? "https://haimetkin-lgtm.github.io/dohefes/cashflow/",
     errorRedirectUrl: overrides.errorRedirectUrl ?? "https://haimetkin-lgtm.github.io/dohefes/cashflow/",
-    indicatorUrl: overrides.indicatorUrl ?? "https://project-ref.supabase.co/functions/v1/cardcom-payment-indicator",
+    indicatorUrl: overrides.indicatorUrl ?? "https://project-ref.supabase.co/functions/v1/dohefes-cardcom-payment-indicator",
   };
 }
 

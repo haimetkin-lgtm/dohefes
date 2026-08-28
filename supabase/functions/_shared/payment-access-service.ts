@@ -1,4 +1,4 @@
-// שכבת orchestration טהורה ל-get-product-access - כל תלות חיצונית (מסד נתונים, חישוב hash)
+// שכבת orchestration טהורה ל-dohefes-get-product-access - כל תלות חיצונית (מסד נתונים, חישוב hash)
 // מוזרקת דרך PaymentAccessServiceDeps, לא נקראת ישירות. מאפשר בדיקת ה-orchestration המלאה דרך
 // Vitest עם fakes, בלי Deno runtime בכלל - ר' payment-access-service.test.ts. index.ts הוא
 // ה-adapter הדק היחיד שמזריק את המימושים האמיתיים (Supabase, Web Crypto).
@@ -40,7 +40,7 @@ export interface AccessEntitlementLookup {
 
 export interface PaymentAccessDatabase {
   /** מוצאת את ההזמנה **לפי hash הטוקן עצמו** (access_token_hash ייחודי בכל הטבלה - ר'
-   *  payment-schema.sql) - זו בדיקת הבעלות: מי שמחזיק את הטוקן הגולמי הנכון "מצביע" בדיוק על
+   *  migrations/20260828062934_dohefes_payment_infrastructure.sql) - זו בדיקת הבעלות: מי שמחזיק את הטוקן הגולמי הנכון "מצביע" בדיוק על
    *  הזמנה אחת ספציפית, לא לפי reportId/productType (שהם רק נבדקים **אחרי** מול מה שנמצא). */
   getOrderByAccessTokenHash(accessTokenHash: string): Promise<AccessOrderLookup | null>;
   getEntitlement(reportId: string, productType: string): Promise<AccessEntitlementLookup | null>;
@@ -101,7 +101,7 @@ export async function checkProductAccess(
       return ACTIVE;
     }
     // paid אך בלי entitlement פעילה תואמת - מצב חריג (לא אמור לקרות בהינתן ה-RPC האטומי, ר'
-    // payment-schema.sql), אך fail-closed: לא מוענקת גישה בלי entitlement מפורשת ופעילה.
+    // migrations/20260828062934_dohefes_payment_infrastructure.sql), אך fail-closed: לא מוענקת גישה בלי entitlement מפורשת ופעילה.
     return UNAVAILABLE;
   }
 

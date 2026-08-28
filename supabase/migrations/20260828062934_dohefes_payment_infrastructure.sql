@@ -3,12 +3,23 @@
 -- קובץ נפרד מ-schema.sql (לא נוגע בו כלל) — אותו דפוס בדיוק כמו hetel-hasbaha/supabase/stage2-schema.sql
 -- (סכמה נפרדת לפיצ'ר/שלב נוסף באותו פרויקט Supabase, במקום להוסיף לקובץ הראשי).
 --
--- שלב זה (branch secure-payment-foundation): schema + constraints + RLS בלבד. אין חיבור מה-UI.
--- הריצה בפועל (SQL Editor, כמו כל migration קודם בפרויקט) מתוזמנת רק כשה-rollout המדורג
--- (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2) מגיע לשלב 1 - לא הורצה כאן, לא כחלק מהעבודה הזו.
+-- **קובץ migration אמיתי** (סווג מחדש מ-supabase/payment-schema.sql המקורי, ר' git history של
+-- הקובץ - התוכן עצמו לא שוכפל, רק הועבר) - מקור האמת היחיד ל-SQL הזה. שם הקובץ (תבנית
+-- <timestamp>_<name>.sql) נוצר על ידי `supabase migration new`, לא הומצא ידנית - ר'
+-- SECURE_PAYMENT_DEPLOYMENT_RUNBOOK.md §3 להרצה בפועל (`supabase db push`).
+--
+-- **בלי BEGIN;/COMMIT; מפורשים בכוונה** - Supabase CLI (`db push`) מריץ כל קובץ migration דרך
+-- pgx ExecBatch, שהתיעוד שלו בקוד המקור עצמו (github.com/supabase/cli, pkg/migration/file.go)
+-- אומר במפורש "ExecBatch is implicitly transactional" - הוספת BEGIN/COMMIT ידניים הייתה מיותרת
+-- (ואולי בעייתית - טרנזקציה מקוננת). זה **שונה** מהרצה ידנית ב-SQL Editor (ר' runbook, נתיב
+-- גיבוי בלבד) - שם עדיין נדרש לעטוף ב-BEGIN;/COMMIT; במפורש, כי אין שם אותה ערבות אוטומטית.
+--
+-- שלב זה (branch secure-payment-deployment): schema + constraints + RLS בלבד. אין חיבור מה-UI.
+-- הריצה בפועל מתוזמנת רק כשה-rollout המדורג (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2) מגיע
+-- לשלב 1 - לא הורצה כאן, לא כחלק מהעבודה הזו.
 --
 -- commit שלישי (schema tweak): הוספת checkout_url ל-dohefes_payment_orders - התגלה חסר תוך כדי
--- כתיבת create-payment-order (Edge Function ראשונה, ר' supabase/functions/create-payment-order) -
+-- כתיבת dohefes-create-payment-order (Edge Function ראשונה, ר' supabase/functions/dohefes-create-payment-order) -
 -- retry עם אותו Idempotency-Key על הזמנה pending חייב להחזיר את אותו קישור תשלום, לא ליצור
 -- session שני ב-Cardcom. ר' הערה מלאה ליד השדה עצמו.
 --
@@ -58,7 +69,7 @@ revoke execute on function dohefes_payment_touch_updated_at() from public;
 -- expected_amount_agorot: אגורות כמספר שלם (למשל 98000 = 980.00 ₪), לא numeric/float - נמנע
 -- מעיגול נקודה-צפה בכסף. שם השדה כולל "expected" במפורש: זה הסכום שהוזמן/צפוי, לא אישור
 -- שהתקבל בפועל (זה מה ש-verified_at/paid_at למטה מייצגים). **בלי default** - נקבע אך ורק על
--- ידי Edge Function עתידית (create-payment-order) לפי product_type, בקוד השרת, לא כברירת מחדל
+-- ידי Edge Function עתידית (dohefes-create-payment-order) לפי product_type, בקוד השרת, לא כברירת מחדל
 -- שניתנת לשינוי/דריסה - ר' GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §4.1/§4.2.
 --
 -- currency_code: 1 = ש"ח (שקל), לפי ממשק Cardcom המתוכנן (LowProfileCode) - ערך קבוע יחיד
@@ -66,7 +77,7 @@ revoke execute on function dohefes_payment_touch_updated_at() from public;
 --
 -- ארבעה מזהים נפרדים, לא "payment_reference" מאוחד אחד - כל אחד ממלא תפקיד אחר בזרימה מול
 -- Cardcom (ר' GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §4.2):
---   idempotency_key            - מזהה פנימי שלנו, מונע כפילות אם create-payment-order נקראת פעמיים
+--   idempotency_key            - מזהה פנימי שלנו, מונע כפילות אם dohefes-create-payment-order נקראת פעמיים
 --                                 (למשל retry אחרי timeout ברשת) - נקבע ברגע יצירת ההזמנה, לפני כל
 --                                 פנייה ל-Cardcom.
 --   provider_order_reference   - הערך שאנחנו שולחים ל-Cardcom כדי לזהות את ההזמנה שלנו מולו
@@ -78,7 +89,7 @@ revoke execute on function dohefes_payment_touch_updated_at() from public;
 -- כל השדות עם unique נפרד (לא unique משותף) - מזהה כפול בכל אחד מהם, בנפרד, נדחה על ידי
 -- Postgres ולא יוצר entitlement כפול (ר' §4.1 "idempotency ל-callback/webhook").
 --
--- checkout_url: **נוסף במהלך יישום create-payment-order** (לא היה בסכמה המקורית שאושרה) - שדה
+-- checkout_url: **נוסף במהלך יישום dohefes-create-payment-order** (לא היה בסכמה המקורית שאושרה) - שדה
 -- הכרחי שהתגלה חסר, לא עוקף: כש-idempotency-key חוזר על הזמנה שכבר ב-status='pending' (המשתמש
 -- לא הגיע ל-Cardcom בזמן, למשל טאב נסגר), הפונקציה חייבת להחזיר לו את אותו קישור תשלום מקורי -
 -- **לא** ליצור session תשלום שני ב-Cardcom (שהיה מייצר שני LowProfileCode לאותה הזמנה, נגד כל
@@ -86,14 +97,14 @@ revoke execute on function dohefes_payment_touch_updated_at() from public;
 -- (ריק עד ש-Cardcom מחזירה אותו בהצלחה, בדיוק כמו cardcom_low_profile_code).
 --
 -- access_token_hash: **חובה גם כש-RLS לא מעניקה שום גישה ל-anon** - ה-Edge Function עצמה
--- (cardcom-payment-indicator/get-product-access) פועלת עם service_role וכך עוקפת RLS לגמרי;
+-- (dohefes-cardcom-payment-indicator/dohefes-get-product-access) פועלת עם service_role וכך עוקפת RLS לגמרי;
 -- בלי login במערכת, זו חייבת לאמת בעצמה שמי שפונה אליה מחזיק את הסוד המתאים לאותה הזמנה/דוח,
 -- לפני שהיא משתמשת בהרשאת ה-service_role שלה. כלל מחייב לכל מימוש עתידי של Edge Function:
 --   - השרת מייצר token אקראי-קריפטוגרפית (לא נחוש/רציף).
---   - מחזיר אותו ללקוח פעם אחת בלבד (בתגובת create-payment-order) - לא נשמר בשום מקום אחר בענן.
+--   - מחזיר אותו ללקוח פעם אחת בלבד (בתגובת dohefes-create-payment-order) - לא נשמר בשום מקום אחר בענן.
 --   - נשמר במסד **רק** כ-hash (SHA-256) - העמודה כאן היא access_token_hash, לעולם לא הטוקן הגולמי.
 --   - הטוקן הגולמי **לעולם לא** נכתב ללוגים (לא server logs, לא Supabase logs, לא הודעות שגיאה).
---   - get-product-access מאמתת את הטוקן שמגיע מהלקוח מול ה-hash השמור **לפני** שהיא נוגעת
+--   - dohefes-get-product-access מאמתת את הטוקן שמגיע מהלקוח מול ה-hash השמור **לפני** שהיא נוגעת
 --     בטבלאות עם ה-service_role שלה.
 -- אין יצירת token בפועל ב-commit הזה - רק העמודה + הכלל המתועד. ר' GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §5.2.
 --
@@ -149,7 +160,7 @@ create table if not exists dohefes_payment_orders (
   constraint dohefes_payment_orders_verified_at_after_created check (verified_at is null or verified_at >= created_at),
   -- ממצא ביקורת סופית: שני עמודות ה-claim (commit שביעי) חייבות להיות שתיהן null או שתיהן
   -- non-null יחד - לא ניתן "חצי claim" (token בלי תפוגה, או תפוגה בלי token). dohefes_claim_checkout_creation
-  -- ו-releaseClaimAsPending/AsFailed (create-payment-order/index.ts) כבר מקפידים על כך בפועל -
+  -- ו-releaseClaimAsPending/AsFailed (dohefes-create-payment-order/index.ts) כבר מקפידים על כך בפועל -
   -- הבדיקה הזו היא הגנת-עומק ברמת ה-DB, בדיוק כמו שאר ה-constraints בקובץ, לא הסתמכות בלבד על
   -- שקוד השרת יישאר נכון.
   constraint dohefes_payment_orders_claim_pairing check (
@@ -174,7 +185,7 @@ create index if not exists idx_dohefes_payment_orders_status on dohefes_payment_
 -- entitlement_status (לא payment_status): ההרשאה מתארת **גישה למוצר**, לא מצב תשלום - מצב
 -- התשלום עצמו חי אך ורק ב-payment_orders.status. שלושה ערכים: active (יש גישה כרגע), revoked
 -- (גישה בוטלה, לא בהכרח בגלל refund - למשל טעות אדמין), refunded (בוטלה ספציפית עקב זיכוי כספי).
--- אין ערך "pending" כאן במפורש: שורת entitlement נוצרת רק **אחרי** ש-cardcom-payment-indicator
+-- אין ערך "pending" כאן במפורש: שורת entitlement נוצרת רק **אחרי** ש-dohefes-cardcom-payment-indicator
 -- כבר אימתה תשלום מוצלח (ר' §4.2) - אם התשלום עוד לא אומת, ה-trigger למטה חוסם את היצירה לגמרי,
 -- לא רק "לא ממליץ עליה". granted_at not null default now(): entitlement לא קיים כטיוטה - הוא
 -- נוצר רק ברגע שכבר עבר את ה-trigger, כלומר רק אחרי תשלום מאומת - אין מצב "ממתין למענק".
@@ -299,14 +310,14 @@ create index if not exists idx_dohefes_product_entitlements_entitlement_status o
 -- פעולה (select/insert/update/delete). RLS מופעלת בלי policies אומרת ש**כל** בקשה עם ה-anon key
 -- נדחית עבור **כל** פעולה על שתי הטבלאות האלה, בלי יוצא מן הכלל, כולל יצירת הזמנה. הדרך היחידה
 -- לגעת בטבלאות האלה - קריאה או כתיבה - היא Edge Function עתידית עם service_role key (עוקף RLS
--- מטבעו, ר' §4.2: create-payment-order/cardcom-payment-indicator/get-product-access), שמאמתת
+-- מטבעו, ר' §4.2: dohefes-create-payment-order/dohefes-cardcom-payment-indicator/dohefes-get-product-access), שמאמתת
 -- בעצמה access_token_hash לפני כל שימוש ב-service_role שלה. עדיין לא קיימת, לא נכתבת ב-commit הזה.
 alter table dohefes_payment_orders enable row level security;
 alter table dohefes_product_entitlements enable row level security;
 
 -- --- commit רביעי (RPC אטומי): dohefes_finalize_verified_payment ---
 --
--- זו נקודת הכתיבה **היחידה** שמותר ל-Edge Function עתידית (cardcom-payment-indicator) לקרוא לה
+-- זו נקודת הכתיבה **היחידה** שמותר ל-Edge Function עתידית (dohefes-cardcom-payment-indicator) לקרוא לה
 -- אחרי שהיא כבר אימתה תשלום מול Cardcom בעצמה (server-to-server, GetLowProfileIndicator) - אסור
 -- לה לבצע UPDATE על payment_orders ו-INSERT על product_entitlements כשתי פעולות נפרדות משלה.
 -- הסיבה: בלי RPC אטומי יחיד, כשל בין שתי הפעולות (קריסת תהליך, timeout רשת בין הקריאות) עלול
@@ -380,7 +391,7 @@ grant execute on function dohefes_upsert_active_entitlement(uuid, uuid, text) to
 -- --- commit חמישי (ביקורת אבטחה): הגנת-עומק על סכום/מטבע/ReturnValue בתוך ה-RPC עצמו ---
 --
 -- **ממצא ביקורת**: הגרסה המקורית של הפונקציה הזו (commit d55f02b) קיבלה רק p_low_profile_code
--- ו-p_cardcom_internal_deal_number, ו**סמכה במלואה** על כך שהקוד הקורא לה (cardcom-payment-indicator)
+-- ו-p_cardcom_internal_deal_number, ו**סמכה במלואה** על כך שהקוד הקורא לה (dohefes-cardcom-payment-indicator)
 -- כבר אימת את הסכום/המטבע/ה-ReturnValue מול Cardcom לפני הקריאה. זה עמד בסתירה לעיקרון שמונחה
 -- את שאר הקובץ הזה מתחילתו (ר' ה-trigger dohefes_payment_entitlement_requires_verified_order
 -- למעלה, שקיים בדיוק כדי **לא** לסמוך על כך שקוד השרת נכון-בהכרח): כל בעל service_role
@@ -525,7 +536,7 @@ grant execute on function dohefes_finalize_verified_payment(text, text, text, in
 -- ממצא ביקורת "חובה לפני ניסיון אמיתי": בלי הגבלה כלשהי, כל בקשה עם Idempotency-Key חדש
 -- (שאין עלותה - anon key פומבי מטבעו) יוצרת הזמנה חדשה + session חדש אצל Cardcom - אין מגבלה
 -- על מספר ה-sessions שניתן ליצור לאותו (report, מוצר). ה-index הזה הוא ההגנה האמיתית מול race
--- (לא רק בדיקה ברמת השירות, שנשארת TOCTOU-חשופה לבדה - ר' create-payment-order/index.ts
+-- (לא רק בדיקה ברמת השירות, שנשארת TOCTOU-חשופה לבדה - ר' dohefes-create-payment-order/index.ts
 -- ו-_shared/payment-order-service.ts ליישום המלא בצד השירות, כולל טיפול ב-race עצמו).
 --
 -- **partial unique index על (report_id, product_type) עבור status in ('created','pending','paid')** -
@@ -574,7 +585,7 @@ create unique index if not exists idx_dohefes_payment_orders_one_active_per_repo
 -- הזמנה תקועה לנצח, אך גם אין השתלטות מוקדמת על claim עדיין פעיל.
 --
 -- שחרור ה-claim (הצלחה/כישלון ודאי) נעשה **בצד ה-Edge Function** (UPDATE רגיל, לא RPC נוסף -
--- אין בו CAS על now()/OR, רק התאמה מדויקת על checkout_claim_token, ר' create-payment-order/index.ts) -
+-- אין בו CAS על now()/OR, רק התאמה מדויקת על checkout_claim_token, ר' dohefes-create-payment-order/index.ts) -
 -- **מותנה** בכך שה-checkout_claim_token עדיין תואם למה שסיפקנו ב-claim, כדי שלא "נדרוס" claim
 -- שכבר עבר לבעלים אחר (במקרה הנדיר שבו חרגנו מה-lease). על **תוצאה לא ודאית** (timeout/5xx -
 -- ר' isAmbiguousCardcomFailure ב-payment-order-service.ts) - **אין** שחרור claim יזום בכלל,
@@ -614,27 +625,12 @@ $$;
 revoke execute on function dohefes_claim_checkout_creation(uuid, text, integer) from public, anon, authenticated;
 grant execute on function dohefes_claim_checkout_creation(uuid, text, integer) to service_role;
 
--- --- Rollback (מתועד בלבד, לא מבוצע) ---
+-- --- Rollback ---
 --
--- drop function if exists dohefes_claim_checkout_creation(uuid, text, integer);
--- drop index if exists idx_dohefes_payment_orders_one_active_per_report_product;
--- drop function if exists dohefes_finalize_verified_payment(text, text, text, integer, integer);
--- drop function if exists dohefes_upsert_active_entitlement(uuid, uuid, text);
--- drop trigger if exists dohefes_product_entitlements_require_verified_order on dohefes_product_entitlements;
--- drop trigger if exists dohefes_product_entitlements_touch_updated_at on dohefes_product_entitlements;
--- drop trigger if exists dohefes_payment_orders_touch_updated_at on dohefes_payment_orders;
--- drop table if exists dohefes_product_entitlements;
--- drop table if exists dohefes_payment_orders;
--- drop function if exists dohefes_payment_entitlement_requires_verified_order();
--- drop function if exists dohefes_payment_touch_updated_at();
---
--- (drop index if exists, בניגוד ל-drop trigger, כן אידמפוטנטי - ניתן להריץ פעמיים בבטחה.)
---
--- בטוח לביצוע בכל שלב: אין foreign key בכיוון ההפוך (dohefes_reports לא מפנה לשתי הטבלאות
--- האלה), ואין קוד קיים (React/Edge Function) שתלוי בהן - הן לא נצרכות על ידי שום דבר עד commit
--- עתידי. הסדר למעלה (index -> RPC -> triggers -> entitlements -> orders -> functions) חשוב:
--- entitlements תלויה ב-orders דרך foreign key, שתי פונקציות ה-RPC נמחקות ראשונות כי אינן תלות
--- של אף אובייקט אחר, וכל טריגר/פונקציה אחרת נמחקת רק אחרי שמי שמשתמש בה כבר לא קיים.
+-- **הופרד לקובץ נפרד לגמרי**, מחוץ ל-supabase/migrations/, כדי שלא יוכל לרוץ בטעות כחלק
+-- מהתקנה (`db push`/`migration list` סורקים רק את supabase/migrations/*.sql - לא תיקיות
+-- אחרות) - ר' supabase/migrations_rollback/20260828062934_dohefes_payment_infrastructure_rollback.sql.
+-- אינו חלק מה-migration המופעל בשום צורה - קובץ נפרד, לא בהערה בתוך הקובץ הזה.
 
 -- --- תרחישי בדיקה ידניים (מתועדים בלבד - לא מבוצעים אוטומטית, לא כחלק מה-commit הזה) ---
 --
@@ -697,7 +693,7 @@ grant execute on function dohefes_claim_checkout_creation(uuid, text, integer) t
 
 -- --- תרחישי בדיקה ל-dohefes_finalize_verified_payment (מתועדים בלבד, אותם כללים כמו למעלה) ---
 --
--- הכנה (הזמנה חדשה, created, עם cardcom_low_profile_code שכבר נקבע - כאילו create-payment-order
+-- הכנה (הזמנה חדשה, created, עם cardcom_low_profile_code שכבר נקבע - כאילו dohefes-create-payment-order
 -- כבר יצרה session אצל Cardcom והזמנה עברה ל-pending, בדיוק כמו שה-Edge Function האמיתית עושה):
 --
 --   insert into dohefes_payment_orders

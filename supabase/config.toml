@@ -1,0 +1,28 @@
+# For detailed configuration reference documentation, visit:
+# https://supabase.com/docs/guides/local-development/cli/config
+#
+# קובץ הזה נשמר **מכוון בכוונה מינימלי** - אין local dev (supabase start) בפרויקט הזה, רק שימוש
+# ב-CLI מול הפרויקט המרוחק (link/functions deploy) - כל שאר ההגדרות שה-CLI מייצר כברירת מחדל
+# (api/db/studio/auth/storage/וכו', ל-local dev בלבד) הוסרו בכוונה, לא נשכחו. ר' SECURE_PAYMENT_DEPLOYMENT_RUNBOOK.md.
+#
+# A string used to distinguish different Supabase projects on the same host. Defaults to the
+# working directory name when running `supabase init`.
+project_id = "dohefes"
+
+# **dohefes-cardcom-payment-indicator בלבד** עם verify_jwt=false - הקורא לפונקציה הזו הוא Cardcom
+# עצמה (webhook, שרת חיצוני), שאין לה שום דרך לצרף JWT/מפתח Supabase לבקשה. ברירת המחדל
+# (verify_jwt=true) הייתה חוסמת אותה כליל, לפני שהקוד רץ בכלל. ר' נימוק מלא ב-
+# supabase/functions/dohefes-cardcom-payment-indicator/index.ts (הערת הכותרת) וב-GEN2_PAYMENT_ENTITLEMENT_DESIGN.md.
+#
+# תחילית dohefes- על שם הפונקציה עצמה (לא רק על secrets/טבלאות): הפרויקט הזה (giygjmacxquucwexmfdd)
+# משותף ל-dohefes/insure-vda/rami/hetel-hasbaha - Edge Functions הם namespace שטוח ברמת הפרויקט
+# כולו, בלי תיקיות/סכמות נפרדות למוצר - שם כללי כמו "create-payment-order" היה מתנגש עם כל
+# מוצר עתידי אחר שירצה פונקציה בשם דומה.
+[functions.dohefes-cardcom-payment-indicator]
+verify_jwt = false
+
+# dohefes-create-payment-order ו-dohefes-get-product-access: **לא** מוזכרות כאן בכוונה - נשארות
+# עם ברירת המחדל (verify_jwt=true). הדפדפן קורא להן דרך supabase.functions.invoke עם מפתח
+# ה-anon, שהוא כשלעצמו JWT תקין וחתום שעובר את הבדיקה - אין להן צורך בפטור. ביטול verify_jwt
+# על פונקציה אחרת מלבד dohefes-cardcom-payment-indicator דורש החלטה מפורשת ונפרדת, לא נגזר
+# אוטומטית מהחריג הזה.

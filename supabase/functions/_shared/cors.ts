@@ -1,7 +1,7 @@
-// עזרי CORS משותפים לפונקציות הנקראות מהדפדפן (create-payment-order, get-product-access) - לא
-// ל-cardcom-payment-indicator (server-to-server בלבד, בלי CORS בכלל, ר' הערת הכותרת שם).
+// עזרי CORS משותפים לפונקציות הנקראות מהדפדפן (dohefes-create-payment-order, dohefes-get-product-access) - לא
+// ל-dohefes-cardcom-payment-indicator (server-to-server בלבד, בלי CORS בכלל, ר' הערת הכותרת שם).
 //
-// חולץ החוצה מ-create-payment-order/index.ts כדי לא לשכפל את אותה לוגיקה בפעם השלישית -
+// חולץ החוצה מ-dohefes-create-payment-order/index.ts כדי לא לשכפל את אותה לוגיקה בפעם השלישית -
 // ההתנהגות זהה למה שהיה שם (origin מפורש בלבד מתוך allowlist, לעולם לא "*", בלי
 // Access-Control-Allow-Credentials - לא נדרש, אין cookies/session בזרימה הזו).
 //

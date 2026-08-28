@@ -9,7 +9,7 @@ const BASE_REQUEST = {
   returnValue: "po_abc123",
   successRedirectUrl: "https://haimetkin-lgtm.github.io/dohefes/cashflow/",
   errorRedirectUrl: "https://haimetkin-lgtm.github.io/dohefes/cashflow/",
-  indicatorUrl: "https://project-ref.supabase.co/functions/v1/cardcom-payment-indicator",
+  indicatorUrl: "https://project-ref.supabase.co/functions/v1/dohefes-cardcom-payment-indicator",
 };
 
 function nameToValueResponse(fields: Record<string, string>): Response {

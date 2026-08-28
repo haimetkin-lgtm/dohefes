@@ -11,9 +11,9 @@ export type ProductType = "baseReport" | "cashFlowAnalysis";
 export const MAX_PRODUCT_NAME_LENGTH = 50;
 
 export interface ProductDefinition {
-  /** אגורות כמספר שלם - תואם expected_amount_agorot ב-supabase/payment-schema.sql, לא numeric/float */
+  /** אגורות כמספר שלם - תואם expected_amount_agorot ב-supabase/migrations/20260828062934_dohefes_payment_infrastructure.sql, לא numeric/float */
   readonly amountAgorot: number;
-  /** 1 = ש"ח, לפי ממשק Cardcom המתוכנן - ר' payment-schema.sql להערה המלאה על currency_code */
+  /** 1 = ש"ח, לפי ממשק Cardcom המתוכנן - ר' migrations/20260828062934_dohefes_payment_infrastructure.sql להערה המלאה על currency_code */
   readonly currencyCode: number;
   /** נשלח ל-Cardcom כ-ProductName - עד MAX_PRODUCT_NAME_LENGTH תווים, נקבע כאן בלבד, לעולם לא מהלקוח */
   readonly productName: string;

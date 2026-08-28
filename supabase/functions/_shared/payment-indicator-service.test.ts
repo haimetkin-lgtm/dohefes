@@ -92,7 +92,7 @@ describe("handleIndicatorCallback - תשלום תקין", () => {
         lowProfileCode: "lpc-1",
         cardcomInternalDealNumber: "deal-1",
         // הערכים המאומתים שהועברו הם אלה שחזרו בפועל מ-Cardcom (fields.*) - **לא** מ-order.* -
-        // ה-RPC עצמו עושה את ההשוואה מול ההזמנה (ר' payment-schema.sql, commit חמישי); העברת
+        // ה-RPC עצמו עושה את ההשוואה מול ההזמנה (ר' migrations/20260828062934_dohefes_payment_infrastructure.sql, commit חמישי); העברת
         // order.* בחזרה לעצמו הייתה טאוטולוגיה חסרת ערך שלא בודקת כלום.
         verifiedProviderOrderReference: "po_abc123",
         verifiedAmountAgorot: 98_000,
@@ -280,7 +280,7 @@ describe("handleIndicatorCallback - outcome מה-RPC שדורש תיעוד אי�
 
   it("verification_mismatch מה-RPC (הגנת-עומק ברמת ה-DB עצמו) -> נרשם אירוע אבטחה, 200", async () => {
     // מייצג מצב שבו הבדיקה המוקדמת בשכבת ה-service (matches, למעלה) עברה בטעות/עקיפה כלשהי,
-    // וה-RPC עצמו (שגם הוא בודק עצמאית מול השורה הנעולה, ר' payment-schema.sql commit חמישי)
+    // וה-RPC עצמו (שגם הוא בודק עצמאית מול השורה הנעולה, ר' migrations/20260828062934_dohefes_payment_infrastructure.sql commit חמישי)
     // הוא זה שתופס את אי-ההתאמה בפועל - חייב עדיין להירשם כאירוע אבטחה, לא להיבלע בשקט.
     const database = new FakeDatabase();
     database.orders.set("lpc-1", VALID_ORDER);
