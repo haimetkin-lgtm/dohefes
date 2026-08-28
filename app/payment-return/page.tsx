@@ -11,6 +11,7 @@
 import { useEffect, useReducer } from "react";
 import type { Dispatch } from "react";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { SITE_PATHS } from "@/lib/site";
 import { getProductAccess } from "@/lib/payment/payment-client";
 import { promoteToActive, resolvePendingByContext, revokeActiveAccess } from "@/lib/payment/payment-storage";
 import {
@@ -105,7 +106,7 @@ export default function PaymentReturnPage() {
   // שלב 5: redirecting - ניווט בפועל למוצר, בלי שום דגל ב-URL.
   useEffect(() => {
     if (state.kind !== "redirecting") return;
-    window.location.replace(`/dohefes/cashflow/?id=${state.reportId}`);
+    window.location.replace(SITE_PATHS.cashflow(state.reportId));
   }, [state]);
 
   return (
@@ -175,7 +176,7 @@ function renderByState(
       return (
         <>
           <p className="text-gray-700 mb-4">לא הצלחנו לאמת רכישה. אם ביצעת תשלום, נסה לרענן בעוד רגע.</p>
-          <a href="/dohefes/calculator/" className="text-[#1D6F42] underline text-sm">
+          <a href={SITE_PATHS.calculator} className="text-[#1D6F42] underline text-sm">
             חזרה לדוח ←
           </a>
         </>
