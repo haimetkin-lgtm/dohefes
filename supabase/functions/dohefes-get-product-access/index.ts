@@ -8,7 +8,7 @@
 //
 // נקראת מהדפדפן (כמו dohefes-create-payment-order) - **צריכה CORS**, בניגוד ל-dohefes-cardcom-payment-indicator.
 //
-// חתימה: POST בלבד. גוף: { reportId: string (uuid), productType: "baseReport"|"cashFlowAnalysis" }.
+// חתימה: POST בלבד. גוף: { reportId: string (uuid), productType: "baseReport"|"cashFlowAnalysis"|"trackingReports" }.
 // הטוקן הגולמי מגיע ב-header ייעודי (X-Access-Token), **לא** בגוף הבקשה ולא ב-query string -
 // כדי לא להשאיר סוד ב-URL/body שנוטים יותר להגיע ללוגים חיצוניים (proxies וכו') מאשר headers.
 // שום שדה אחר לא נקרא מהלקוח - **לא** סטטוס תשלום, **לא** מחיר, **לא** entitlement - כל אלה

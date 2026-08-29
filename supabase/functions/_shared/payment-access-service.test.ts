@@ -203,6 +203,82 @@ describe("checkProductAccess - אי-מוטציה", () => {
   });
 });
 
+describe("checkProductAccess - trackingReports: entitlement של מוצר אחר לא מעניקה גישה", () => {
+  const OTHER_REPORT_ID = "report-2";
+  const TRACKING_TOKEN = "raw-token-tracking";
+  const TRACKING_TOKEN_HASH = "hash-of-raw-token-tracking";
+
+  it("entitlement פעילה ל-baseReport על אותו דוח לא מעניקה גישה ל-trackingReports (טוקן של trackingReports עצמו, בלי entitlement תואמת) -> unavailable", async () => {
+    const database = new FakeDatabase();
+    database.ordersByHash.set(TRACKING_TOKEN_HASH, {
+      reportId: REPORT_ID,
+      productType: "trackingReports",
+      status: "paid",
+      verifiedAt: "2026-01-01T00:00:00Z",
+      paidAt: "2026-01-01T00:00:00Z",
+    });
+    database.entitlements.set(`${REPORT_ID}:baseReport`, ACTIVE_ENTITLEMENT); // entitlement קיימת, אך למוצר אחר
+    const result = await checkProductAccess(
+      { database, tokenHasher: fakeTokenHasher({ [TRACKING_TOKEN]: TRACKING_TOKEN_HASH }) },
+      { reportId: REPORT_ID, productType: "trackingReports", rawAccessToken: TRACKING_TOKEN }
+    );
+    expect(result).toEqual({ status: "unavailable" });
+  });
+
+  it("entitlement פעילה של trackingReports מעניקה גישה רק לאותו reportId - reportId אחר עם אותו טוקן -> unavailable", async () => {
+    const database = new FakeDatabase();
+    database.ordersByHash.set(TRACKING_TOKEN_HASH, {
+      reportId: REPORT_ID,
+      productType: "trackingReports",
+      status: "paid",
+      verifiedAt: "2026-01-01T00:00:00Z",
+      paidAt: "2026-01-01T00:00:00Z",
+    });
+    database.entitlements.set(`${REPORT_ID}:trackingReports`, ACTIVE_ENTITLEMENT);
+    const result = await checkProductAccess(
+      { database, tokenHasher: fakeTokenHasher({ [TRACKING_TOKEN]: TRACKING_TOKEN_HASH }) },
+      { reportId: OTHER_REPORT_ID, productType: "trackingReports", rawAccessToken: TRACKING_TOKEN }
+    );
+    expect(result).toEqual({ status: "unavailable" });
+  });
+
+  it("entitlement פעילה של trackingReports, reportId/productType תואמים -> active", async () => {
+    const database = new FakeDatabase();
+    database.ordersByHash.set(TRACKING_TOKEN_HASH, {
+      reportId: REPORT_ID,
+      productType: "trackingReports",
+      status: "paid",
+      verifiedAt: "2026-01-01T00:00:00Z",
+      paidAt: "2026-01-01T00:00:00Z",
+    });
+    database.entitlements.set(`${REPORT_ID}:trackingReports`, ACTIVE_ENTITLEMENT);
+    const result = await checkProductAccess(
+      { database, tokenHasher: fakeTokenHasher({ [TRACKING_TOKEN]: TRACKING_TOKEN_HASH }) },
+      { reportId: REPORT_ID, productType: "trackingReports", rawAccessToken: TRACKING_TOKEN }
+    );
+    expect(result).toEqual({ status: "active" });
+  });
+
+  it("entitlement revoked/refunded של trackingReports -> unavailable, לא מעניקה גישה", async () => {
+    for (const entitlementStatus of ["revoked", "refunded"] as const) {
+      const database = new FakeDatabase();
+      database.ordersByHash.set(TRACKING_TOKEN_HASH, {
+        reportId: REPORT_ID,
+        productType: "trackingReports",
+        status: "paid",
+        verifiedAt: "2026-01-01T00:00:00Z",
+        paidAt: "2026-01-01T00:00:00Z",
+      });
+      database.entitlements.set(`${REPORT_ID}:trackingReports`, { entitlementStatus });
+      const result = await checkProductAccess(
+        { database, tokenHasher: fakeTokenHasher({ [TRACKING_TOKEN]: TRACKING_TOKEN_HASH }) },
+        { reportId: REPORT_ID, productType: "trackingReports", rawAccessToken: TRACKING_TOKEN }
+      );
+      expect(result).toEqual({ status: "unavailable" });
+    }
+  });
+});
+
 describe("checkProductAccess - היעדר מידע רגיש בתגובה", () => {
   it("התוצאה מכילה אך ורק status - שום מזהה/סכום/פרט Cardcom/מידע על מוצר אחר", async () => {
     const { database, tokenHasher } = setup();

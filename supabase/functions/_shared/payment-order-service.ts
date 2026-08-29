@@ -169,12 +169,21 @@ function isAmbiguousCardcomFailure(failureCode: string): boolean {
   return failureCode === "provider_unreachable" || failureCode.startsWith("provider_http_");
 }
 
+/** מוצרים ש**דורשים** baseReport משולם קודם - כל "מוצר המשך" (add-on) על דוח בסיס קיים, לא
+ *  מוצר עצמאי. trackingReports נוסף כאן ב-product-catalog-implementation Commit 2, לצד
+ *  cashFlowAnalysis הקיים - **אותה בדיקת תאימות זמנית בדיוק**, לא מסלול חדש - ר' PRODUCT_CATALOG_AUDIT.md,
+ *  "דוחות מעקב - אינם כלולים עוד ברכישת דוח אפס": מעקב מותר רק לדוח בסיס שכבר נרכש, לעולם לא
+ *  entitlement חופשי. baseReport עצמו **לא** ברשימה - הוא המוצר שכל השאר תלויים בו, לא תלוי באף
+ *  אחד. אין מסלול חלופי/הרשאה לפי query string - הבדיקה כאן היא היחידה, מול payment_status
+ *  בשרת בלבד. */
+const PRODUCTS_REQUIRING_PAID_BASE_REPORT: ReadonlySet<ProductType> = new Set(["cashFlowAnalysis", "trackingReports"]);
+
 /**
  * הרצף המלא:
- * 1. קיום דוח + (cashFlowAnalysis בלבד) בדיקת baseReport משולם - **תאימות זמנית** מול
- *    dohefes_reports.payment_status הישן, עד ש-baseReport עצמו יעבור ל-product_entitlements
- *    (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2 שלב 4). הודעת השגיאה זהה בין "דוח לא קיים" ל-"קיים
- *    אך לא זכאי" - לא חושפים קיום דוח מעבר לנדרש.
+ * 1. קיום דוח + (למוצרי המשך בלבד - ר' PRODUCTS_REQUIRING_PAID_BASE_REPORT למעלה) בדיקת baseReport
+ *    משולם - **תאימות זמנית** מול dohefes_reports.payment_status הישן, עד ש-baseReport עצמו יעבור
+ *    ל-product_entitlements (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2 שלב 4). הודעת השגיאה זהה בין
+ *    "דוח לא קיים" ל-"קיים אך לא זכאי" - לא חושפים קיום דוח מעבר לנדרש.
  * 2. idempotency-key מדויק: אם כבר קיימת הזמנה עם המפתח הזה **בדיוק** - פועלים לפי מצבה (ר'
  *    respondToBlockingOrder למטה), לא יוצרים הזמנה נוספת.
  * 3. אם אין התאמה לפי idempotency-key: בודקים אם קיימת הזמנה **חוסמת** לאותו report+product
@@ -198,7 +207,7 @@ export async function createPaymentOrder(
   const report = await database.getReportPaymentStatus(reportId);
   if (!report.found) return NOT_ELIGIBLE;
 
-  if (productType === "cashFlowAnalysis" && report.paymentStatus !== "paid") {
+  if (PRODUCTS_REQUIRING_PAID_BASE_REPORT.has(productType) && report.paymentStatus !== "paid") {
     return NOT_ELIGIBLE;
   }
 

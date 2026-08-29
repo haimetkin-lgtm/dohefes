@@ -102,6 +102,26 @@ describe("handleIndicatorCallback - תשלום תקין", () => {
     expect(database.securityEvents).toEqual([]);
   });
 
+  it("trackingReports - תשלום תקין ותואם -> אותו flow בדיוק, finalize נקרא, entitlement מסוג trackingReports נוצרת (לא switch/רשימה שנופלת ל-default)", async () => {
+    const database = new FakeDatabase();
+    const trackingOrder: OrderForVerification = { ...VALID_ORDER, productType: "trackingReports" };
+    database.orders.set("lpc-tracking-1", trackingOrder);
+    database.finalizeResult = {
+      outcome: "finalized",
+      orderId: "order-1",
+      reportId: "report-1",
+      productType: "trackingReports",
+      entitlementId: "entitlement-tracking-1",
+    };
+    const cardcomClient = fakeCardcomClient({ ok: true, fields: VALID_FIELDS });
+
+    const result = await handleIndicatorCallback({ database, cardcomClient }, "lpc-tracking-1");
+
+    expect(result).toEqual({ httpStatus: 200 });
+    expect(database.finalizeCalls.length).toBe(1);
+    expect(database.securityEvents).toEqual([]);
+  });
+
   it("callback כפול על אותה עסקה -> finalize מחזיר already_finalized, 200, אין אירוע אבטחה (לא חשוד)", async () => {
     const database = new FakeDatabase();
     database.orders.set("lpc-1", VALID_ORDER);

@@ -307,7 +307,7 @@ describe("order paid אינו מחזיר token", () => {
   });
 });
 
-describe("cashflow בלי base report paid נדחה", () => {
+describe("cashflow/מעקב בלי base report paid נדחים", () => {
   it("cashFlowAnalysis על דוח שה-baseReport שלו לא paid -> 403 report_not_eligible", async () => {
     db.reportPaymentStatusByReportId.set(REPORT_ID, "pending");
     const deps = buildDeps({ database: db });
@@ -315,7 +315,29 @@ describe("cashflow בלי base report paid נדחה", () => {
     expect(result).toEqual({ status: 403, body: { error: "report_not_eligible" } });
   });
 
-  it("baseReport עצמו לא דורש payment_status='paid' קודם (רק cashFlowAnalysis דורש)", async () => {
+  it("trackingReports על דוח שה-baseReport שלו לא paid -> 403 report_not_eligible (אותה בדיקת תאימות זמנית כמו cashFlowAnalysis)", async () => {
+    db.reportPaymentStatusByReportId.set(REPORT_ID, "pending");
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "trackingReports", idempotencyKey: IDEMPOTENCY_KEY });
+    expect(result).toEqual({ status: 403, body: { error: "report_not_eligible" } });
+  });
+
+  it("trackingReports על דוח בלי baseReport בכלל (payment_status null) -> אותה דחייה", async () => {
+    db.reportPaymentStatusByReportId.set(REPORT_ID, null);
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "trackingReports", idempotencyKey: IDEMPOTENCY_KEY });
+    expect(result).toEqual({ status: 403, body: { error: "report_not_eligible" } });
+  });
+
+  it("trackingReports על דוח עם baseReport משולם -> מצליחה ליצור order (200, pending)", async () => {
+    db.reportPaymentStatusByReportId.set(REPORT_ID, "paid");
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "trackingReports", idempotencyKey: IDEMPOTENCY_KEY });
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ status: "pending" });
+  });
+
+  it("baseReport עצמו לא דורש payment_status='paid' קודם (רק cashFlowAnalysis/trackingReports דורשים)", async () => {
     db.reportPaymentStatusByReportId.set(REPORT_ID, "pending");
     const deps = buildDeps({ database: db });
     const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
@@ -326,6 +348,39 @@ describe("cashflow בלי base report paid נדחה", () => {
     const deps = buildDeps({ database: db });
     const result = await createPaymentOrder(deps, { reportId: "99999999-9999-9999-9999-999999999999", productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ status: 403, body: { error: "report_not_eligible" } });
+  });
+});
+
+describe("trackingReports - entitlement של מוצר אחר לא מעניק גישה", () => {
+  it("entitlement פעילה ל-baseReport על אותו דוח לא הופכת trackingReports ל-'paid' - order חדש עדיין נוצר (pending)", async () => {
+    db.reportPaymentStatusByReportId.set(REPORT_ID, "paid");
+    db.setEntitlement(REPORT_ID, "baseReport", "active");
+    const deps = buildDeps({ database: db });
+    const result = await createPaymentOrder(deps, { reportId: REPORT_ID, productType: "trackingReports", idempotencyKey: IDEMPOTENCY_KEY });
+    // entitlement של baseReport לא נבדקת בכלל בנתיב הזה (getEntitlement נקרא רק על order paid
+    // באותו productType, ר' respondToPaidOrder) - אין order קודם ל-trackingReports, אז זו יצירה טרייה.
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ status: "pending" });
+  });
+
+  it("entitlement פעילה ל-cashFlowAnalysis לא 'מדליפה' ל-trackingReports - כל מוצר עם ה-order/entitlement הנפרדים שלו", async () => {
+    db.reportPaymentStatusByReportId.set(REPORT_ID, "paid");
+    await createPaymentOrder(buildDeps({ database: db }), { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
+    const cashflowOrder = [...db.ordersById.values()].find((o) => o.productType === "cashFlowAnalysis");
+    if (cashflowOrder) {
+      cashflowOrder.status = "paid";
+      db.setEntitlement(REPORT_ID, "cashFlowAnalysis", "active");
+    }
+
+    const trackingIdempotencyKey = "44444444-4444-4444-4444-444444444444";
+    const result = await createPaymentOrder(buildDeps({ database: db }), {
+      reportId: REPORT_ID,
+      productType: "trackingReports",
+      idempotencyKey: trackingIdempotencyKey,
+    });
+    // trackingReports עדיין לא paid - order נוצר מאפס (pending), לא "יורש" את סטטוס cashFlowAnalysis.
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ status: "pending" });
   });
 });
 

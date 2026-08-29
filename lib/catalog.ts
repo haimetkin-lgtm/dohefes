@@ -10,10 +10,9 @@
 // ההערה בראש אותו קובץ, שנכתב בכוונה כך כדי לשמש גם Deno וגם Vitest/Node) - לא להפך.
 // payment-products.ts אף פעם לא יכול לייבא מכאן.
 //
-// מחיר baseReport/cashFlowAnalysis מיובא משם, לא משוכפל כערך נפרד - כדי שלא ייווצרו שני
-// "מקורות אמת" מתחרים לאותו מספר (980 ₪ = 98,000 אגורות). trackingReports עדיין לא קיים
-// ב-payment-products.ts (ייווסף שם בשלב 2 של תוכנית התיקון) - המחיר שלו כאן הוא ערך עצמאי
-// זמני, יוחלף בייבוא כשהמוצר ייווסף שם.
+// מחיר שלושת המוצרים מיובא משם, לא משוכפל כערך נפרד - כדי שלא ייווצרו שני "מקורות אמת" מתחרים
+// לאותו מספר (980 ₪ = 98,000 אגורות). trackingReports נוסף ל-payment-products.ts ב-Commit 2
+// (product-catalog-implementation) - אין יותר ערך מקומי זמני, שלושת המוצרים מיובאים באותו אופן.
 
 import { PRODUCTS as PAYMENT_PRODUCTS } from "../supabase/functions/_shared/payment-products";
 import type { DealType } from "./calc/types";
@@ -72,9 +71,7 @@ export const CATALOG: Readonly<Record<ProductId, CatalogEntry>> = Object.freeze(
   trackingReports: Object.freeze({
     id: "trackingReports",
     displayName: "דוחות מעקב בנייה",
-    // טרם קיים ב-payment-products.ts (ייווסף בשלב 2, ר' PRODUCT_CATALOG_AUDIT.md §7) - ערך
-    // עצמאי זמני, שווה מספרית ל-98_000 אך לא מיובא, כי אין עדיין ממה לייבא.
-    priceAgorot: 98_000,
+    priceAgorot: PAYMENT_PRODUCTS.trackingReports.amountAgorot,
     description: "מוצר המשך אופציונלי: מעקב תקציב מול ביצוע בפועל, לאורך חודשי הבנייה",
     includedFeatures: Object.freeze(["טבלת תקציב מול ביצוע לפי שלב", "ייצוא Excel", "הדפסה/PDF"]),
     requiresReportId: true,

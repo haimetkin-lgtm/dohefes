@@ -1,5 +1,6 @@
-// מודול טהור לניהול שני מאגרי localStorage בזרימת רכישת מוצר (baseReport/cashFlowAnalysis) -
-// ללא תלות ב-React/window, כדי שיהיה ניתן לבדוק אותו ישירות ב-Vitest (ר' payment-storage.test.ts).
+// מודול טהור לניהול שני מאגרי localStorage בזרימת רכישת מוצר (baseReport/cashFlowAnalysis/
+// trackingReports) - ללא תלות ב-React/window, כדי שיהיה ניתן לבדוק אותו ישירות ב-Vitest (ר'
+// payment-storage.test.ts).
 // ה-storage עצמו מוזרק דרך StorageLike (התאמה מדויקת ל-Web Storage API - שימוש אמיתי מזריק
 // window.localStorage, בדיקות מזריקות מימוש בזיכרון) - הקובץ הזה לעולם לא ניגש ל-window ישירות.
 //
@@ -21,7 +22,12 @@ export interface StorageLike {
   removeItem(key: string): void;
 }
 
-export type ProductType = "baseReport" | "cashFlowAnalysis";
+// ProductType מיובא מ-payment-products.ts (מקור האמת היחיד לרשימת המוצרים בפועל, ר' לב
+// ההערה ב-lib/catalog.ts) - לא מוגדר כאן שוב כעותק נפרד. ר' PRODUCT_CATALOG_AUDIT.md, "audit
+// מקומות שבהם ProductType סגור" (product-catalog-implementation, Commit 2) - זה היה עותק
+// שלישי, לא רק שני (payment-products.ts + lib/catalog.ts), עד לתיקון הזה.
+export type { ProductType } from "../../supabase/functions/_shared/payment-products";
+import type { ProductType } from "../../supabase/functions/_shared/payment-products";
 
 export interface PendingPurchaseRecord {
   reportId: string;

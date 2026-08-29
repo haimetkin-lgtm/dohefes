@@ -6,7 +6,7 @@
 // גודל body/Idempotency-Key/פענוח JSON) ו-(ב) בונה את התלויות האמיתיות (Supabase, Cardcom, Web
 // Crypto, שעון) ומזריק אותן ל-createPaymentOrder.
 //
-// חתימה: POST בלבד. גוף: { reportId: string (uuid), productType: "baseReport"|"cashFlowAnalysis" }.
+// חתימה: POST בלבד. גוף: { reportId: string (uuid), productType: "baseReport"|"cashFlowAnalysis"|"trackingReports" }.
 // חובה header: Idempotency-Key (uuid). שום שדה אחר לא נקרא מהלקוח - לא amount, לא currency, לא
 // productName, לא כתובת callback כלשהי (כולן קבועות בצד שרת, ר' secrets למטה).
 //

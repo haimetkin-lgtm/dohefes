@@ -10,9 +10,10 @@ describe("CATALOG - שלושת המוצרים במחיר 98,000 אגורות", (
     }
   });
 
-  it("baseReport/cashFlowAnalysis - המחיר מיובא מ-payment-products.ts, לא משוכפל כערך נפרד", () => {
+  it("baseReport/cashFlowAnalysis/trackingReports - המחיר מיובא מ-payment-products.ts, לא משוכפל כערך נפרד", () => {
     expect(CATALOG.baseReport.priceAgorot).toBe(PAYMENT_PRODUCTS.baseReport.amountAgorot);
     expect(CATALOG.cashFlowAnalysis.priceAgorot).toBe(PAYMENT_PRODUCTS.cashFlowAnalysis.amountAgorot);
+    expect(CATALOG.trackingReports.priceAgorot).toBe(PAYMENT_PRODUCTS.trackingReports.amountAgorot);
   });
 });
 

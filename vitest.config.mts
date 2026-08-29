@@ -18,6 +18,11 @@ import { defineConfig } from "vitest/config";
 //
 // עדכון (product-catalog-implementation, שלב 1): נוסף lib/catalog.ts - מקור אמת מרכזי לקטלוג
 // המוצרים, קובץ בודד בשורש lib/ (לא תת-תיקייה) - נכלל כאן במפורש בשם קובץ, לא בתבנית תיקייה.
+//
+// עדכון (product-catalog-implementation, Commit 2): נוסף supabase/migrations_tests/ - בדיקות
+// סטטיות (טקסטואליות בלבד, לא SQL אמיתי) על קובצי migration/rollback של trackingReports.
+// תיקייה נפרדת מ-supabase/migrations/ עצמה בכוונה (לא נסרקת על ידי `supabase db push`, שמחפש
+// רק supabase/migrations/*.sql) - אותה סיבה ש-migrations_rollback/ נפרדת.
 export default defineConfig({
   test: {
     include: [
@@ -25,6 +30,7 @@ export default defineConfig({
       "lib/payment/**/*.test.ts",
       "lib/catalog.test.ts",
       "supabase/functions/_shared/**/*.test.ts",
+      "supabase/migrations_tests/**/*.test.ts",
     ],
   },
 });
