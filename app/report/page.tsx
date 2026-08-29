@@ -6,6 +6,8 @@ import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
+import { resolveActiveAccess, revokeActiveAccess } from "@/lib/payment/payment-storage";
+import { loadReport } from "@/lib/payment/report-client";
 
 export default function SavedReportPage() {
   const [inputs, setInputs] = useState<ProjectInputs | null>(null);
@@ -14,27 +16,38 @@ export default function SavedReportPage() {
   const [reportId, setReportId] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+    if (cancelled) return;
     const id = new URLSearchParams(window.location.search).get("id");
     if (!id || !supabaseConfigured) {
       setStatus("not_found");
       return;
     }
-    setReportId(id);
-    supabase
-      .from("dohefes_reports")
-      .select("inputs")
-      .eq("id", id)
-      .single()
-      .then(({ data, error }) => {
-        if (error || !data?.inputs) {
+    const active = resolveActiveAccess(window.localStorage, id, "baseReport");
+    if (!active) {
+      setStatus("not_found");
+      return;
+    }
+    void loadReport(supabase.functions, { reportId: id, accessToken: active.accessToken }).then((loaded) => {
+        if (cancelled) return;
+        if (loaded.kind !== "active") {
+          if (loaded.kind === "unavailable" || loaded.kind === "error") {
+            revokeActiveAccess(window.localStorage, id, "baseReport");
+          }
           setStatus("not_found");
           return;
         }
-        const loadedInputs = data.inputs as ProjectInputs;
+        setReportId(id);
+        const loadedInputs = loaded.inputs as ProjectInputs;
         setInputs(loadedInputs);
         setResult(computeProject(loadedInputs));
         setStatus("ready");
       });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (status === "loading") {
@@ -73,8 +86,7 @@ export default function SavedReportPage() {
         </p>
       </div>
 
-      {/* outputAccess="full" - תאימות זמנית: כל דוח שנטען כאן הגיע ב-payment_status='paid'
-          (ר' lib/report/outputAccess.ts להערה המלאה - זו הנחה, לא אימות entitlement מאובטח). */}
+      {/* העמוד מגיע לכאן רק אחרי קריאה מאובטחת עם entitlement פעילה של baseReport. */}
       <ReportView inputs={inputs} result={result} outputAccess="full" />
     </main>
   );

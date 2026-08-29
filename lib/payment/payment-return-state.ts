@@ -126,11 +126,7 @@ function extractContext(state: PaymentContext): PaymentContext {
  * - cashFlowAnalysis -> SITE_PATHS.cashflow(reportId) - הנתיב **קיים במיפוי** לפי ההנחיה
  *   המפורשת ("מותר להשאיר את הנתיב במיפוי"), אך `app/cashflow/page.tsx` **לא** קיים בענף הזה -
  *   route "מת" בפועל, מתועד ולא טעות (ר' lib/site.ts).
- * - baseReport -> `{ kind: "unmapped" }` **במפורש** - baseReport עדיין לא עובר דרך מנגנון
- *   ה-entitlement המאובטח הזה בפועל (עדיין המודל הישן, `?paid=true` + קישור Cardcom קבוע,
- *   ר' PRODUCT_CATALOG_AUDIT.md/blocker `baseReport` בדוחות ה-commit הקודמים) - אין עדיין נתיב
- *   "אחרי entitlement מאובטח" מוגדר עבורו. **לא מנחשים** (calculator? report? עם איזה query
- *   string?) - הרכיב React מציג הודעה כללית ל-unmapped, לא מפנה לשום מקום שגוי.
+ * - baseReport -> המחולל המאובטח עם reportId שהשרת יצר ב-Commit 6a.
  */
 export type ProductRedirectTarget = { kind: "path"; path: string } | { kind: "unmapped" };
 
@@ -141,7 +137,7 @@ export function resolveProductRedirectPath(productType: ProductType, reportId: s
     case "cashFlowAnalysis":
       return { kind: "path", path: SITE_PATHS.cashflow(reportId) };
     case "baseReport":
-      return { kind: "unmapped" };
+      return { kind: "path", path: SITE_PATHS.calculatorReport(reportId) };
   }
 }
 

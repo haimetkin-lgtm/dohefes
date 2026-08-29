@@ -166,8 +166,8 @@ describe("resolveProductRedirectPath - 17/18. מיפוי productType -> יעד �
     expect(resolveProductRedirectPath("cashFlowAnalysis", CTX.reportId)).toEqual({ kind: "path", path: `/dohefes/cashflow/?id=${CTX.reportId}` });
   });
 
-  it("baseReport -> unmapped במפורש - אין ניחוש נתיב, זה blocker מתועד (המודל הישן עדיין לא עבר למנגנון המאובטח)", () => {
-    expect(resolveProductRedirectPath("baseReport", CTX.reportId)).toEqual({ kind: "unmapped" });
+  it("baseReport -> המחולל המאובטח עם reportId", () => {
+    expect(resolveProductRedirectPath("baseReport", CTX.reportId)).toEqual({ kind: "path", path: `/dohefes/calculator/?id=${CTX.reportId}` });
   });
 });
 

@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import type { DealType } from "@/lib/calc/types";
-
-const CARDCOM_LINK = process.env.NEXT_PUBLIC_CARDCOM_LINK_BASIC;
-const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
+import { generateIdempotencyKey, purchaseProduct } from "@/lib/payment/payment-client";
+import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { SITE_PATHS } from "@/lib/site";
 
 const DEAL_TYPES: { id: DealType; title: string; description: string; note?: string }[] = [
   {
@@ -49,20 +49,41 @@ const DEAL_TYPES: { id: DealType; title: string; description: string; note?: str
 export default function StartPage() {
   const [selected, setSelected] = useState<DealType | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handlePay() {
+  async function handlePay() {
     if (!selected) {
       setError("קודם בוחרים את סוג הפרויקט.");
       return;
     }
-    if (!CARDCOM_LINK) {
-      setError("התשלום המקוון עדיין לא מוגדר. אפשר לפתוח את מחולל דוחות האפס ישירות בינתיים, או לפנות בוואטסאפ.");
+    if (!supabaseConfigured) {
+      setError("התשלום המקוון אינו זמין כרגע. אפשר לנסות שוב מאוחר יותר.");
       return;
     }
-    const url = new URL(CARDCOM_LINK);
-    url.searchParams.set("SuccessRedirectUrl", `${SITE_URL}/calculator/?paid=true&dealType=${selected}`);
-    url.searchParams.set("FailedRedirectUrl", `${SITE_URL}/start/?payment=failed`);
-    window.location.href = url.toString();
+    setSubmitting(true);
+    setError(null);
+    const result = await purchaseProduct(
+      supabase.functions,
+      window.localStorage,
+      { productType: "baseReport", dealType: selected, idempotencyKey: generateIdempotencyKey() },
+      new Date()
+    );
+    if (result.kind === "redirect") {
+      window.location.assign(result.checkoutUrl);
+      return;
+    }
+    if (result.kind === "already_paid" && result.reportId) {
+      window.location.assign(SITE_PATHS.calculatorReport(result.reportId));
+      return;
+    }
+    setSubmitting(false);
+    setError(
+      result.kind === "storage_failed"
+        ? "לא ניתן לשמור את פרטי ההמשך לתשלום בדפדפן. התשלום לא נפתח."
+        : result.kind === "retryable"
+          ? "שירות התשלום אינו זמין זמנית. לא בוצע חיוב; אפשר לנסות שוב."
+          : "לא ניתן לפתוח את התשלום כרגע. לא בוצע חיוב."
+    );
   }
 
   return (
@@ -131,10 +152,10 @@ export default function StartPage() {
 
       <button
         onClick={handlePay}
-        disabled={!selected}
+        disabled={!selected || submitting}
         className="w-full bg-[#1D6F42] hover:bg-[#14502F] disabled:opacity-40 disabled:cursor-default text-white font-bold py-3 rounded-lg transition-colors"
       >
-        מעבר לרכישה ותשלום - {formatPriceNis(CATALOG.baseReport.priceAgorot)}
+        {submitting ? "מכינים מעבר מאובטח לתשלום..." : `מעבר לרכישה ותשלום - ${formatPriceNis(CATALOG.baseReport.priceAgorot)}`}
       </button>
 
       <p className="text-xs text-gray-400 text-center mt-4">

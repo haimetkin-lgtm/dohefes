@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { computeProject, isCashLandDeal, landMechanism } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
+import { resolveActiveAccess, revokeActiveAccess } from "@/lib/payment/payment-storage";
+import { loadReport, saveReport } from "@/lib/payment/report-client";
 import ReportView from "./ReportView";
 
 const HEIGHT_LABELS: Record<BuildingHeight, string> = {
@@ -162,10 +164,8 @@ export default function CalculatorPage() {
   const [contingencyRate, setContingencyRate] = useState(0.05);
 
   const [reportId, setReportId] = useState<string | null>(null);
+  const [reportAccessToken, setReportAccessToken] = useState<string | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
-  const [urlParsed, setUrlParsed] = useState(false);
-  const [paidPending, setPaidPending] = useState(false);
-  const insertedRef = useRef(false);
 
   function applyRegionDefaults(nextRegion: string, nextHeight: BuildingHeight) {
     const row = CHAMBER_COSTS.find((r) => r.region === nextRegion);
@@ -295,77 +295,53 @@ export default function CalculatorPage() {
 
   const result = useMemo(() => computeProject(inputs), [inputs]);
 
-  // פענוח פרמטרי URL בטעינה: ?id=<uuid> (דוח קיים, לטעון) או ?dealType=X&paid=true (דוח חדש אחרי תשלום)
+  // דוח מלא נטען רק עם credential מקומי, דרך ה-Edge Function שמאמתת token+entitlement אטומית.
   useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+    if (cancelled) return;
     const params = new URLSearchParams(window.location.search);
-    const dealTypeParam = params.get("dealType");
-    if (dealTypeParam && DEAL_TYPE_ORDER.includes(dealTypeParam as DealType)) {
-      setDealType(dealTypeParam as DealType);
-    }
     const existingId = params.get("id");
     if (existingId && supabaseConfigured) {
       setLoadingReport(true);
-      supabase
-        .from("dohefes_reports")
-        .select("inputs")
-        .eq("id", existingId)
-        .single()
-        .then(({ data }) => {
-          if (data?.inputs) applyLoadedInputs(data.inputs as ProjectInputs);
-          setReportId(existingId);
+      const active = resolveActiveAccess(window.localStorage, existingId, "baseReport");
+      if (!active) {
+        setLoadingReport(false);
+        return;
+      }
+      void loadReport(supabase.functions, { reportId: existingId, accessToken: active.accessToken }).then((loaded) => {
+          if (cancelled) return;
+          if (loaded.kind === "active") {
+            applyLoadedInputs(loaded.inputs);
+            setReportId(existingId);
+            setReportAccessToken(active.accessToken);
+          } else if (loaded.kind === "unavailable" || loaded.kind === "error") {
+            revokeActiveAccess(window.localStorage, existingId, "baseReport");
+          }
           setLoadingReport(false);
-          setUrlParsed(true);
         });
       return;
     }
-    if (params.get("paid") === "true") setPaidPending(true);
-    setUrlParsed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  // יצירת רשומת דוח + קישור קבוע, פעם אחת, מיד אחרי הגעה עם paid=true (בלי לחכות שהמשתמש ימלא נתונים)
-  useEffect(() => {
-    if (!urlParsed || !paidPending || reportId || insertedRef.current || !supabaseConfigured) return;
-    insertedRef.current = true;
-    supabase
-      .from("dohefes_reports")
-      .insert({
-        project_name: inputs.projectName || null,
-        deal_type: inputs.dealType,
-        inputs,
-        results: result,
-        payment_status: "paid",
-      })
-      .select("id")
-      .single()
-      .then(({ data }) => {
-        if (data?.id) {
-          setReportId(data.id);
-          const url = new URL(window.location.href);
-          url.searchParams.delete("paid");
-          url.searchParams.set("id", data.id);
-          window.history.replaceState({}, "", url.toString());
-        }
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlParsed, paidPending, reportId]);
 
   // שמירה רציפה (debounced) של הדוח בכל שינוי, ברגע שיש קישור קבוע
   useEffect(() => {
-    if (!reportId || !supabaseConfigured) return;
+    if (!reportId || !reportAccessToken || !supabaseConfigured) return;
     const timer = setTimeout(() => {
-      supabase
-        .from("dohefes_reports")
-        .update({
-          project_name: inputs.projectName || null,
-          deal_type: inputs.dealType,
-          inputs,
-          results: result,
-        })
-        .eq("id", reportId)
-        .then(() => {});
+      saveReport(supabase.functions, { reportId, accessToken: reportAccessToken, inputs, results: result }).then((saved) => {
+        if (saved.kind === "unavailable") {
+          revokeActiveAccess(window.localStorage, reportId, "baseReport");
+          setReportAccessToken(null);
+          setReportId(null);
+        }
+      });
     }, 1500);
     return () => clearTimeout(timer);
-  }, [reportId, inputs, result]);
+  }, [reportId, reportAccessToken, inputs, result]);
 
   function updateUnit(index: number, patch: Partial<UnitType>) {
     setUnits((prev) => prev.map((u, i) => (i === index ? { ...u, ...patch } : u)));
@@ -1072,10 +1048,7 @@ export default function CalculatorPage() {
 
     <div className="max-w-3xl mx-auto px-4 pb-10">
       <div className="print:hidden text-sm font-bold text-[#123640] mb-2">הדוח שלכם</div>
-      {/* outputAccess נקבע כאן במפורש: reportId קיים = דוח שנשמר (paid=true בעבר, ר'
-          lib/report/outputAccess.ts להערה המלאה על "full" כתאימות זמנית) -> full. בלי
-          reportId = גרסת בדיקה -> trial. לעולם לא נגזר מ-searchParams.get("paid") ישירות כאן -
-          reportId הוא הראיה (נכתב ל-state רק אחרי insert מוצלח, ר' useEffect למעלה). */}
+      {/* reportId נקבע רק אחרי קריאה מאובטחת מוצלחת עם token+entitlement פעילים. */}
       <ReportView inputs={inputs} result={result} outputAccess={reportId ? "full" : "trial"} />
 
       <p className="print:hidden text-xs text-gray-400 text-center mt-4">

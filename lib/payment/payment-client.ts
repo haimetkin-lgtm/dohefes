@@ -65,8 +65,8 @@ export function isNonEmptyString(value: unknown): value is string {
 // ---------- dohefes-create-payment-order ----------
 
 export type CreatePaymentOrderClientResult =
-  | { kind: "pending"; orderId: string; checkoutUrl: string; accessToken: string; paymentContextId: string }
-  | { kind: "paid" }
+  | { kind: "pending"; reportId?: string; orderId: string; checkoutUrl: string; accessToken: string; paymentContextId: string }
+  | { kind: "paid"; reportId?: string }
   /** תגובה תקנית, לא שגיאה - claim פעיל אצל בקשה אחרת לאותה הזמנה (503) - סביר לנסות שוב בעוד רגע. */
   | { kind: "retryable" }
   /** דוח לא זכאי/קונפליקט idempotency-key/כשל ודאי מ-Cardcom/הזמנה שכבר failed/cancelled/refunded -
@@ -113,7 +113,9 @@ export function isRetryableHttpStatus(status: number | null): boolean {
 
 export async function createPaymentOrder(
   invoker: FunctionsInvoker,
-  input: { reportId: string; productType: ProductType; idempotencyKey: string }
+  input:
+    | { productType: "baseReport"; dealType: string; idempotencyKey: string }
+    | { reportId: string; productType: Exclude<ProductType, "baseReport">; idempotencyKey: string }
 ): Promise<CreatePaymentOrderClientResult> {
   const { data, error } = await invoker.invoke<{
     status?: string;
@@ -121,9 +123,13 @@ export async function createPaymentOrder(
     checkoutUrl?: unknown;
     accessToken?: unknown;
     paymentContextId?: unknown;
+    reportId?: unknown;
   }>("dohefes-create-payment-order", {
     headers: { "Idempotency-Key": input.idempotencyKey },
-    body: { reportId: input.reportId, productType: input.productType },
+    body:
+      input.productType === "baseReport"
+        ? { productType: input.productType, dealType: input.dealType }
+        : { reportId: input.reportId, productType: input.productType },
   });
 
   if (error) {
@@ -135,7 +141,7 @@ export async function createPaymentOrder(
   if (!data || typeof data.status !== "string") return { kind: "error", reason: "invalid_response_shape" };
 
   if (data.status === "pending") {
-    const { orderId, checkoutUrl, accessToken, paymentContextId } = data;
+    const { reportId, orderId, checkoutUrl, accessToken, paymentContextId } = data;
     if (
       !isNonEmptyString(orderId) ||
       !isNonEmptyString(checkoutUrl) ||
@@ -145,10 +151,19 @@ export async function createPaymentOrder(
     ) {
       return { kind: "error", reason: "invalid_response_shape" };
     }
+    if (input.productType === "baseReport") {
+      if (!isNonEmptyString(reportId)) return { kind: "error", reason: "invalid_response_shape" };
+      return { kind: "pending", reportId, orderId, checkoutUrl, accessToken, paymentContextId };
+    }
     return { kind: "pending", orderId, checkoutUrl, accessToken, paymentContextId };
   }
 
-  if (data.status === "paid") return { kind: "paid" };
+  if (data.status === "paid") {
+    if (input.productType === "baseReport") {
+      return isNonEmptyString(data.reportId) ? { kind: "paid", reportId: data.reportId } : { kind: "error", reason: "invalid_response_shape" };
+    }
+    return { kind: "paid" };
+  }
   if (data.status === "failed" || data.status === "cancelled" || data.status === "refunded") {
     return { kind: "error", reason: data.status };
   }
@@ -189,8 +204,8 @@ export async function getProductAccess(
 // ---------- אורכסטרציה: רכישה מלאה, כולל שמירת pending לפני redirect ----------
 
 export type PurchaseProductResult =
-  | { kind: "redirect"; checkoutUrl: string }
-  | { kind: "already_paid" }
+  | { kind: "redirect"; checkoutUrl: string; reportId?: string }
+  | { kind: "already_paid"; reportId?: string }
   /** ה-order נוצר בהצלחה אצל השרת, אבל שמירת ה-pending המקומית נכשלה (למשל quota) - **בכוונה
    *  אין `checkoutUrl` בתוצאה הזו** - אין שום דרך מבנית עבור הקורא לפנות ל-Cardcom כשמגיע ה-kind
    *  הזה, גם לא בטעות. */
@@ -201,12 +216,16 @@ export type PurchaseProductResult =
 export async function purchaseProduct(
   invoker: FunctionsInvoker,
   storage: StorageLike,
-  input: { reportId: string; productType: ProductType; idempotencyKey: string },
+  input:
+    | { productType: "baseReport"; dealType: string; idempotencyKey: string }
+    | { reportId: string; productType: Exclude<ProductType, "baseReport">; idempotencyKey: string },
   now: Date
 ): Promise<PurchaseProductResult> {
   const orderResult = await createPaymentOrder(invoker, input);
 
-  if (orderResult.kind === "paid") return { kind: "already_paid" };
+  if (orderResult.kind === "paid") {
+    return orderResult.reportId ? { kind: "already_paid", reportId: orderResult.reportId } : { kind: "already_paid" };
+  }
   if (orderResult.kind === "retryable") return { kind: "retryable" };
   if (orderResult.kind === "error") return orderResult;
 
@@ -214,8 +233,9 @@ export async function purchaseProduct(
     storage,
     orderResult.paymentContextId,
     {
-      reportId: input.reportId,
+      reportId: orderResult.reportId ?? ("reportId" in input ? input.reportId : ""),
       productType: input.productType,
+      ...("dealType" in input ? { dealType: input.dealType } : {}),
       accessToken: orderResult.accessToken,
       checkoutUrl: orderResult.checkoutUrl,
       idempotencyKey: input.idempotencyKey,
@@ -224,7 +244,9 @@ export async function purchaseProduct(
   );
   if (!stored.ok) return { kind: "storage_failed" };
 
-  return { kind: "redirect", checkoutUrl: orderResult.checkoutUrl };
+  return orderResult.reportId
+    ? { kind: "redirect", checkoutUrl: orderResult.checkoutUrl, reportId: orderResult.reportId }
+    : { kind: "redirect", checkoutUrl: orderResult.checkoutUrl };
 }
 
 // ---------- אורכסטרציה: חידוש pending קיים (חזרה ל-checkout, לא הזמנה חדשה) ----------
@@ -291,10 +313,15 @@ async function renewPendingCheckout(
   invoker: FunctionsInvoker,
   storage: StorageLike,
   paymentContextId: string,
-  pending: { reportId: string; productType: ProductType; accessToken: string; idempotencyKey: string },
+  pending: { reportId: string; productType: ProductType; dealType?: string; accessToken: string; idempotencyKey: string },
   now: Date
 ): Promise<ResumeCheckoutResult> {
-  const renewed = await createPaymentOrder(invoker, { reportId: pending.reportId, productType: pending.productType, idempotencyKey: pending.idempotencyKey });
+  if (pending.productType === "baseReport" && !pending.dealType) {
+    return { kind: "error", reason: "missing_base_report_deal_type" };
+  }
+  const renewed = pending.productType === "baseReport"
+    ? await createPaymentOrder(invoker, { productType: "baseReport", dealType: pending.dealType!, idempotencyKey: pending.idempotencyKey })
+    : await createPaymentOrder(invoker, { reportId: pending.reportId, productType: pending.productType, idempotencyKey: pending.idempotencyKey });
 
   if (renewed.kind === "retryable") return { kind: "retryable" };
   if (renewed.kind === "error") return renewed;

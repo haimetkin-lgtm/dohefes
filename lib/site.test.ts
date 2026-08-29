@@ -7,6 +7,10 @@ describe("SITE_PATHS - basePath audit", () => {
     expect(SITE_PATHS.calculator.match(/\/dohefes/g)).toHaveLength(1);
   });
 
+  it("calculatorReport מקודד reportId ומוסיף אותו כ-query בלבד", () => {
+    expect(SITE_PATHS.calculatorReport("a/b ?")).toBe("/dohefes/calculator/?id=a%2Fb%20%3F");
+  });
+
   it("tracking(reportId) כולל /dohefes פעם אחת ושומר את reportId ב-query string", () => {
     const url = SITE_PATHS.tracking("11111111-1111-1111-1111-111111111111");
     expect(url).toBe("/dohefes/tracking/?id=11111111-1111-1111-1111-111111111111");

@@ -76,10 +76,10 @@ describe("10. query string כגון ?paid=true אינו משנה trial ל-full",
     expect(props).not.toMatch(/paid/i);
   });
 
-  it("reportId עצמו נכתב ל-state רק אחרי insert מוצלח (לא נגזר ישירות מ-'paid'==='true' בכל רינדור)", () => {
-    // setReportId נקרא רק בתוך .then(({ data }) => { if (data?.id) { setReportId(data.id); ... אחרי insert. גם בטעינת דוח קיים (?id=).
-    expect(CALCULATOR).toMatch(/setReportId\(data\.id\)/);
+  it("reportId עצמו נכתב ל-state רק אחרי loadReport מאובטח ו-active", () => {
+    expect(CALCULATOR).toMatch(/loaded\.kind === "active"[\s\S]*setReportId\(existingId\)/);
     expect(CALCULATOR).toMatch(/setReportId\(existingId\)/);
+    expect(CALCULATOR).not.toMatch(/payment_status:\s*"paid"/);
   });
 });
 

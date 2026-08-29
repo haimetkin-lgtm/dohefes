@@ -212,7 +212,7 @@ describe("get - אינה מחזירה payment_status/token/hash/order data", () 
     // מבודד רק את גוף ה-`returns table (...)` עצמו - **לא** את רשימת הפרמטרים שלפניו (שכוללת
     // p_access_token_hash, שמכיל את המחרוזת "token" - היה גורם לכשל-בדיקה שווא על שורה שלא
     // אמורה להיבדק בכלל כאן).
-    const returnsBlock = afterFunctionName.split("returns table (")[1]?.split(")\nlanguage")[0] ?? "";
+    const returnsBlock = afterFunctionName.split("returns table (")[1]?.split(/\)\r?\nlanguage/)[0] ?? "";
     expect(returnsBlock).toMatch(/report_id uuid/);
     expect(returnsBlock).toMatch(/project_name text/);
     expect(returnsBlock).toMatch(/deal_type text/);
@@ -281,10 +281,10 @@ describe("Commit 6a-fix: החלטת deal_type - הראיה מ-/calculator מתו
     expect(dealTypeSection).not.toMatch(/disabled/);
   });
 
-  it("effect 'שמירה רציפה' (autosave) כותב deal_type בכל שמירה, לא רק ביצירה הראשונית - שתי הופעות של deal_type: inputs.dealType", () => {
+  it("effect 'שמירה רציפה' (autosave) מעביר את inputs המלא ל-saveReport המאובטח", () => {
     const calculatorSource = readFileSync(join(process.cwd(), "app/calculator/page.tsx"), "utf-8");
-    const occurrences = (calculatorSource.match(/deal_type: inputs\.dealType/g) || []).length;
-    expect(occurrences).toBe(2); // insert הראשוני + update ה-autosave
+    expect(calculatorSource).toMatch(/saveReport\(supabase\.functions, \{ reportId, accessToken: reportAccessToken, inputs, results: result \}\)/);
+    expect(calculatorSource).not.toMatch(/\.from\("dohefes_reports"\)/);
   });
 });
 

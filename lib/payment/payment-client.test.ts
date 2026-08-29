@@ -96,6 +96,23 @@ function sequencedInvoker(outcomes: InvokerOutcome[]): FunctionsInvoker & { call
 }
 
 describe("createPaymentOrder - תגובת pending", () => {
+  it("baseReport שולח dealType בלי reportId ודורש reportId מהשרת", async () => {
+    const invoker = fakeInvoker({
+      data: { status: "pending", reportId: REPORT_ID, orderId: "order-1", checkoutUrl: TRUSTED_CHECKOUT_URL, accessToken: "tok-1", paymentContextId: "po_base" },
+    });
+    const result = await createPaymentOrder(invoker, { productType: "baseReport", dealType: "basic", idempotencyKey: IDEMPOTENCY_KEY });
+    expect(invoker.calls[0].body).toEqual({ productType: "baseReport", dealType: "basic" });
+    expect(result).toMatchObject({ kind: "pending", reportId: REPORT_ID });
+  });
+
+  it("baseReport נכשל סגור אם השרת לא מחזיר reportId", async () => {
+    const invoker = fakeInvoker({
+      data: { status: "pending", orderId: "order-1", checkoutUrl: TRUSTED_CHECKOUT_URL, accessToken: "tok-1", paymentContextId: "po_base" },
+    });
+    await expect(createPaymentOrder(invoker, { productType: "baseReport", dealType: "basic", idempotencyKey: IDEMPOTENCY_KEY }))
+      .resolves.toEqual({ kind: "error", reason: "invalid_response_shape" });
+  });
+
   it("תגובה תקינה עם checkoutUrl מהימן - כל השדות מוחזרים כפי שהתקבלו", async () => {
     const invoker = fakeInvoker({
       data: { status: "pending", orderId: "order-1", checkoutUrl: TRUSTED_CHECKOUT_URL, accessToken: "tok-1", paymentContextId: "po_abc" },
@@ -138,55 +155,55 @@ describe("createPaymentOrder - תגובת pending", () => {
 describe("createPaymentOrder - שאר הסטטוסים", () => {
   it("paid", async () => {
     const invoker = fakeInvoker({ data: { status: "paid" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "paid" });
   });
 
   it.each(["failed", "cancelled", "refunded"])("%s -> error עם הסיבה המדויקת", async (status) => {
     const invoker = fakeInvoker({ data: { status } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: status });
   });
 
   it("503 checkout_creation_in_progress -> retryable", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 503, httpErrorBody: { error: "checkout_creation_in_progress" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "retryable" });
   });
 
   it("500 internal_error -> retryable", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 500, httpErrorBody: { error: "internal_error" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "retryable" });
   });
 
   it("403 report_not_eligible -> error עם הסיבה מהגוף", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 403, httpErrorBody: { error: "report_not_eligible" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "report_not_eligible" });
   });
 
   it("409 idempotency_key_conflict -> error", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 409, httpErrorBody: { error: "idempotency_key_conflict" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "idempotency_key_conflict" });
   });
 
   it("502 payment_provider_error - כשל ודאי, לא retryable עם אותם פרטים", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 502, httpErrorBody: { error: "payment_provider_error" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "payment_provider_error" });
   });
 
   it("שגיאת רשת (אין status בכלל) -> retryable", async () => {
     const invoker = fakeInvoker({ networkError: true });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "retryable" });
   });
 
   it("סטטוס לא מוכר בתשובה תקינה - error, לא זורק", async () => {
     const invoker = fakeInvoker({ data: { status: "something_new" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "invalid_response_shape" });
   });
 });
@@ -257,14 +274,14 @@ describe("purchaseProduct - שמירת pending לפני redirect, לא אחרי"
   it("paid -> already_paid, לא נוגע ב-storage בכלל", async () => {
     const storage = new FakeStorage();
     const invoker = fakeInvoker({ data: { status: "paid" } });
-    const result = await purchaseProduct(invoker, storage, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY }, NOW);
+    const result = await purchaseProduct(invoker, storage, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY }, NOW);
     expect(result).toEqual({ kind: "already_paid" });
   });
 
   it("retryable מהשרת עובר כמו שהוא", async () => {
     const storage = new FakeStorage();
     const invoker = fakeInvoker({ httpErrorStatus: 503, httpErrorBody: { error: "checkout_creation_in_progress" } });
-    const result = await purchaseProduct(invoker, storage, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY }, NOW);
+    const result = await purchaseProduct(invoker, storage, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY }, NOW);
     expect(result).toEqual({ kind: "retryable" });
   });
 
@@ -301,7 +318,7 @@ describe("אין access token בשום פלט שגיאה", () => {
 
   it("תוצאת error מ-createPaymentOrder לעולם לא כוללת accessToken כלשהו (רק reason טקסטואלי)", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 403, httpErrorBody: { error: "report_not_eligible" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(Object.keys(result).sort()).toEqual(["kind", "reason"]);
   });
 });
@@ -462,13 +479,13 @@ describe("isTrustedCheckoutUrl (מיוצא)", () => {
 describe("תגובות Functions - מקרי קצה (401/404/409/429/502, גוף לא-JSON, שדות עודפים)", () => {
   it("401 מה-gateway (Authorization חסר/שגוי) - error, לא retryable (לא ייפתר בניסיון זהה חוזר)", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 401, httpErrorBody: { message: "Invalid JWT" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result.kind).toBe("error");
   });
 
   it("404 (ה-Function טרם נפרסה) - retryable: ברגע שתיפרס, אותה בקשה תצליח", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 404, httpErrorBody: null });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "retryable" });
   });
 
@@ -480,13 +497,13 @@ describe("תגובות Functions - מקרי קצה (401/404/409/429/502, גוף 
 
   it("502 (payment_provider_error) - error ודאי, לא retryable", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 502, httpErrorBody: { error: "payment_provider_error" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "payment_provider_error" });
   });
 
   it("גוף תגובה שאינו JSON תקין (Response.json() זורק SyntaxError) - לא מפילה, נופלת ל-fallback גנרי", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 403, jsonThrows: true });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "http_403" });
   });
 
@@ -510,13 +527,13 @@ describe("תגובות Functions - מקרי קצה (401/404/409/429/502, גוף 
         return { data: null, error: null };
       },
     };
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "error", reason: "invalid_response_shape" });
   });
 
   it("אין stack trace/מבנה טכני חשוף בתוצאה כלשהי - 500 מסווג retryable, אין reason טקסטואלי בכלל וקל וחומר לא stack", async () => {
     const invoker = fakeInvoker({ httpErrorStatus: 500, httpErrorBody: { error: "internal_error", stack: "at foo.ts:123\n at bar.ts:45" } });
-    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "baseReport", idempotencyKey: IDEMPOTENCY_KEY });
+    const result = await createPaymentOrder(invoker, { reportId: REPORT_ID, productType: "cashFlowAnalysis", idempotencyKey: IDEMPOTENCY_KEY });
     expect(result).toEqual({ kind: "retryable" });
     expect(JSON.stringify(result)).not.toContain("foo.ts");
   });

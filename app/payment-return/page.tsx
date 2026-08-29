@@ -1,7 +1,7 @@
 "use client";
 
 // עמוד החזרה מ-Cardcom (SuccessRedirectUrl/ErrorRedirectUrl) לכל מוצר שעובר דרך מנגנון
-// התשלום המאובטח (trackingReports/cashFlowAnalysis - לא baseReport, ר' "unmapped" למטה). כל
+// התשלום המאובטח לכל מוצרי הקטלוג, כולל baseReport. כל
 // לוגיקת המעברים חיה ב-state machine טהורה נפרדת (lib/payment/payment-return-state.ts, נבדקת
 // בעצמה) - הקומפוננטה הזו רק מריצה side effects (storage/רשת/timers/ניווט) לפי ה-state
 // הנוכחי, ומציירת טקסט.
@@ -122,7 +122,7 @@ export default function PaymentReturnPage() {
     if (target.kind === "path") {
       window.location.replace(target.path);
     }
-    // kind==="unmapped" (baseReport) - אין ניווט. renderByState מציג הודעה כללית, ר' למטה.
+    // kind==="unmapped" נשמר כהגנת-עומק למוצר עתידי ללא יעד.
   }, [state]);
 
   return (

@@ -37,6 +37,8 @@ import type { ProductType } from "../../supabase/functions/_shared/payment-produ
 export interface PendingPurchaseRecord {
   reportId: string;
   productType: ProductType;
+  /** נדרש רק ל-baseReport כדי לחדש את אותה הזמנה עם חוזה ה-union של Commit 6a. */
+  dealType?: string;
   accessToken: string;
   /** נדרש כדי לחדש הזמנה קיימת בבטחה (ר' resumePendingCheckout ב-payment-client.ts) - **תמיד**
    *  אותו מפתח שכבר שימש ליצירת ההזמנה; לעולם לא מוחלף כדי "לחדש" pending קיים - מחייב על ידי
@@ -97,6 +99,7 @@ function isValidPendingRecord(value: unknown): value is PendingPurchaseRecord {
   return (
     isNonEmptyStr(r.reportId) &&
     isProductType(r.productType) &&
+    (r.dealType === undefined || isNonEmptyStr(r.dealType)) &&
     isNonEmptyStr(r.accessToken) &&
     isNonEmptyStr(r.idempotencyKey) &&
     isNonEmptyStr(r.checkoutUrl) &&
@@ -200,7 +203,7 @@ export function cleanupPending(storage: StorageLike, now: Date): void {
 export function addPending(
   storage: StorageLike,
   paymentContextId: string,
-  input: { reportId: string; productType: ProductType; accessToken: string; checkoutUrl: string; idempotencyKey: string },
+  input: { reportId: string; productType: ProductType; dealType?: string; accessToken: string; checkoutUrl: string; idempotencyKey: string },
   now: Date
 ): { ok: boolean } {
   const store = readPendingStore(storage);
@@ -209,6 +212,7 @@ export function addPending(
     [paymentContextId]: {
       reportId: input.reportId,
       productType: input.productType,
+      ...(input.dealType ? { dealType: input.dealType } : {}),
       accessToken: input.accessToken,
       checkoutUrl: input.checkoutUrl,
       idempotencyKey: input.idempotencyKey,

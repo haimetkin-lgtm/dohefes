@@ -169,9 +169,9 @@ describe("16. Excel/print נעולים לפני active - disabled אמיתי + i
   });
 
   it("renderEditor נקרא רק ממצבי active/saveInProgress/saveError - אין נתיב לעורך מ-purchaseRequired/checkoutPending/וכו'", () => {
-    const switchBlock = TRACKING_PAGE.match(/switch \(state\.kind\) \{[\s\S]*?\n  \}\n\}/);
+    const switchBlock = TRACKING_PAGE.match(/switch \(state\.kind\) \{[\s\S]*?\r?\n  \}\r?\n\}/);
     expect(switchBlock).not.toBeNull();
-    const editorCaseMatch = switchBlock![0].match(/case "active":\s*\n\s*case "saveInProgress":\s*\n\s*case "saveError":\s*\n\s*return renderEditor/);
+    const editorCaseMatch = switchBlock![0].match(/case "active":\s*\r?\n\s*case "saveInProgress":\s*\r?\n\s*case "saveError":\s*\r?\n\s*return renderEditor/);
     expect(editorCaseMatch).not.toBeNull();
   });
 });
