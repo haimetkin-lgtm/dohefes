@@ -33,13 +33,16 @@ import { errorReasonFromBody, isRetryableHttpStatus, readHttpErrorBody } from ".
 import type { TrackingItem } from "../tracking/types";
 
 export type GetTrackingDataClientResult =
-  | { kind: "active"; entries: readonly TrackingItem[] }
+  /** projectName: string | null - כמו שהשרת החזיר, לא מומצא/מתוקן כאן. Commit 5b-fix: מגיע
+   *  כעת **בתוך** אותה תגובה מאובטחת אחת (dohefes-get-tracking-data), לא מקריאה אנונימית
+   *  נפרדת ל-dohefes_reports. */
+  | { kind: "active"; projectName: string | null; entries: readonly TrackingItem[] }
   | { kind: "unavailable" }
   | { kind: "retryable" }
   | { kind: "error"; reason: string };
 
 export async function getTrackingData(invoker: FunctionsInvoker, input: { reportId: string; accessToken: string }): Promise<GetTrackingDataClientResult> {
-  const { data, error } = await invoker.invoke<{ status?: string; entries?: unknown }>("dohefes-get-tracking-data", {
+  const { data, error } = await invoker.invoke<{ status?: string; projectName?: unknown; entries?: unknown }>("dohefes-get-tracking-data", {
     headers: { "X-Access-Token": input.accessToken },
     body: { reportId: input.reportId },
   });
@@ -54,9 +57,11 @@ export async function getTrackingData(invoker: FunctionsInvoker, input: { report
 
   if (data.status === "active") {
     // "נכשל סגור" ברמת המבנה - לא רק typeof status. אם entries חסר/לא מערך, זו תשובה
-    // לא-תקינה, לא "active עם 0 פריטים" מנוחש.
+    // לא-תקינה, לא "active עם 0 פריטים" מנוחש. projectName: מותר null/string בלבד - כל דבר
+    // אחר (מספר/אובייקט/undefined) הוא תשובה לא-תקינה, לא "בלי שם" מנוחש.
     if (!Array.isArray(data.entries)) return { kind: "error", reason: "invalid_response_shape" };
-    return { kind: "active", entries: data.entries as TrackingItem[] };
+    if (data.projectName !== null && typeof data.projectName !== "string") return { kind: "error", reason: "invalid_response_shape" };
+    return { kind: "active", projectName: data.projectName ?? null, entries: data.entries as TrackingItem[] };
   }
 
   if (data.status === "unavailable") return { kind: "unavailable" };

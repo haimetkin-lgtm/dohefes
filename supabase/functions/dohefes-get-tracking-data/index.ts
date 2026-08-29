@@ -55,14 +55,27 @@ function parseRequestBody(raw: unknown): { ok: true; body: RequestBody } | { ok:
   return { ok: true, body: { reportId: record.reportId } };
 }
 
+/** צורת השורה הגולמית שחוזרת בפועל מ-Postgres (snake_case, כמו ה-RPC מגדיר אותה) - **לא**
+ *  RawTrackingGetOutcome (camelCase) ישירות. supabase-js לא ממפה אוטומטית בין המוסכמות - מיפוי
+ *  מפורש כאן, אותו דפוס בדיוק כמו mapOrderRow ב-dohefes-create-payment-order/index.ts. */
+type TrackingDataRpcRow = {
+  outcome: RawTrackingGetOutcome["outcome"];
+  project_name: string | null;
+  entries: RawTrackingGetOutcome["entries"];
+};
+
+function mapTrackingDataRow(row: TrackingDataRpcRow): RawTrackingGetOutcome {
+  return { outcome: row.outcome, projectName: row.project_name, entries: row.entries };
+}
+
 function buildDatabase(supabase: SupabaseClient): TrackingReadDatabase {
   return {
     async getTrackingData(reportId, accessTokenHash) {
       const { data, error } = await supabase
         .rpc("dohefes_get_tracking_data", { p_report_id: reportId, p_access_token_hash: accessTokenHash })
-        .single<RawTrackingGetOutcome>();
+        .single<TrackingDataRpcRow>();
       if (error) throw error;
-      return data;
+      return mapTrackingDataRow(data);
     },
   };
 }

@@ -20,10 +20,12 @@ describe("1. reportId לא תקין אינו טוען נתונים", () => {
     expect(TRACKING_PAGE).toMatch(/dispatch\(\{ type: "REPORT_ID_INVALID" \}\)/);
   });
 
-  it("קריאת project_name/dohefes-get-tracking-data לא קורות לפני שreportId אומת", () => {
+  it("dohefes-get-tracking-data לא נקראת לפני שreportId אומת - הקריאה הראשונה קורית רק בתוך effect של activeLoadingData", () => {
     const invalidCheckIndex = TRACKING_PAGE.indexOf("REPORT_ID_INVALID");
-    const projectNameFetchIndex = TRACKING_PAGE.indexOf('.select("project_name")');
-    expect(invalidCheckIndex).toBeLessThan(projectNameFetchIndex);
+    const getTrackingCallIndex = TRACKING_PAGE.indexOf("getTrackingData(supabase.functions");
+    expect(invalidCheckIndex).toBeGreaterThan(-1);
+    expect(getTrackingCallIndex).toBeGreaterThan(-1);
+    expect(invalidCheckIndex).toBeLessThan(getTrackingCallIndex);
   });
 });
 
@@ -56,20 +58,35 @@ describe("7/8. active קורא/שומר רק דרך ה-Functions החדשות - 
   });
 });
 
-describe("9. אין קריאה/כתיבה של dohefes_reports.tracking בקוד /tracking", () => {
-  it("אין .from(\"dohefes_reports\").select/.update עם tracking בתוכו", () => {
-    // מותר .select("project_name") בלבד (חריג מתועד) - נבדק שהוא היחיד שנוגע ב-dohefes_reports.
-    const fromReportsLines = TRACKING_PAGE.split("\n").filter((l) => l.includes('.from("dohefes_reports")'));
-    expect(fromReportsLines.length).toBe(1);
-    expect(fromReportsLines[0]).not.toMatch(/tracking/);
+describe("1 (5b-fix). אין שום גישה ישירה ל-dohefes_reports/Supabase table client ב-app/tracking/page.tsx", () => {
+  it("אין .from(\"dohefes_reports\") בכלל - אפס מופעים, לא רק 'רק אחד מותר' כמו בסבב הקודם", () => {
+    expect(TRACKING_PAGE).not.toMatch(/\.from\(\s*["']dohefes_reports["']\s*\)/);
   });
 
-  it("אין .update({ tracking: ... }) בשום מקום בקובץ", () => {
-    expect(TRACKING_PAGE).not.toMatch(/\.update\(\{\s*tracking/);
+  it("אין .select(...)/.update(...) על שום טבלה בקובץ - הקובץ לא נוגע ב-Supabase table client בכלל", () => {
+    expect(TRACKING_PAGE).not.toMatch(/\.select\(/);
+    expect(TRACKING_PAGE).not.toMatch(/\.update\(\s*\{/);
+  });
+
+  it("אין project_name נקרא/נטען מחוץ ל-tracking-client (לא property access ישיר על תוצאת query אנונימית)", () => {
+    expect(TRACKING_PAGE).not.toMatch(/data\?\.project_name/);
+    expect(TRACKING_PAGE).not.toMatch(/data\.project_name/);
   });
 
   it("אין payment_status בקובץ - אין הסתמכות על השדה הישן לפתיחת המוצר", () => {
     expect(TRACKING_PAGE).not.toMatch(/payment_status/);
+  });
+
+  it("2. paywall (purchaseRequired) מציג ניסוח כללי \"דוחות מעקב עבור הדוח הקיים\" - לא שם פרויקט", () => {
+    const purchaseRequiredBlock = TRACKING_PAGE.match(/case "purchaseRequired":[\s\S]{0,600}/);
+    expect(purchaseRequiredBlock).not.toBeNull();
+    expect(purchaseRequiredBlock![0]).toContain("דוחות מעקב עבור הדוח הקיים");
+    expect(purchaseRequiredBlock![0]).not.toMatch(/projectName/);
+  });
+
+  it("projectName מופיע רק בתוך renderEditor (active/saveInProgress/saveError) - לא בשום מסך paywall/pending/unavailable/loading", () => {
+    const rendersOutsideEditor = TRACKING_PAGE.split("function renderEditor")[0];
+    expect(rendersOutsideEditor).not.toMatch(/state\.projectName/);
   });
 });
 
@@ -162,5 +179,66 @@ describe("16. Excel/print נעולים לפני active - disabled אמיתי + i
 describe("9-cont. כל call site של ReportView/tracking עדיין תואם לחלוטין ל-Commit 4 (לא נסוג)", () => {
   it("app/tracking/page.tsx לא מייבא ReportView (מוצר נפרד, לא ReportView של דוח האפס)", () => {
     expect(TRACKING_PAGE).not.toMatch(/ReportView/);
+  });
+});
+
+describe("הקשחת autosave (Commit 5b-fix) - חיווט effects בפועל", () => {
+  it("7/8. lastSavedSnapshotRef נקבע לפני ה-dispatch של DATA_LOAD_SUCCEEDED - autosave לא רואה 'שינוי' ברגע הראשון", () => {
+    const loadBlock = TRACKING_PAGE.match(/if \(state\.kind !== "activeLoadingData"\)[\s\S]{0,500}/);
+    expect(loadBlock).not.toBeNull();
+    const refIndex = loadBlock![0].indexOf("lastSavedSnapshotRef.current = JSON.stringify(result.entries)");
+    const dispatchIndex = loadBlock![0].indexOf('dispatch({ type: "DATA_LOAD_SUCCEEDED"');
+    expect(refIndex).toBeGreaterThan(-1);
+    expect(dispatchIndex).toBeGreaterThan(-1);
+    expect(refIndex).toBeLessThan(dispatchIndex);
+  });
+
+  it("שלב ה-autosave (scheduleSave) קורא ל-decideAutosaveAction הטהור, לא משווה snapshots inline", () => {
+    expect(TRACKING_PAGE).toMatch(/from "@\/lib\/tracking\/autosave"/);
+    expect(TRACKING_PAGE).toMatch(/decideAutosaveAction\(\{/);
+    expect(TRACKING_PAGE).toMatch(/decision !== "scheduleSave"/);
+  });
+
+  it("9. saveInFlight מועבר ל-decideAutosaveAction לפי activeSaveTokenRef, לא לפי state.kind בלבד", () => {
+    const decisionCall = TRACKING_PAGE.match(/decideAutosaveAction\(\{[\s\S]{0,200}?\}\)/);
+    expect(decisionCall).not.toBeNull();
+    expect(decisionCall![0]).toMatch(/saveInFlight: activeSaveTokenRef\.current !== null/);
+  });
+
+  it("9/10. שלב השמירה עצמו חסום כפול ע\"י activeSaveTokenRef - guard לפני יצירת בקשה חדשה, והשוואת token ב-.then() לפני dispatch", () => {
+    const saveEffectMatch = TRACKING_PAGE.match(/if \(state\.kind !== "saveInProgress"\)[\s\S]{0,900}/);
+    expect(saveEffectMatch).not.toBeNull();
+    const body = saveEffectMatch![0];
+    expect(body).toMatch(/if \(activeSaveTokenRef\.current !== null\) return;/);
+    expect(body).toMatch(/if \(activeSaveTokenRef\.current !== token\) return;/);
+  });
+
+  it("12. save-effect מטפל ב-result.kind==='unavailable' עם revokeActiveAccess + ENTITLEMENT_UNAVAILABLE, לא SAVE_FAILED", () => {
+    const saveEffectMatch = TRACKING_PAGE.match(/if \(state\.kind !== "saveInProgress"\)[\s\S]{0,1200}/);
+    expect(saveEffectMatch).not.toBeNull();
+    const unavailableBranch = saveEffectMatch![0].match(/result\.kind === "unavailable"[\s\S]{0,250}/);
+    expect(unavailableBranch).not.toBeNull();
+    expect(unavailableBranch![0]).toMatch(/revokeActiveAccess/);
+    expect(unavailableBranch![0]).toMatch(/ENTITLEMENT_UNAVAILABLE/);
+    expect(unavailableBranch![0]).not.toMatch(/SAVE_FAILED/);
+  });
+
+  it("13. mountedRef קיים, מתעדכן ל-false ב-cleanup הראשי, ונבדק לפני dispatch מתוך effects אסינכרוניים", () => {
+    expect(TRACKING_PAGE).toMatch(/const mountedRef = useRef\(true\)/);
+    expect(TRACKING_PAGE).toMatch(/mountedRef\.current = false;/);
+    const mountedChecks = (TRACKING_PAGE.match(/mountedRef\.current/g) || []).length;
+    expect(mountedChecks).toBeGreaterThanOrEqual(4); // ההגדרה+cleanup + לפחות שתי בדיקות בתוך effects אסינכרוניים
+  });
+
+  it("13. טיימר ה-autosave מנוקה תמיד (return () => window.clearTimeout(timer)) - גם unmount וגם re-render מבטלים אותו", () => {
+    const autosaveEffectMatch = TRACKING_PAGE.match(/decideAutosaveAction\([\s\S]{0,600}/);
+    expect(autosaveEffectMatch).not.toBeNull();
+    expect(autosaveEffectMatch![0]).toMatch(/return \(\) => window\.clearTimeout\(timer\)/);
+  });
+
+  it("14. אין mutation ישיר על entries בעדכון - updateItem/removeItem/addItem בונים מערך חדש (map/filter/spread), לא משנים באתר", () => {
+    expect(TRACKING_PAGE).toMatch(/state\.entries\.map\(/);
+    expect(TRACKING_PAGE).toMatch(/state\.entries\.filter\(/);
+    expect(TRACKING_PAGE).toMatch(/\[\.\.\.state\.entries, emptyItem\(\)\]/);
   });
 });

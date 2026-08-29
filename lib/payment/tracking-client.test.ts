@@ -27,23 +27,47 @@ function fakeInvoker(outcome: InvokerOutcome): FunctionsInvoker & { calls: Array
 }
 
 describe("getTrackingData - 7. קורא רק ל-dohefes-get-tracking-data", () => {
-  it("status='active' + entries -> kind:'active', entries מועברים כמות שהם", async () => {
-    const invoker = fakeInvoker({ data: { status: "active", entries: [SAMPLE_ITEM] } });
+  it("status='active' + entries+projectName -> kind:'active', שניהם מועברים כמות שהם", async () => {
+    const invoker = fakeInvoker({ data: { status: "active", projectName: "רחוב הרצל 12", entries: [SAMPLE_ITEM] } });
     const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
-    expect(result).toEqual({ kind: "active", entries: [SAMPLE_ITEM] });
+    expect(result).toEqual({ kind: "active", projectName: "רחוב הרצל 12", entries: [SAMPLE_ITEM] });
     expect(invoker.calls).toEqual([{ functionName: "dohefes-get-tracking-data", headers: { "X-Access-Token": ACCESS_TOKEN }, body: { reportId: REPORT_ID } }]);
   });
 
-  it("8. status='active' + entries=[] (מצב ריק) -> kind:'active', entries:[]", async () => {
+  it("6. projectName=null (דוח בלי שם) - מועבר כ-null, לא הופך למחרוזת מומצאת", async () => {
+    const invoker = fakeInvoker({ data: { status: "active", projectName: null, entries: [] } });
+    const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
+    expect(result).toEqual({ kind: "active", projectName: null, entries: [] });
+  });
+
+  it("projectName חסר לגמרי מהתשובה (undefined, לא null מפורש) - נכשל סגור, error - השרת תמיד כולל את השדה (string או null), מפתח חסר הוא תשובה חשודה", async () => {
     const invoker = fakeInvoker({ data: { status: "active", entries: [] } });
     const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
-    expect(result).toEqual({ kind: "active", entries: [] });
+    expect(result).toEqual({ kind: "error", reason: "invalid_response_shape" });
+  });
+
+  it("projectName ממספר/אובייקט (לא string/null) - נכשל סגור, error", async () => {
+    const invoker = fakeInvoker({ data: { status: "active", projectName: 123, entries: [] } });
+    const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
+    expect(result).toEqual({ kind: "error", reason: "invalid_response_shape" });
+  });
+
+  it("8. status='active' + entries=[] (מצב ריק) -> kind:'active', entries:[]", async () => {
+    const invoker = fakeInvoker({ data: { status: "active", projectName: "פרויקט", entries: [] } });
+    const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
+    expect(result).toEqual({ kind: "active", projectName: "פרויקט", entries: [] });
   });
 
   it("status='active' בלי entries (חסר) - נכשל סגור, error, לא 'active' עם 0 מנוחש", async () => {
-    const invoker = fakeInvoker({ data: { status: "active" } });
+    const invoker = fakeInvoker({ data: { status: "active", projectName: "פרויקט" } });
     const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
     expect(result).toEqual({ kind: "error", reason: "invalid_response_shape" });
+  });
+
+  it("5. status='unavailable' - גם אם השרת (לא אמור) כלל projectName - לא נחשף, kind:'unavailable' בלבד", async () => {
+    const invoker = fakeInvoker({ data: { status: "unavailable", projectName: "לא אמור להיחשף" } });
+    const result = await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
+    expect(result).toEqual({ kind: "unavailable" });
   });
 
   it("13. status='unavailable' -> kind:'unavailable'", async () => {
@@ -53,7 +77,7 @@ describe("getTrackingData - 7. קורא רק ל-dohefes-get-tracking-data", () =
   });
 
   it("10/11. הטוקן נשלח אך ורק ב-header X-Access-Token - לא בגוף הבקשה, לא ב-URL/query", async () => {
-    const invoker = fakeInvoker({ data: { status: "active", entries: [] } });
+    const invoker = fakeInvoker({ data: { status: "active", projectName: "פרויקט", entries: [] } });
     await getTrackingData(invoker, { reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
     const call = invoker.calls[0];
     expect(call.headers?.["X-Access-Token"]).toBe(ACCESS_TOKEN);

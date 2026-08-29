@@ -28,6 +28,10 @@ export interface GetTrackingDataResult {
   status: TrackingAccessStatus;
   /** תמיד מלא (גם מערך ריק) כש-status==="active" - undefined כש-unavailable, לא [] מטעה. */
   entries?: readonly TrackingItem[];
+  /** מוחזר **רק** כש-status==="active" - null/undefined אינו fallback-מומצא כאן, פשוט מה
+   *  שה-RPC החזיר בפועל (dohefes_reports.project_name יכול להיות null/ריק) - הקורא (React)
+   *  אחראי על טקסט fallback לתצוגה, לא השרת (Commit 5b-fix, "אל תמציא שם במסד"). */
+  projectName?: string | null;
 }
 
 export interface SaveTrackingDataRequest {
@@ -46,6 +50,7 @@ export interface SaveTrackingDataResult {
  *  לא-ריק לפני הקריאה - fail closed, לא exception לא-צפויה). */
 export interface RawTrackingGetOutcome {
   outcome: "invalid_input" | "unavailable" | "active";
+  projectName: string | null;
   entries: TrackingItem[] | null;
 }
 
@@ -91,6 +96,7 @@ const INVALID_PAYLOAD: SaveTrackingDataResult = { status: "invalid_payload" };
  * 3. outcome!=='active' -> unavailable (אותה תגובה, לא מבחינה בין "טוקן שגוי" ל"אין entitlement"
  *    ל"דוח לא תואם" - אי אפשר להבחין ביניהם מבחוץ).
  * 4. active -> entries תמיד מוחזר (ברירת מחדל [] אם ה-RPC איכשהו החזיר null - הגנת-עומק).
+ *    projectName מועבר כמות שהוא (יכול להיות null/ריק) - לא "מתוקן"/מומצא כאן.
  */
 export async function getTrackingData(deps: GetTrackingDataServiceDeps, request: GetTrackingDataRequest): Promise<GetTrackingDataResult> {
   if (!request.rawAccessToken) return UNAVAILABLE_GET;
@@ -99,7 +105,7 @@ export async function getTrackingData(deps: GetTrackingDataServiceDeps, request:
   const result = await deps.database.getTrackingData(request.reportId, accessTokenHash);
 
   if (result.outcome !== "active") return UNAVAILABLE_GET;
-  return { status: "active", entries: result.entries ?? [] };
+  return { status: "active", projectName: result.projectName, entries: result.entries ?? [] };
 }
 
 /**

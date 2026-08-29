@@ -10,6 +10,7 @@ import type { TrackingItem } from "./types";
 
 const REPORT_ID = "11111111-1111-1111-1111-111111111111";
 const ACCESS_TOKEN = "tok-abc";
+const PROJECT_NAME = "רחוב הרצל 12";
 const SAMPLE_ENTRIES: readonly TrackingItem[] = [{ id: "i1", phase: "ביסוס", description: "כלונסאות", quantity: 10, unitPriceNis: 5000, actualNis: 3000 }];
 
 describe("1. reportId לא תקין -> invalidReportId, לא loading", () => {
@@ -37,11 +38,12 @@ describe("loading -> reportId מתמלא, ואז entitlement", () => {
   });
 });
 
-describe("2. ללא productAccess -> purchaseRequired (paywall), לא activeLoadingData", () => {
-  it("ENTITLEMENT_NONE -> purchaseRequired", () => {
+describe("2. ללא productAccess -> purchaseRequired (paywall), לא activeLoadingData - ואין שם פרויקט", () => {
+  it("ENTITLEMENT_NONE -> purchaseRequired, בלי projectName בכלל (לא חלק מהטיפוס הזה)", () => {
     const loadingWithId: TrackingAccessState = { kind: "loading", reportId: REPORT_ID };
     const next = reduceTrackingAccessState(loadingWithId, { type: "ENTITLEMENT_NONE" });
     expect(next).toEqual({ kind: "purchaseRequired", reportId: REPORT_ID });
+    expect(next).not.toHaveProperty("projectName");
   });
 
   it("purchaseRequired אינו active - isEditorVisible false", () => {
@@ -58,7 +60,7 @@ describe("6. pending purchase קיים -> checkoutPending, ולא order כפול
 });
 
 describe("13. entitlement revoked/refunded/unavailable -> accessUnavailable, מסתיר את העורך", () => {
-  it("ENTITLEMENT_UNAVAILABLE -> accessUnavailable, שונה מ-purchaseRequired", () => {
+  it("ENTITLEMENT_UNAVAILABLE מ-loading -> accessUnavailable, שונה מ-purchaseRequired", () => {
     const loadingWithId: TrackingAccessState = { kind: "loading", reportId: REPORT_ID };
     const next = reduceTrackingAccessState(loadingWithId, { type: "ENTITLEMENT_UNAVAILABLE" });
     expect(next).toEqual({ kind: "accessUnavailable", reportId: REPORT_ID });
@@ -71,10 +73,23 @@ describe("13. entitlement revoked/refunded/unavailable -> accessUnavailable, מ�
   });
 });
 
+describe("12. revoke/unavailable תוך כדי שמירה מבטל save ממתין ומסתיר את העורך", () => {
+  it("ENTITLEMENT_UNAVAILABLE מ-saveInProgress -> accessUnavailable (לא saveError - אין entitlement לנסות שוב איתה)", () => {
+    const saving: TrackingAccessState = { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
+    const next = reduceTrackingAccessState(saving, { type: "ENTITLEMENT_UNAVAILABLE" });
+    expect(next).toEqual({ kind: "accessUnavailable", reportId: REPORT_ID });
+    expect(isEditorVisible(next)).toBe(false);
+  });
+
+  it("ENTITLEMENT_UNAVAILABLE מ-active (לא saveInProgress) - מתעלם, אין בדיקת entitlement ספונטנית באמצע עריכה רגילה", () => {
+    const active: TrackingAccessState = { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
+    expect(reduceTrackingAccessState(active, { type: "ENTITLEMENT_UNAVAILABLE" })).toBe(active);
+  });
+});
+
 describe("12. entitlement למוצר אחר אינו פותח tracking - נדחה כ-ENTITLEMENT_NONE/UNAVAILABLE ברמת ה-orchestration, לא כאן", () => {
   it("state machine עצמו לא מבחין 'איזה מוצר' - זו אחריות ה-service layer (dohefes-get-tracking-data RPC); כאן רק מוודאים שאין מעבר ל-active בלי ENTITLEMENT_ACTIVE מפורש", () => {
     const loadingWithId: TrackingAccessState = { kind: "loading", reportId: REPORT_ID };
-    // אף אירוע אחר לא מוביל ל-activeLoadingData/active
     for (const event of [{ type: "ENTITLEMENT_NONE" as const }, { type: "ENTITLEMENT_UNAVAILABLE" as const }]) {
       const next = reduceTrackingAccessState(loadingWithId, event);
       expect(next.kind).not.toBe("active");
@@ -83,23 +98,29 @@ describe("12. entitlement למוצר אחר אינו פותח tracking - נדח�
   });
 });
 
-describe("activeLoadingData -> active/loadError (7/8. active קורא רק ל-Function החדשה - ר' wiring tests)", () => {
+describe("activeLoadingData -> active/loadError - כולל projectName מה-DATA_LOAD_SUCCEEDED", () => {
   const loadingData: TrackingAccessState = { kind: "activeLoadingData", reportId: REPORT_ID, accessToken: ACCESS_TOKEN };
 
-  it("DATA_LOAD_SUCCEEDED -> active עם entries", () => {
-    const next = reduceTrackingAccessState(loadingData, { type: "DATA_LOAD_SUCCEEDED", entries: SAMPLE_ENTRIES });
-    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES });
+  it("DATA_LOAD_SUCCEEDED -> active עם projectName+entries", () => {
+    const next = reduceTrackingAccessState(loadingData, { type: "DATA_LOAD_SUCCEEDED", projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES });
+    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES });
+  });
+
+  it("6. projectName=null (דוח בלי שם) - מועבר כ-null, לא מומצא", () => {
+    const next = reduceTrackingAccessState(loadingData, { type: "DATA_LOAD_SUCCEEDED", projectName: null, entries: SAMPLE_ENTRIES });
+    expect(next).toMatchObject({ projectName: null });
   });
 
   it("8. קריאה ללא נתונים (מערך ריק) עדיין מובילה ל-active תקין - מצב ריק תקף, לא שגיאה", () => {
-    const next = reduceTrackingAccessState(loadingData, { type: "DATA_LOAD_SUCCEEDED", entries: [] });
-    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: [] });
+    const next = reduceTrackingAccessState(loadingData, { type: "DATA_LOAD_SUCCEEDED", projectName: PROJECT_NAME, entries: [] });
+    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: [] });
   });
 
-  it("14. DATA_LOAD_FAILED -> loadError, בלי entries בכלל (לא מציג נתונים ישנים כאילו עדכניים)", () => {
+  it("14. DATA_LOAD_FAILED -> loadError, בלי entries/projectName בכלל (לא מציג נתונים ישנים כאילו עדכניים)", () => {
     const next = reduceTrackingAccessState(loadingData, { type: "DATA_LOAD_FAILED" });
     expect(next).toEqual({ kind: "loadError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN });
     expect(next).not.toHaveProperty("entries");
+    expect(next).not.toHaveProperty("projectName");
   });
 
   it("loadError - isEditorVisible false (אין עורך בלי נתונים אמיתיים)", () => {
@@ -112,48 +133,58 @@ describe("activeLoadingData -> active/loadError (7/8. active קורא רק ל-Fu
   });
 });
 
-describe("active -> saveInProgress -> active/saveError (15. שמירה נכשלת לא מוחקת נתונים מקומיים)", () => {
-  const active: TrackingAccessState = { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES };
+describe("active -> saveInProgress -> active/saveError (11. שמירה נכשלת לא מוחקת נתונים מקומיים) - projectName נשמר לאורך כל המעברים", () => {
+  const active: TrackingAccessState = { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
 
-  it("SAVE_STARTED -> saveInProgress, entries נשמרים כמות שהם", () => {
+  it("SAVE_STARTED -> saveInProgress, entries+projectName נשמרים כמות שהם", () => {
     const next = reduceTrackingAccessState(active, { type: "SAVE_STARTED" });
-    expect(next).toEqual({ kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES });
+    expect(next).toEqual({ kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES });
   });
 
-  it("SAVE_SUCCEEDED -> active שוב, אותם entries", () => {
-    const saving: TrackingAccessState = { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES };
+  it("SAVE_SUCCEEDED -> active שוב, אותם entries+projectName", () => {
+    const saving: TrackingAccessState = { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
     const next = reduceTrackingAccessState(saving, { type: "SAVE_SUCCEEDED" });
-    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES });
+    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES });
   });
 
-  it("15. SAVE_FAILED -> saveError, ה-entries המקומיים **זהים**, לא מוחלפים/מאופסים", () => {
-    const saving: TrackingAccessState = { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES };
+  it("11. SAVE_FAILED -> saveError, ה-entries המקומיים **זהים**, לא מוחלפים/מאופסים", () => {
+    const saving: TrackingAccessState = { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
     const next = reduceTrackingAccessState(saving, { type: "SAVE_FAILED", error: "network_error" });
-    expect(next).toEqual({ kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES, error: "network_error" });
+    expect(next).toEqual({ kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES, error: "network_error" });
   });
 
-  it("15. saveError - isEditorVisible עדיין true (העורך ממשיך להיות מוצג, ניתן לנסות שוב)", () => {
-    const errState: TrackingAccessState = { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES, error: "x" };
+  it("saveError - isEditorVisible עדיין true (העורך ממשיך להיות מוצג, ניתן לנסות שוב)", () => {
+    const errState: TrackingAccessState = { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES, error: "x" };
     expect(isEditorVisible(errState)).toBe(true);
   });
 
-  it("15. RETRY_SAVE מ-saveError -> saveInProgress מחדש, ניסיון חוזר ידני", () => {
-    const errState: TrackingAccessState = { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES, error: "x" };
+  it("RETRY_SAVE מ-saveError -> saveInProgress מחדש, ניסיון חוזר ידני", () => {
+    const errState: TrackingAccessState = { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES, error: "x" };
     const next = reduceTrackingAccessState(errState, { type: "RETRY_SAVE" });
-    expect(next).toEqual({ kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES });
+    expect(next).toEqual({ kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES });
   });
 
-  it("עריכה נוספת אחרי saveError (EDIT_ENTRIES) מחזירה ל-active עם הערכים החדשים, מנקה את השגיאה", () => {
-    const errState: TrackingAccessState = { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES, error: "x" };
+  it("10. עריכה נוספת אחרי saveError (EDIT_ENTRIES) מחזירה ל-active עם הערכים החדשים, מנקה את השגיאה, שומרת projectName", () => {
+    const errState: TrackingAccessState = { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES, error: "x" };
     const editedEntries: readonly TrackingItem[] = [...SAMPLE_ENTRIES, { id: "i2", phase: "שלד", description: "יציקה", quantity: 1, unitPriceNis: 100000, actualNis: 0 }];
     const next = reduceTrackingAccessState(errState, { type: "EDIT_ENTRIES", entries: editedEntries });
-    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: editedEntries });
+    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: editedEntries });
+  });
+
+  it("10. EDIT_ENTRIES מתוך saveInProgress מעדכן entries בו-במקום, נשאר saveInProgress (שינוי בזמן save נשמר, לא הולך לאיבוד)", () => {
+    const saving: TrackingAccessState = { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
+    const editedDuringSave: readonly TrackingItem[] = [{ ...SAMPLE_ENTRIES[0], actualNis: 9999 }];
+    const next = reduceTrackingAccessState(saving, { type: "EDIT_ENTRIES", entries: editedDuringSave });
+    expect(next).toEqual({ kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: editedDuringSave });
+    // וכש-SAVE_SUCCEEDED מגיע אחר כך, ה-entries העדכניים (עם העריכה תוך-כדי-שמירה) עוברים הלאה:
+    const afterSuccess = reduceTrackingAccessState(next, { type: "SAVE_SUCCEEDED" });
+    expect(afterSuccess).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: editedDuringSave });
   });
 
   it("EDIT_ENTRIES מתוך active מעדכן entries, נשאר active", () => {
     const edited: readonly TrackingItem[] = [];
     const next = reduceTrackingAccessState(active, { type: "EDIT_ENTRIES", entries: edited });
-    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: edited });
+    expect(next).toEqual({ kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: edited });
   });
 });
 
@@ -171,17 +202,17 @@ describe("16. Excel/print נעולים לפני active, פעילים רק אחר
   });
 
   it.each([
-    { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES },
-    { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES },
-    { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES, error: "x" },
+    { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES },
+    { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES },
+    { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES, error: "x" },
   ] as TrackingAccessState[])("$kind -> פעיל (isTrackingExportUnlocked true)", (state) => {
     expect(isTrackingExportUnlocked(state)).toBe(true);
   });
 });
 
-describe("22. אין mutation - reduceTrackingAccessState לא משנה את state/event שהועברו", () => {
+describe("15/22. אין mutation - reduceTrackingAccessState לא משנה את state/event שהועברו", () => {
   it("state המקורי לא משתנה אחרי הקריאה", () => {
-    const state: TrackingAccessState = { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES };
+    const state: TrackingAccessState = { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES };
     const snapshot = JSON.parse(JSON.stringify(state));
     reduceTrackingAccessState(state, { type: "SAVE_STARTED" });
     expect(state).toEqual(snapshot);
@@ -195,9 +226,9 @@ describe("22. אין mutation - reduceTrackingAccessState לא משנה את sta
       { kind: "checkoutPending", reportId: REPORT_ID, paymentContextId: "po_x" },
       { kind: "accessUnavailable", reportId: REPORT_ID },
       { kind: "activeLoadingData", reportId: REPORT_ID, accessToken: ACCESS_TOKEN },
-      { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES },
-      { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES },
-      { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, entries: SAMPLE_ENTRIES, error: "x" },
+      { kind: "active", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES },
+      { kind: "saveInProgress", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES },
+      { kind: "saveError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN, projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES, error: "x" },
       { kind: "loadError", reportId: REPORT_ID, accessToken: ACCESS_TOKEN },
     ];
     const allEvents: TrackingAccessEvent[] = [
@@ -207,7 +238,7 @@ describe("22. אין mutation - reduceTrackingAccessState לא משנה את sta
       { type: "ENTITLEMENT_PENDING", paymentContextId: "po_x" },
       { type: "ENTITLEMENT_NONE" },
       { type: "ENTITLEMENT_UNAVAILABLE" },
-      { type: "DATA_LOAD_SUCCEEDED", entries: SAMPLE_ENTRIES },
+      { type: "DATA_LOAD_SUCCEEDED", projectName: PROJECT_NAME, entries: SAMPLE_ENTRIES },
       { type: "DATA_LOAD_FAILED" },
       { type: "RETRY_LOAD" },
       { type: "EDIT_ENTRIES", entries: SAMPLE_ENTRIES },

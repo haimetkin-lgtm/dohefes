@@ -25,7 +25,7 @@ function fakeTokenHasher(mapping: Record<string, string> = { [RAW_TOKEN]: TOKEN_
 }
 
 class FakeReadDatabase implements TrackingReadDatabase {
-  result: RawTrackingGetOutcome = { outcome: "active", entries: [] };
+  result: RawTrackingGetOutcome = { outcome: "active", projectName: "פרויקט לדוגמה", entries: [] };
   calls: Array<{ reportId: string; accessTokenHash: string }> = [];
 
   async getTrackingData(reportId: string, accessTokenHash: string): Promise<RawTrackingGetOutcome> {
@@ -57,27 +57,42 @@ describe("getTrackingData - 1. token חסר/לא תקין", () => {
 });
 
 describe("getTrackingData - 3/4/5/7. כל סיבות ה-unavailable מה-RPC מטופלות זהה", () => {
-  it("outcome='unavailable' (entitlement חסר/למוצר אחר/pending/revoked/refunded/token לא תואם לדוח) -> unavailable אחיד", async () => {
+  it("outcome='unavailable' (entitlement חסר/למוצר אחר/pending/revoked/refunded/token לא תואם לדוח) -> unavailable אחיד, בלי projectName", async () => {
     const database = new FakeReadDatabase();
-    database.result = { outcome: "unavailable", entries: null };
+    database.result = { outcome: "unavailable", projectName: null, entries: null };
     const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
     expect(result).toEqual({ status: "unavailable" });
   });
 
+  it("4. גם אם ה-RPC (הגנת-עומק לא-צפויה) איכשהו כן מחזיר projectName יחד עם outcome='unavailable' - השכבה הזו לא מעבירה אותו הלאה בכלל", async () => {
+    const database = new FakeReadDatabase();
+    database.result = { outcome: "unavailable", projectName: "לא אמור להיחשף", entries: null };
+    const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
+    expect(result).toEqual({ status: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain("לא אמור להיחשף");
+  });
+
   it("outcome='invalid_input' (הגנת-עומק, לא אמור לקרות בזרימה תקינה) -> גם הוא unavailable, לא exception", async () => {
     const database = new FakeReadDatabase();
-    database.result = { outcome: "invalid_input", entries: null };
+    database.result = { outcome: "invalid_input", projectName: null, entries: null };
     const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
     expect(result).toEqual({ status: "unavailable" });
   });
 });
 
-describe("getTrackingData - 6. entitlement פעיל -> active", () => {
-  it("outcome='active' עם entries -> status:'active', entries מועברים כמות שהם", async () => {
+describe("getTrackingData - 6. entitlement פעיל -> active, כולל projectName", () => {
+  it("outcome='active' עם entries+projectName -> status:'active', שניהם מועברים כמות שהם", async () => {
     const database = new FakeReadDatabase();
-    database.result = { outcome: "active", entries: [SAMPLE_ITEM] };
+    database.result = { outcome: "active", projectName: "רחוב הרצל 12", entries: [SAMPLE_ITEM] };
     const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
-    expect(result).toEqual({ status: "active", entries: [SAMPLE_ITEM] });
+    expect(result).toEqual({ status: "active", projectName: "רחוב הרצל 12", entries: [SAMPLE_ITEM] });
+  });
+
+  it("6. projectName=null/ריק מה-RPC (דוח בלי שם) - מועבר כמות שהוא, לא מומצא כאן (fallback הוא אחריות הקורא)", async () => {
+    const database = new FakeReadDatabase();
+    database.result = { outcome: "active", projectName: null, entries: [] };
+    const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
+    expect(result).toEqual({ status: "active", projectName: null, entries: [] });
   });
 
   it("2. hash מחושב מהטוקן הגולמי ומועבר ל-DB - הטוקן הגולמי עצמו לעולם לא מגיע ל-database.getTrackingData", async () => {
@@ -90,9 +105,9 @@ describe("getTrackingData - 6. entitlement פעיל -> active", () => {
 describe("getTrackingData - 8. קריאה ללא נתונים מחזירה מצב ריק תקין", () => {
   it("outcome='active', entries=null (אין שורה עדיין בטבלה) -> status:'active', entries:[] (לא null, לא unavailable)", async () => {
     const database = new FakeReadDatabase();
-    database.result = { outcome: "active", entries: null };
+    database.result = { outcome: "active", projectName: "פרויקט", entries: null };
     const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
-    expect(result).toEqual({ status: "active", entries: [] });
+    expect(result).toEqual({ status: "active", projectName: "פרויקט", entries: [] });
   });
 });
 
@@ -165,19 +180,19 @@ describe("saveTrackingData - ולידציית payload (12/13/14, ר' tracking-va
   });
 });
 
-describe("15. אין token/hash/payload גולמי בתגובה - רק status (+entries בקריאה מוצלחת)", () => {
+describe("15. אין token/hash/payload גולמי בתגובה - רק status (+projectName/entries בקריאה מוצלחת)", () => {
   it("get: unavailable מחזיר רק status", async () => {
     const database = new FakeReadDatabase();
-    database.result = { outcome: "unavailable", entries: null };
+    database.result = { outcome: "unavailable", projectName: null, entries: null };
     const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
     expect(Object.keys(result)).toEqual(["status"]);
   });
 
-  it("get: active מחזיר רק status+entries - שום hash/token", async () => {
+  it("get: active מחזיר רק status+projectName+entries - שום hash/token/שדה דוח נוסף", async () => {
     const database = new FakeReadDatabase();
-    database.result = { outcome: "active", entries: [SAMPLE_ITEM] };
+    database.result = { outcome: "active", projectName: "פרויקט", entries: [SAMPLE_ITEM] };
     const result = await getTrackingData({ database, tokenHasher: fakeTokenHasher() }, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN });
-    expect(Object.keys(result).sort()).toEqual(["entries", "status"]);
+    expect(Object.keys(result).sort()).toEqual(["entries", "projectName", "status"]);
   });
 
   it("save: כל תוצאה מחזירה רק status", async () => {

@@ -36,6 +36,10 @@ begin
 end $$;
 
 -- מגיעים לכאן רק אם הטבלה ריקה לגמרי - בטוח להסיר את כל מה שהמיגרציה יצרה.
+--
+-- הערה (Commit 5b-fix): dohefes_get_tracking_data שינתה את סוג ההחזרה שלה (נוסף project_name)
+-- - זה **לא** משפיע על השורה הבאה: זהות פונקציה ב-DROP FUNCTION נקבעת לפי שם+טיפוסי הפרמטרים
+-- בלבד (uuid, text) - לא לפי RETURNS - החתימה כאן עדיין נכונה בדיוק.
 
 drop function if exists dohefes_save_tracking_data(uuid, text, jsonb);
 drop function if exists dohefes_get_tracking_data(uuid, text);

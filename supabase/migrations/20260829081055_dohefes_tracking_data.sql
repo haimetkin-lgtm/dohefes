@@ -109,11 +109,20 @@ alter table dohefes_tracking_data enable row level security;
 -- outcome: 'invalid_input' (פרמטר חסר) | 'unavailable' (טוקן שגוי/דוח לא תואם/אין entitlement
 -- פעילה - **אותה תגובה בדיוק** לכל המקרים האלה, לא מבחינה ביניהם) | 'active' (entries תמיד
 -- מלא - '[]' אם אין שורה בטבלה עדיין, אחרת התוכן בפועל).
+--
+-- **עדכון (Commit 5b-fix, audit)**: מחזירה כעת גם project_name - נקרא כאן, **בתוך אותה פעולה
+-- מאובטחת אחת**, מ-dohefes_reports.project_name בלבד (עמודת טקסט יחידה, לא inputs/results/
+-- payment_status - "אין שדות דוח נוספים בתגובה"). זה **מחליף** קריאה אנונימית נפרדת מ-React
+-- ל-dohefes_reports.project_name (שהייתה עוקפת את כל שכבת ההרשאה הזו - כל אחד עם reportId
+-- תקין, גם בלי entitlement, יכול היה לקרוא אותה). כאן, project_name נחשף **רק** אחרי ששתי
+-- הבדיקות (הזמנה+entitlement) כבר עברו - לא לפני, ולעולם לא ל-outcome שאינו 'active'.
+-- **אין שינוי ב-RLS של dohefes_reports** - זו קריאה מבפנים הפונקציה עצמה (security definer,
+-- אותה זכות שכבר יש ל-service_role/לפונקציה הזו על הטבלאות האחרות), לא גישה חדשה מבחוץ.
 create or replace function dohefes_get_tracking_data(
   p_report_id uuid,
   p_access_token_hash text
 )
-returns table (outcome text, entries jsonb)
+returns table (outcome text, project_name text, entries jsonb)
 language plpgsql
 security definer
 set search_path = pg_catalog, public
@@ -121,10 +130,11 @@ as $$
 declare
   v_order_found boolean;
   v_entitlement_found boolean;
+  v_project_name text;
   v_entries jsonb;
 begin
   if p_report_id is null or p_access_token_hash is null then
-    return query select 'invalid_input'::text, null::jsonb;
+    return query select 'invalid_input'::text, null::text, null::jsonb;
     return;
   end if;
 
@@ -136,7 +146,7 @@ begin
   ) into v_order_found;
 
   if not v_order_found then
-    return query select 'unavailable'::text, null::jsonb;
+    return query select 'unavailable'::text, null::text, null::jsonb;
     return;
   end if;
 
@@ -148,13 +158,15 @@ begin
   ) into v_entitlement_found;
 
   if not v_entitlement_found then
-    return query select 'unavailable'::text, null::jsonb;
+    return query select 'unavailable'::text, null::text, null::jsonb;
     return;
   end if;
 
+  -- מגיעים לכאן רק אחרי ששתי הבדיקות עברו - project_name נחשף רק מהנקודה הזו ואילך.
+  select r.project_name into v_project_name from dohefes_reports r where r.id = p_report_id;
   select d.entries into v_entries from dohefes_tracking_data d where d.report_id = p_report_id;
 
-  return query select 'active'::text, coalesce(v_entries, '[]'::jsonb);
+  return query select 'active'::text, v_project_name, coalesce(v_entries, '[]'::jsonb);
 end;
 $$;
 
@@ -254,35 +266,37 @@ grant execute on function dohefes_save_tracking_data(uuid, text, jsonb) to servi
 -- (ר' תרחישי הבדיקה במיגרציה 20260828062934 ליצירת הזמנה+entitlement משולמת כחוק, רק עם
 -- product_type='trackingReports' במקום 'cashFlowAnalysis').
 --
--- 1. קריאה לפני כל שמירה -> 'active', entries='[]' (אין שורה עדיין בטבלה):
+-- 1. קריאה לפני כל שמירה -> 'active', entries='[]' (אין שורה עדיין בטבלה), project_name=שם
+--    הדוח בפועל (בהנחה ש-<report-A> נוצר עם project_name='דוגמה'):
 --   select * from dohefes_get_tracking_data('<report-A>', 'hash-A');
---   -- צפוי: outcome='active', entries='[]'::jsonb
+--   -- צפוי: outcome='active', project_name='דוגמה', entries='[]'::jsonb
 --
--- 2. שמירה ראשונה -> 'saved', ואז קריאה חוזרת מחזירה בדיוק את מה שנשמר:
+-- 2. שמירה ראשונה -> 'saved', ואז קריאה חוזרת מחזירה בדיוק את מה שנשמר (וגם project_name):
 --   select * from dohefes_save_tracking_data('<report-A>', 'hash-A',
 --     '[{"id":"i1","phase":"ביסוס","description":"כלונסאות","quantity":10,"unitPriceNis":5000,"actualNis":3000}]'::jsonb);
 --   -- צפוי: outcome='saved'.
 --   select * from dohefes_get_tracking_data('<report-A>', 'hash-A');
---   -- צפוי: outcome='active', entries=המערך בדיוק שנשמר.
+--   -- צפוי: outcome='active', project_name='דוגמה', entries=המערך בדיוק שנשמר.
 --
 -- 3. עדכון (upsert) -> אותה שורה, לא שורה נוספת:
 --   select * from dohefes_save_tracking_data('<report-A>', 'hash-A', '[]'::jsonb);
 --   select count(*) from dohefes_tracking_data where report_id = '<report-A>';
 --   -- צפוי: 1 (לא 2).
 --
--- 4. hash שגוי -> 'unavailable', לא חושף אם הדוח קיים:
+-- 4. hash שגוי -> 'unavailable', לא חושף אם הדוח קיים ולא חושף project_name:
 --   select * from dohefes_get_tracking_data('<report-A>', 'hash-WRONG');
---   -- צפוי: outcome='unavailable', entries=null.
+--   -- צפוי: outcome='unavailable', project_name=null, entries=null.
 --
 -- 5. hash תקין אך לדוח אחר -> 'unavailable' (התאמת report_id נבדקת יחד עם ה-hash):
 --   select * from dohefes_get_tracking_data('<report-B-different>', 'hash-A');
---   -- צפוי: outcome='unavailable'.
+--   -- צפוי: outcome='unavailable', project_name=null.
 --
--- 6. entitlement שהוחזרה ל-revoked/refunded -> 'unavailable', גם אם ה-hash/reportId עדיין תואמים:
+-- 6. entitlement שהוחזרה ל-revoked/refunded -> 'unavailable', גם אם ה-hash/reportId עדיין תואמים
+--    (project_name לא נחשף - הבדיקה נכשלת **לפני** שמגיעים לשלב שקורא אותו):
 --   update dohefes_product_entitlements set entitlement_status = 'revoked'
 --   where report_id = '<report-A>' and product_type = 'trackingReports';
 --   select * from dohefes_get_tracking_data('<report-A>', 'hash-A');
---   -- צפוי: outcome='unavailable'. (ואותו דבר ל-dohefes_save_tracking_data)
+--   -- צפוי: outcome='unavailable', project_name=null. (ואותו דבר ל-dohefes_save_tracking_data)
 --
 -- 7. entitlement למוצר אחר (baseReport/cashFlowAnalysis) על אותו דוח -> לא מספיקה, 'unavailable':
 --   -- (בהנחה ש-hash-A שייך רק להזמנת trackingReports - אין הזמנת trackingReports נפרדת -

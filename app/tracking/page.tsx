@@ -1,7 +1,7 @@
 "use client";
 
 // דוחות מעקב בנייה (trackingReports) - שער רכישה + entitlement + עורך, מחובר למנגנון התשלום
-// המאובטח ולתשתית dohefes_tracking_data (Commit 5b, product-catalog-implementation). כל לוגיקת
+// המאובטח ולתשתית dohefes_tracking_data (Commit 5b, מוקשח ב-Commit 5b-fix). כל לוגיקת
 // המעברים חיה ב-state machine טהורה נפרדת (lib/tracking/access-state.ts, נבדקת בעצמה) -
 // הקומפוננטה הזו רק מריצה side effects (storage/רשת/timers/ניווט/autosave) לפי ה-state הנוכחי.
 //
@@ -9,16 +9,14 @@
 // ה-cashFlowAnalysis שם (לא הובא/ממוזג, רק שימש כתבנית להעתקה, ר' דוח ה-commit). productType
 // כאן קבוע ל-"trackingReports" בלבד.
 //
-// **ביטול הגישה הישירה הישנה**: הקובץ הזה **לא** קורא או כותב את עמודת המעקב הישנה על טבלת
-// דוחות האפס בשום צורה, ולא מסתמך על שדה הסטטוס הישן (הישן, ברמת ה-report כולו) כדי לפתוח את
-// המוצר - הכל דרך dohefes-get-tracking-data/dohefes-save-tracking-data בלבד (ר'
-// lib/payment/tracking-client.ts).
-// **חריג מפורש ומתועד**: קריאת שם הפרויקט בלבד לשם תצוגה (לא לנתוני מעקב עצמם) - עדיין דרך
-// ה-RLS הפתוח הישן של טבלת דוחות האפס - זהו **חוב אבטחה נפרד**, לא תוקן ב-Commit הזה (ר' blocker
-// `baseReport` בדוח ה-commit) - שם הפרויקט עצמו אינו מידע רגיש (כבר גלוי היום בכל דוח קיים),
-// רק ההרשאה הבסיסית לקרוא אותו.
+// **ביטול הגישה הישירה הישנה, לגמרי (Commit 5b-fix)**: הקובץ הזה **אינו מייבא Supabase table
+// client כלל** (לא `.from`, לא `.select`, לא `.update`) - רק `supabase.functions` (ל-Edge
+// Functions). שם הפרויקט לתצוגה **לא** נטען בנפרד מ-dohefes_reports - הוא מגיע **בתוך** תגובת
+// dohefes-get-tracking-data המאובטחת עצמה, רק אחרי entitlement פעיל (ר' _shared/
+// tracking-data-service.ts, migrations/20260829081055_dohefes_tracking_data.sql). לפני
+// entitlement פעיל (paywall/pending/unavailable) - ניסוח כללי בלבד, אין שום קריאה אנונימית.
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import { SITE_PATHS } from "@/lib/site";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
@@ -28,6 +26,7 @@ import { getTrackingData, saveTrackingData } from "@/lib/payment/tracking-client
 import { downloadTrackingWorkbook } from "@/lib/report/exportTrackingExcel";
 import { computeTrackingTotals, itemBudgetNis } from "@/lib/tracking/types";
 import type { TrackingItem } from "@/lib/tracking/types";
+import { decideAutosaveAction } from "@/lib/tracking/autosave";
 import {
   INITIAL_TRACKING_ACCESS_STATE,
   isEditorVisible,
@@ -40,9 +39,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const PRODUCT_TYPE = "trackingReports";
 const AUTOSAVE_DELAY_MS = 1500;
 /** מגבלה על מספר נסיונות שקטים אם dohefes-get-product-access מחזירה 'retryable' בשלב הבדיקה
- *  הראשונית - **לא** revoke על תקלה חולפת (אותו עיקרון בדיוק כמו שער ה-cashFlowAnalysis הישן). אחרי
- *  התקרה, נשארים במצב 'loading' (בלי הודעת שגיאה ייעודית - אין state כזה בעשרת המצבים
- *  שהוגדרו) - רענון ידני פותר. */
+ *  הראשונית - **לא** revoke על תקלה חולפת (אותו עיקרון בדיוק כמו שער ה-cashFlowAnalysis הישן
+ *  בענף gen2-cashflow-ui-implementation). אחרי התקרה, נשארים במצב 'loading' (בלי הודעת שגיאה
+ *  ייעודית - אין state כזה בעשרת המצבים שהוגדרו) - רענון ידני פותר. */
 const MAX_ENTITLEMENT_CHECK_RETRIES = 5;
 
 function emptyItem(): TrackingItem {
@@ -55,19 +54,26 @@ function nis(n: number): string {
 
 export default function TrackingPage() {
   const [state, dispatch] = useReducer(reduceTrackingAccessState, INITIAL_TRACKING_ACCESS_STATE);
-  const [projectName, setProjectName] = useState("");
   const [actionUi, setActionUi] = useState<{ kind: "idle" } | { kind: "working" } | { kind: "error"; message: string }>({ kind: "idle" });
   const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
-  // state, לא ref - handlePurchase (שקורא בו) מועבר בהמשך ל-renderByState כ-prop; ref שנקרא
-  // מתוך פונקציה שמועברת כך היה מפר את react-hooks/refs ("ref לא אמור להיקרא/להיות נגיש דרך
-  // ערך שמועבר החוצה מה-render"). lastSavedSnapshotRef/entitlementRetryCountRef נשארים ref -
-  // הם רק נקראים/נכתבים בתוך useEffect, לא מגיעים ל-renderByState בשום צורה.
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
-  const lastSavedSnapshotRef = useRef<string | null>(null);
-  const entitlementRetryCountRef = useRef(0);
 
-  // שלב 1: פענוח reportId מה-URL - פעם אחת. גם קריאת project_name לתצוגה (חריג מתועד, ר' הערת
-  // הכותרת) - לא תלויה ב-entitlement, מוצגת גם על מסך הרכישה.
+  // ref בלבד (לא state) - בקרת מרוץ, לא רינדור. אף פעם לא מועבר ל-renderByState/callbacks -
+  // רק נקרא/נכתב בתוך effects, כדי לא להפר react-hooks/refs.
+  const lastSavedSnapshotRef = useRef<string | null>(null);
+  const activeSaveTokenRef = useRef<object | null>(null);
+  const entitlementRetryCountRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // שלב 1: פענוח reportId מה-URL - פעם אחת. **אין קריאת Supabase כלשהי כאן** - שם הפרויקט
+  // מגיע רק דרך dohefes-get-tracking-data, אחרי entitlement (ר' שלב 3).
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("id");
     if (!id || !UUID_PATTERN.test(id) || !supabaseConfigured) {
@@ -75,19 +81,11 @@ export default function TrackingPage() {
       return;
     }
     dispatch({ type: "REPORT_ID_RESOLVED", reportId: id });
-    supabase
-      .from("dohefes_reports")
-      .select("project_name")
-      .eq("id", id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.project_name) setProjectName(data.project_name);
-      });
   }, []);
 
   // שלב 2: reportId נפתר - קביעת מצב ה-entitlement. מקומי (active/pending) נבדק תחילה, ורק אם
   // יש token מקומי פעיל - אימות רשת אמיתי מול dohefes-get-product-access (כלל: אין להסתמך על
-  // עצם קיום token מקומי כהוכחת הרשאה). tokent לא-פעיל מקומית + pending -> checkoutPending
+  // עצם קיום token מקומי כהוכחת הרשאה). token לא-פעיל מקומית + pending -> checkoutPending
   // (ללא בדיקת רשת - "תקינה" נבדקת מבנית: TTL+host מהימן, ר' payment-storage.ts/payment-client.ts).
   useEffect(() => {
     if (state.kind !== "loading" || state.reportId === null) return;
@@ -97,18 +95,16 @@ export default function TrackingPage() {
     if (active) {
       let cancelled = false;
       getProductAccess(supabase.functions, { reportId, productType: PRODUCT_TYPE, accessToken: active.accessToken }).then((result) => {
-        if (cancelled) return;
+        if (cancelled || !mountedRef.current) return;
         if (result.kind === "active") {
           touchActiveAccess(window.localStorage, reportId, PRODUCT_TYPE, new Date());
           entitlementRetryCountRef.current = 0;
           dispatch({ type: "ENTITLEMENT_ACTIVE", accessToken: active.accessToken });
         } else if (result.kind === "retryable") {
-          // תקלת רשת/Function חולפת - **לא** revoke, **לא** מדלגים ל-purchaseRequired. מנסים
-          // שוב בעוד רגע, עד תקרה קטנה - אין state ייעודי לזה מתוך עשרת המצבים, נשארים ב-loading.
           entitlementRetryCountRef.current += 1;
           if (entitlementRetryCountRef.current <= MAX_ENTITLEMENT_CHECK_RETRIES) {
             window.setTimeout(() => {
-              if (!cancelled) dispatch({ type: "REPORT_ID_RESOLVED", reportId }); // no-op ל-state הנוכחי, רק מרענן את ה-effect הזה מחדש דרך dependency
+              if (!cancelled && mountedRef.current) dispatch({ type: "REPORT_ID_RESOLVED", reportId }); // no-op ל-state הנוכחי, רק מרענן את ה-effect הזה מחדש דרך dependency
             }, 2000);
           }
         } else {
@@ -131,16 +127,18 @@ export default function TrackingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.kind, state.kind === "loading" ? state.reportId : null]);
 
-  // שלב 3: activeLoadingData - טעינת נתוני המעקב **רק** דרך dohefes-get-tracking-data.
+  // שלב 3: activeLoadingData - טעינת נתוני המעקב (כולל project_name) **רק** דרך
+  // dohefes-get-tracking-data. lastSavedSnapshotRef נקבע **לפני** ה-dispatch, כך שהאפקט של
+  // שלב 4 (autosave) לא רואה "שינוי" ברגע הראשון שמגיעים ל-active (7/8 - אין save אחרי load).
   useEffect(() => {
     if (state.kind !== "activeLoadingData") return;
     let cancelled = false;
     const { reportId, accessToken } = state;
     getTrackingData(supabase.functions, { reportId, accessToken }).then((result) => {
-      if (cancelled) return;
+      if (cancelled || !mountedRef.current) return;
       if (result.kind === "active") {
         lastSavedSnapshotRef.current = JSON.stringify(result.entries);
-        dispatch({ type: "DATA_LOAD_SUCCEEDED", entries: result.entries });
+        dispatch({ type: "DATA_LOAD_SUCCEEDED", projectName: result.projectName, entries: result.entries });
       } else {
         dispatch({ type: "DATA_LOAD_FAILED" });
       }
@@ -150,37 +148,57 @@ export default function TrackingPage() {
     };
   }, [state]);
 
-  // שלב 4: autosave מדובנס (1.5s) - רק כש-entries בפועל השתנו מאז השמירה האחרונה שהצליחה.
+  // שלב 4: autosave - מתזמן שמירה **רק** לפי decideAutosaveAction (פונקציה טהורה, ר.
+  // lib/tracking/autosave.ts) - לא השוואה מקומית inline. saveInFlight נגזר מ-activeSaveTokenRef
+  // (לא מ-state.kind - מונע גם תזמון נוסף בזמן שיש כבר בקשה בטיסה, ר. שלב 5).
   useEffect(() => {
     if (state.kind !== "active") return;
-    const snapshot = JSON.stringify(state.entries);
-    if (lastSavedSnapshotRef.current === snapshot) return;
-    const timer = window.setTimeout(() => dispatch({ type: "SAVE_STARTED" }), AUTOSAVE_DELAY_MS);
+    const currentEntriesSnapshot = JSON.stringify(state.entries);
+    const decision = decideAutosaveAction({
+      currentEntriesSnapshot,
+      lastSavedSnapshot: lastSavedSnapshotRef.current,
+      saveInFlight: activeSaveTokenRef.current !== null,
+    });
+    if (decision !== "scheduleSave") return;
+    // 13. unmount מבטל timer ולא יוצר save מאוחר - ה-cleanup הבא (return) תמיד מנקה, כולל ב-unmount.
+    const timer = window.setTimeout(() => {
+      if (mountedRef.current) dispatch({ type: "SAVE_STARTED" });
+    }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [state]);
 
-  // שלב 5: saveInProgress - שמירה **רק** דרך dohefes-save-tracking-data.
+  // שלב 5: saveInProgress - שמירה **רק** דרך dohefes-save-tracking-data. 9. אין שתי שמירות
+  // מקבילות - activeSaveTokenRef הוא guard יחיד: אם כבר יש token פעיל, ה-effect לא מתחיל בקשה
+  // שנייה גם כשה-effect רץ מחדש (entries השתנו תוך כדי שמירה, ר. EDIT_ENTRIES ב-access-state.ts).
+  // 10. debounce/תגובה לא שומרים closure ישן - ה-token עצמו (לא ה-entries שנתפסו ב-closure)
+  // הוא מה שמושווה ב-.then() כדי להחליט אם התגובה עדיין רלוונטית.
   useEffect(() => {
     if (state.kind !== "saveInProgress") return;
-    let cancelled = false;
+    if (activeSaveTokenRef.current !== null) return; // כבר יש בקשה בטיסה לסבב הזה - לא מתחילים שנייה
+    const token = {};
+    activeSaveTokenRef.current = token;
     const { reportId, accessToken, entries } = state;
+
     saveTrackingData(supabase.functions, { reportId, accessToken, entries }).then((result) => {
-      if (cancelled) return;
+      if (activeSaveTokenRef.current !== token) return; // תגובה ל-save שכבר "בוטל" (unmount/סבב חדש) - מתעלמים
+      activeSaveTokenRef.current = null;
+      if (!mountedRef.current) return;
       if (result.kind === "saved") {
         lastSavedSnapshotRef.current = JSON.stringify(entries);
         dispatch({ type: "SAVE_SUCCEEDED" });
       } else if (result.kind === "unavailable") {
+        // 12. revoke/unavailable מבטל את ה-save ומסתיר את העורך - לא saveError.
         revokeActiveAccess(window.localStorage, reportId, PRODUCT_TYPE);
-        dispatch({ type: "SAVE_FAILED", error: "אין יותר גישה לשמירה - ייתכן שהרכישה בוטלה." });
+        dispatch({ type: "ENTITLEMENT_UNAVAILABLE" });
       } else if (result.kind === "invalid_payload") {
         dispatch({ type: "SAVE_FAILED", error: "הנתונים שהוזנו אינם תקינים." });
       } else {
         dispatch({ type: "SAVE_FAILED", error: "אירעה תקלה זמנית בשמירה. אפשר לנסות שוב." });
       }
     });
-    return () => {
-      cancelled = true;
-    };
+    // אין cleanup שמנקה activeSaveTokenRef כאן - ה-token-compare ב-.then() כבר מטפל ב"תגובה
+    // מאוחרת שכבר לא רלוונטית", וניקוי כאן היה מריץ בטעות בכל שינוי entries תוך-כדי-שמירה
+    // (ה-effect רץ מחדש, אך אנחנו רוצים להישאר עם אותה בקשה בטיסה, לא לבטל אותה).
   }, [state]);
 
   // ניווט בפועל ל-checkout - effect נפרד, לא מוטציה של window.location בזמן render/handler ישיר.
@@ -189,7 +207,7 @@ export default function TrackingPage() {
     window.location.href = redirectUrl;
   }, [redirectUrl]);
 
-  async function handlePurchase() {
+  const handlePurchase = useCallback(async () => {
     if (state.kind !== "purchaseRequired") return;
     const reportId = state.reportId;
     const key = idempotencyKey ?? generateIdempotencyKey();
@@ -218,9 +236,9 @@ export default function TrackingPage() {
     setIdempotencyKey(null);
     const friendly = result.reason === "report_not_eligible" ? "יש לרכוש קודם את דוח האפס הבסיסי לפרויקט הזה." : "לא ניתן להשלים את הרכישה כרגע.";
     setActionUi({ kind: "error", message: friendly });
-  }
+  }, [state, idempotencyKey]);
 
-  async function handleResume() {
+  const handleResume = useCallback(async () => {
     if (state.kind !== "checkoutPending") return;
     setActionUi({ kind: "working" });
     const result = await resumePendingCheckout(supabase.functions, window.localStorage, state.paymentContextId, new Date());
@@ -238,26 +256,31 @@ export default function TrackingPage() {
       return;
     }
     setActionUi({ kind: "error", message: "אירעה תקלה. אפשר לנסות שוב." });
-  }
+  }, [state]);
 
-  function updateItem(id: string, patch: Partial<TrackingItem>) {
-    if (!isEditorVisible(state) || !("entries" in state)) return;
-    const nextEntries = state.entries.map((it) => (it.id === id ? { ...it, ...patch } : it));
-    dispatch({ type: "EDIT_ENTRIES", entries: nextEntries });
-  }
+  const updateItem = useCallback(
+    (id: string, patch: Partial<TrackingItem>) => {
+      if (!isEditorVisible(state) || !("entries" in state)) return;
+      const nextEntries = state.entries.map((it) => (it.id === id ? { ...it, ...patch } : it));
+      dispatch({ type: "EDIT_ENTRIES", entries: nextEntries });
+    },
+    [state]
+  );
 
-  function removeItem(id: string) {
-    if (!isEditorVisible(state) || !("entries" in state)) return;
-    dispatch({ type: "EDIT_ENTRIES", entries: state.entries.filter((it) => it.id !== id) });
-  }
+  const removeItem = useCallback(
+    (id: string) => {
+      if (!isEditorVisible(state) || !("entries" in state)) return;
+      dispatch({ type: "EDIT_ENTRIES", entries: state.entries.filter((it) => it.id !== id) });
+    },
+    [state]
+  );
 
-  function addItem() {
+  const addItem = useCallback(() => {
     if (!isEditorVisible(state) || !("entries" in state)) return;
     dispatch({ type: "EDIT_ENTRIES", entries: [...state.entries, emptyItem()] });
-  }
+  }, [state]);
 
   return renderByState(state, {
-    projectName,
     actionUi,
     onPurchase: handlePurchase,
     onResume: handleResume,
@@ -270,7 +293,6 @@ export default function TrackingPage() {
 }
 
 interface RenderCallbacks {
-  projectName: string;
   actionUi: { kind: "idle" } | { kind: "working" } | { kind: "error"; message: string };
   onPurchase: () => void;
   onResume: () => void;
@@ -302,10 +324,8 @@ function renderByState(state: TrackingAccessState, cb: RenderCallbacks) {
       return (
         <main className="max-w-lg mx-auto px-4 py-16 text-center">
           <h1 className="text-lg font-bold text-[#14502F] mb-2">{trackingProduct.displayName}</h1>
-          <p className="text-sm text-gray-500 mb-1">{cb.projectName || "פרויקט ללא שם"}</p>
-          <p className="text-sm text-gray-500 mb-6">
-            {trackingProduct.description} - {formatPriceNis(trackingProduct.priceAgorot)}, תשלום חד פעמי, מוצר המשך לדוח קיים.
-          </p>
+          {/* ניסוח כללי בכוונה - אין שם פרויקט לפני entitlement פעיל (Commit 5b-fix). */}
+          <p className="text-sm text-gray-500 mb-6">דוחות מעקב עבור הדוח הקיים - {formatPriceNis(trackingProduct.priceAgorot)}, תשלום חד פעמי, מוצר המשך לדוח קיים.</p>
           {cb.actionUi.kind === "error" && (
             <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm">{cb.actionUi.message}</p>
           )}
@@ -375,6 +395,7 @@ function renderByState(state: TrackingAccessState, cb: RenderCallbacks) {
 
 function renderEditor(state: Extract<TrackingAccessState, { kind: "active" | "saveInProgress" | "saveError" }>, cb: RenderCallbacks) {
   const items = state.entries;
+  const projectName = state.projectName || "פרויקט ללא שם";
   const totals = computeTrackingTotals(items as TrackingItem[]);
   const exportUnlocked = isTrackingExportUnlocked(state);
 
@@ -393,7 +414,7 @@ function renderEditor(state: Extract<TrackingAccessState, { kind: "active" | "sa
     <>
       <main className="max-w-4xl mx-auto px-4 py-8 print:hidden">
         <h1 className="text-xl font-bold text-[#14502F] mb-1">{CATALOG.trackingReports.displayName}</h1>
-        <p className="text-sm text-gray-500 mb-1">{cb.projectName || "פרויקט ללא שם"}</p>
+        <p className="text-sm text-gray-500 mb-1">{projectName}</p>
         <p className="text-xs text-gray-500 mb-1">
           תקציב מול ביצוע בפועל, לפי שלבי בנייה.{" "}
           {state.kind === "saveInProgress" && "שומר..."}
@@ -548,7 +569,7 @@ function renderEditor(state: Extract<TrackingAccessState, { kind: "active" | "sa
             שלושת המצבים כאן (active/saveInProgress/saveError) - אין entries אמיתיים לפני זה. */}
         <div className="flex flex-col sm:flex-row gap-2">
           <button
-            onClick={() => downloadTrackingWorkbook(cb.projectName, items as TrackingItem[])}
+            onClick={() => downloadTrackingWorkbook(projectName, items as TrackingItem[])}
             disabled={!exportUnlocked}
             aria-disabled={!exportUnlocked}
             className={`flex-1 font-medium text-sm px-4 py-2.5 rounded-lg transition-colors ${
@@ -572,7 +593,7 @@ function renderEditor(state: Extract<TrackingAccessState, { kind: "active" | "sa
 
       <main className="hidden print:block max-w-4xl mx-auto px-4 py-8">
         <h1 className="text-xl font-bold text-[#14502F] mb-1">{CATALOG.trackingReports.displayName}</h1>
-        <p className="text-sm text-gray-600 mb-4">{cb.projectName || "פרויקט ללא שם"}</p>
+        <p className="text-sm text-gray-600 mb-4">{projectName}</p>
         {phaseGroups.map((group) => (
           <div key={group.phase} className="mb-4">
             <h2 className="text-sm font-bold text-[#14502F] mb-1">{group.phase}</h2>
