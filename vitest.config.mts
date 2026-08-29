@@ -33,13 +33,19 @@ import { defineConfig } from "vitest/config";
 // עדכון (product-catalog-implementation, Commit 4): נוסף lib/report/outputAccess.ts -
 // שכבת החלטת-הרשאה+handlers טהורה לנעילת Excel/הדפסה בגרסת הבדיקה, אותה סיבה בדיוק כמו
 // lib/calc/lib/payment: ניתן לבדוק ישירות ב-Vitest בלי React.
+//
+// עדכון (product-catalog-implementation, Commit 5b): נוסף lib/site.ts (SITE_PATHS, מקור אמת
+// לנתיבי האתר, ר' reconciliation מול gen2-cashflow-ui-implementation) ו-lib/tracking/
+// (state machine + מיפוי פעולות טהורים ל-/tracking, ר' access-state.ts).
 export default defineConfig({
   test: {
     include: [
       "lib/calc/**/*.test.ts",
       "lib/payment/**/*.test.ts",
       "lib/report/**/*.test.ts",
+      "lib/tracking/**/*.test.ts",
       "lib/catalog.test.ts",
+      "lib/site.test.ts",
       "supabase/functions/_shared/**/*.test.ts",
       "supabase/migrations_tests/**/*.test.ts",
       "app/__content_tests__/**/*.test.ts",
