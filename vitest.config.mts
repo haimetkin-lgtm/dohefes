@@ -29,11 +29,16 @@ import { defineConfig } from "vitest/config";
 // המסכים לקטלוג. **בכוונה .test.ts בלבד** (לא .test.tsx) - אין בפרויקט תשתית רינדור React
 // (jsdom/@testing-library) היום, ר' ההערה למעלה ("לא מרחיבים כרגע למסכי React") - זו עדיין
 // אמת, הבדיקות כאן לא סותרות אותה כי הן טקסטואליות בלבד, לא מרנדרות שום קומפוננטה.
+//
+// עדכון (product-catalog-implementation, Commit 4): נוסף lib/report/outputAccess.ts -
+// שכבת החלטת-הרשאה+handlers טהורה לנעילת Excel/הדפסה בגרסת הבדיקה, אותה סיבה בדיוק כמו
+// lib/calc/lib/payment: ניתן לבדוק ישירות ב-Vitest בלי React.
 export default defineConfig({
   test: {
     include: [
       "lib/calc/**/*.test.ts",
       "lib/payment/**/*.test.ts",
+      "lib/report/**/*.test.ts",
       "lib/catalog.test.ts",
       "supabase/functions/_shared/**/*.test.ts",
       "supabase/migrations_tests/**/*.test.ts",

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { computeProject, isCashLandDeal, landMechanism } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
-import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import ReportView from "./ReportView";
@@ -1073,22 +1072,11 @@ export default function CalculatorPage() {
 
     <div className="max-w-3xl mx-auto px-4 pb-10">
       <div className="print:hidden text-sm font-bold text-[#123640] mb-2">הדוח שלכם</div>
-      <ReportView inputs={inputs} result={result} />
-
-      <div className="print:hidden flex flex-col sm:flex-row gap-2 mt-4">
-        <button
-          onClick={() => downloadWorkbook(inputs, result)}
-          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-        >
-          הורדת קובץ Excel
-        </button>
-        <button
-          onClick={() => window.print()}
-          className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-        >
-          הדפסה / שמירה כ-PDF
-        </button>
-      </div>
+      {/* outputAccess נקבע כאן במפורש: reportId קיים = דוח שנשמר (paid=true בעבר, ר'
+          lib/report/outputAccess.ts להערה המלאה על "full" כתאימות זמנית) -> full. בלי
+          reportId = גרסת בדיקה -> trial. לעולם לא נגזר מ-searchParams.get("paid") ישירות כאן -
+          reportId הוא הראיה (נכתב ל-state רק אחרי insert מוצלח, ר' useEffect למעלה). */}
+      <ReportView inputs={inputs} result={result} outputAccess={reportId ? "full" : "trial"} />
 
       <p className="print:hidden text-xs text-gray-400 text-center mt-4">
         עמלות המימון ועלות המימון מחושבות כאן בקירוב מפושט (לא סימולציית תזרים רבעונית מלאה). כלי

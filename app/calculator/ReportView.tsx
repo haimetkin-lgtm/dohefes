@@ -1,6 +1,11 @@
+"use client";
+
 import { Fragment } from "react";
 import { isCashLandDeal, landMechanism, profitToCostBenchmark } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
+import { downloadWorkbook } from "@/lib/report/exportExcel";
+import { LOCKED_EXPORT_MESSAGE, handleExcelExportClick, handlePrintClick, isExportUnlocked } from "@/lib/report/outputAccess";
+import type { OutputAccess } from "@/lib/report/outputAccess";
 import Logo from "@/app/components/Logo";
 import ConsultationCTA from "@/app/components/ConsultationCTA";
 
@@ -59,7 +64,16 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function ReportView({ inputs, result }: { inputs: ProjectInputs; result: ProjectResult }) {
+export default function ReportView({
+  inputs,
+  result,
+  outputAccess,
+}: {
+  inputs: ProjectInputs;
+  result: ProjectResult;
+  /** קלט חובה, בלי ברירת מחדל - ר' lib/report/outputAccess.ts. כל call site קובע במפורש. */
+  outputAccess: OutputAccess;
+}) {
   const isGroup = inputs.dealType === "purchaseGroup";
   // מבוסס על הנתונים בפועל ולא על סוג העסקה, כל סוג עסקה שהקרקע בו משולמת באחוז חלוקה
   // יכול לכלול יחידות ממספר קטגוריות (למשל פינוי בינוי עם מסחר בקומת קרקע)
@@ -81,7 +95,10 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
   const dealTypeSubtitle =
     inputs.dealType === "tama38" ? (hasReinforcement ? "חיזוק ותוספת" : "הריסה ובנייה מחדש") : undefined;
 
+  const exportUnlocked = isExportUnlocked(outputAccess);
+
   return (
+    <>
     <div
       id="report-view"
       className="bg-white text-black text-sm max-w-3xl mx-auto rounded-2xl border border-gray-200 shadow-lg print:shadow-none print:border-0 overflow-hidden"
@@ -424,5 +441,43 @@ export default function ReportView({ inputs, result }: { inputs: ProjectInputs; 
         אחריות המשתמש בלבד, ראה תנאי השימוש והגבלת האחריות באתר. © חיים אטקין, בית שמאי<sup>®</sup>.
       </p>
     </div>
+
+    {/* ייצוא Excel/הדפסה - Commit 4: נעול לגמרי (trial/sample) או פעיל (full), לפי outputAccess
+        שהמסך הקורא סיפק במפורש. disabled אמיתי (לא רק עיצוב) + handler שלא קורא לפונקציית
+        הייצוא בכלל כשנעול (ר' lib/report/outputAccess.ts) - שתי שכבות הגנה, לא כפילות מיותרת. */}
+    <div className="print:hidden max-w-3xl mx-auto mt-4">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <button
+          onClick={() => handleExcelExportClick(outputAccess, () => downloadWorkbook(inputs, result))}
+          disabled={!exportUnlocked}
+          aria-disabled={!exportUnlocked}
+          className={`flex-1 font-medium text-sm px-4 py-2.5 rounded-lg transition-colors ${
+            exportUnlocked
+              ? "bg-[#1D6F42] hover:bg-[#14502F] text-white"
+              : "bg-gray-200 text-gray-400 cursor-not-allowed"
+          }`}
+        >
+          הורדת קובץ Excel
+        </button>
+        <button
+          onClick={() => handlePrintClick(outputAccess, () => window.print())}
+          disabled={!exportUnlocked}
+          aria-disabled={!exportUnlocked}
+          className={`flex-1 font-medium text-sm px-4 py-2.5 rounded-lg transition-colors ${
+            exportUnlocked
+              ? "bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC]"
+              : "bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
+          }`}
+        >
+          הדפסה / שמירה כ-PDF
+        </button>
+      </div>
+      {!exportUnlocked && (
+        <p className="text-xs text-gray-500 text-center mt-2" aria-live="polite">
+          {LOCKED_EXPORT_MESSAGE}
+        </p>
+      )}
+    </div>
+    </>
   );
 }

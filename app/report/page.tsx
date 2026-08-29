@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { computeProject } from "@/lib/calc/engine";
 import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
-import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 
@@ -74,22 +73,9 @@ export default function SavedReportPage() {
         </p>
       </div>
 
-      <ReportView inputs={inputs} result={result} />
-
-      <div className="print:hidden flex flex-col sm:flex-row gap-2 mt-4">
-        <button
-          onClick={() => downloadWorkbook(inputs, result)}
-          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-        >
-          הורדת קובץ Excel
-        </button>
-        <button
-          onClick={() => window.print()}
-          className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-        >
-          הדפסה / שמירה כ-PDF
-        </button>
-      </div>
+      {/* outputAccess="full" - תאימות זמנית: כל דוח שנטען כאן הגיע ב-payment_status='paid'
+          (ר' lib/report/outputAccess.ts להערה המלאה - זו הנחה, לא אימות entitlement מאובטח). */}
+      <ReportView inputs={inputs} result={result} outputAccess="full" />
     </main>
   );
 }

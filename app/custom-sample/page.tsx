@@ -4,7 +4,6 @@ import { computeProject } from "@/lib/calc/engine";
 import type { ProjectInputs, UnitCategory } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
 import Banner from "@/app/components/Banner";
-import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { CUSTOM_PRICE_NIS } from "@/lib/supabase";
 
 // דוגמה למסלול "בהתאמה אישית", בשני חלקים:
@@ -216,22 +215,9 @@ export default function CustomSamplePage() {
         </h2>
       </div>
 
-      <ReportView inputs={FINAL_INPUTS} result={result} />
-
-      <div className="print:hidden flex flex-col sm:flex-row gap-2 mt-4">
-        <button
-          onClick={() => downloadWorkbook(FINAL_INPUTS, result)}
-          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-        >
-          הורדת קובץ Excel
-        </button>
-        <button
-          onClick={() => window.print()}
-          className="flex-1 bg-white border border-[#1D6F42] text-[#1D6F42] hover:bg-[#EAF3EC] font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
-        >
-          הדפסה / שמירה כ-PDF
-        </button>
-      </div>
+      {/* outputAccess="sample" - כמו /sample: נתונים בדויים לחלוטין, לצורך המחשה בלבד (ר'
+          ההערה בראש הקובץ), לא דוח אמיתי של אף לקוח. ייצוא נעול. */}
+      <ReportView inputs={FINAL_INPUTS} result={result} outputAccess="sample" />
 
       <div className="print:hidden mt-6 text-center">
         <a
