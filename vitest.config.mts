@@ -15,8 +15,16 @@ import { defineConfig } from "vitest/config";
 // עדכון (audit מחזור חיים של access token, 2026-08-28): נוסף lib/payment (payment-storage.ts) -
 // מודול טהור לניהול pendingPurchases/productAccess ב-localStorage, ללא תלות ב-React/window (ר'
 // StorageLike ב-payment-storage.ts) - אותה סיבה בדיוק כמו lib/calc: ניתן לבדוק ישירות ב-Vitest.
+//
+// עדכון (product-catalog-implementation, שלב 1): נוסף lib/catalog.ts - מקור אמת מרכזי לקטלוג
+// המוצרים, קובץ בודד בשורש lib/ (לא תת-תיקייה) - נכלל כאן במפורש בשם קובץ, לא בתבנית תיקייה.
 export default defineConfig({
   test: {
-    include: ["lib/calc/**/*.test.ts", "lib/payment/**/*.test.ts", "supabase/functions/_shared/**/*.test.ts"],
+    include: [
+      "lib/calc/**/*.test.ts",
+      "lib/payment/**/*.test.ts",
+      "lib/catalog.test.ts",
+      "supabase/functions/_shared/**/*.test.ts",
+    ],
   },
 });
