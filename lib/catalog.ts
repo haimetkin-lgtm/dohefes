@@ -17,7 +17,7 @@
 import { PRODUCTS as PAYMENT_PRODUCTS } from "../supabase/functions/_shared/payment-products";
 import type { DealType } from "./calc/types";
 
-/** שלושת המוצרים בתשלום. לא כולל unitRanking - זה feature כלול, לא מוצר, ר' למטה. */
+/** שלושת המוצרים בתשלום. לא כולל unitRanking - זה כלי חינמי, לא מוצר, ר' למטה. */
 export type ProductId = "baseReport" | "cashFlowAnalysis" | "trackingReports";
 
 /**
@@ -72,7 +72,7 @@ export const CATALOG: Readonly<Record<ProductId, CatalogEntry>> = Object.freeze(
     id: "trackingReports",
     displayName: "דוחות מעקב בנייה",
     priceAgorot: PAYMENT_PRODUCTS.trackingReports.amountAgorot,
-    description: "מוצר המשך אופציונלי: מעקב תקציב מול ביצוע בפועל, לאורך חודשי הבנייה",
+    description: "מוצר המשך אופציונלי ונפרד לדוח אפס עצמאי קיים: מעקב תקציב מול ביצוע בפועל לאורך הבנייה",
     includedFeatures: Object.freeze(["טבלת תקציב מול ביצוע לפי שלב", "ייצוא Excel", "הדפסה/PDF"]),
     requiresReportId: true,
     relevantDealTypes: "all",
@@ -103,22 +103,15 @@ export function formatPriceNis(priceAgorot: number): string {
   return `${Math.round(priceAgorot / 100).toLocaleString("he-IL")} ₪`;
 }
 
-// --- unitRanking: feature כלול, לא מוצר בתשלום ---
-// ר' PRODUCT_CATALOG_AUDIT.md, "דירוג דירות - כלול, לא מוצר עצמאי": אין מחיר, אין
-// paymentProductType, אינו productType במנגנון התשלום, ואינו חבר ב-ProductId למעלה בכוונה.
-// זמין רק כחלק מ-baseReport ששולם, ורק בעסקת pinuyBinui - לכן טיפוס נפרד (CatalogFeature),
-// לא CatalogEntry (ר' סעיף 6, שאלה 3 באודיט - זו ההכרעה לאותה שאלה).
-//
-// שים לב: "ranking" לא מופיע ב-allowedActions של baseReport למעלה - הזכאות לדירוג מותנית
-// בסוג עסקה (pinuyBinui בלבד), ולא תכונה גורפת של כל דוח baseReport שנרכש. relevantDealTypes
-// כאן הוא מקור האמת לתנאי הזה, לא allowedActions של המוצר עצמו.
+// --- unitRanking: כלי חינמי מלא, לא מוצר בתשלום ---
+// אין מחיר, paymentProductType או דרישת reportId. הדוגמה והכלי המלא פתוחים, כולל Excel והדפסה.
+// relevantDealTypes מתאר את ההקשר המקצועי בלבד (פינוי-בינוי), לא שער הרשאה.
 
 export interface CatalogFeature {
   readonly id: "unitRanking";
   readonly displayName: string;
   readonly description: string;
-  /** המוצר שצריך להיות נרכש (עם reportId תקף) כדי שהתכונה תהיה זמינה. */
-  readonly requiresPurchasedProduct: ProductId;
+  readonly requiresPurchasedProduct: null;
   readonly relevantDealTypes: readonly DealType[];
   readonly allowedActions: readonly AllowedAction[];
 }
@@ -126,8 +119,8 @@ export interface CatalogFeature {
 export const UNIT_RANKING_FEATURE: CatalogFeature = Object.freeze({
   id: "unitRanking",
   displayName: "דירוג דירות",
-  description: "טבלת דירוג יחידות עם אפשרות לקביעת פרמטרים - כלולה בדוח פינוי-בינוי שנרכש, ללא תשלום נוסף",
-  requiresPurchasedProduct: "baseReport",
+  description: "כלי חינמי מלא לדירוג יחידות וקביעת סדר בחירה במיזמי פינוי-בינוי, כולל Excel והדפסה/PDF",
+  requiresPurchasedProduct: null,
   relevantDealTypes: Object.freeze<DealType[]>(["pinuyBinui"]),
   allowedActions: Object.freeze<AllowedAction[]>(["view", "excel", "ranking"]),
 });

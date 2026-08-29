@@ -23,6 +23,10 @@ describe("SITE_PATHS - basePath audit", () => {
     expect(url).toContain(encodeURIComponent("abc def/../xyz"));
   });
 
+  it("trackingSample הוא נתיב דוגמה פתוח ללא reportId", () => {
+    expect(SITE_PATHS.trackingSample).toBe("/dohefes/tracking-sample/");
+  });
+
   it("cashflow(reportId) כולל /dohefes פעם אחת ושומר את reportId ב-query string - נשאר במיפוי, אין route בפועל בענף הזה", () => {
     const url = SITE_PATHS.cashflow("11111111-1111-1111-1111-111111111111");
     expect(url).toBe("/dohefes/cashflow/?id=11111111-1111-1111-1111-111111111111");

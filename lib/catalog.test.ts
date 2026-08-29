@@ -49,7 +49,7 @@ describe("CATALOG - מזהי מוצר ייחודיים", () => {
   });
 });
 
-describe("trackingReports - מוצר עצמאי", () => {
+describe("trackingReports - מוצר המשך בתשלום נפרד לדוח בסיס קיים", () => {
   it("paymentProductType נפרד משלו, לא זהה ל-baseReport/cashFlowAnalysis", () => {
     expect(CATALOG.trackingReports.paymentProductType).toBe("trackingReports");
     expect(CATALOG.trackingReports.paymentProductType).not.toBe(CATALOG.baseReport.paymentProductType);
@@ -58,6 +58,8 @@ describe("trackingReports - מוצר עצמאי", () => {
 
   it("לא כלול ב-allowedActions של baseReport - אינו תכונה גורפת של דוח הבסיס", () => {
     expect(CATALOG.baseReport.allowedActions).not.toContain("tracking");
+    expect(CATALOG.trackingReports.requiresReportId).toBe(true);
+    expect(CATALOG.trackingReports.description).toContain("דוח אפס עצמאי קיים");
   });
 });
 
@@ -72,8 +74,10 @@ describe("unitRanking - אינו מוצר בתשלום", () => {
     expect(UNIT_RANKING_FEATURE).not.toHaveProperty("paymentProductType");
   });
 
-  it("דורש דוח baseReport שנרכש (reportId), לא מוצר עצמאי משלו", () => {
-    expect(UNIT_RANKING_FEATURE.requiresPurchasedProduct).toBe("baseReport");
+  it("חינמי ואינו דורש מוצר שנרכש", () => {
+    expect(UNIT_RANKING_FEATURE.requiresPurchasedProduct).toBeNull();
+    expect(UNIT_RANKING_FEATURE.description).toContain("חינמי");
+    expect(UNIT_RANKING_FEATURE.allowedActions).toEqual(["view", "excel", "ranking"]);
   });
 });
 

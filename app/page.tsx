@@ -12,6 +12,7 @@ const SERVICE_JSON_LD = {
   offers: [
     { "@type": "Offer", name: "דוח אפס עצמאי" },
     { "@type": "Offer", name: "דוח אפס בהתאמה אישית" },
+    { "@type": "Offer", name: "דוחות מעקב בנייה" },
   ],
 };
 
@@ -31,6 +32,14 @@ const FAQ_ITEMS = [
   {
     q: "מה ההבדל בין המסלול העצמאי להתאמה האישית?",
     a: "במסלול העצמאי אתם ממלאים בעצמכם את כל נתוני הפרויקט: שטחים, תמהיל דירות, עלויות והכנסות. במסלול בהתאמה אישית מתארים את הפרויקט במלל חופשי ומעלים קבצים שיש ברשותכם, וסוכן חכם קורא אותם ובונה עבורכם את שלד הדוח, ואתם ממלאים בו רק את הערכים הכספיים.",
+  },
+  {
+    q: "האם דוחות המעקב כלולים בדוח האפס?",
+    a: `${CATALOG.trackingReports.displayName} אינם כלולים ברכישת דוח האפס. זהו מוצר המשך אופציונלי ונפרד, במחיר ${formatPriceNis(CATALOG.trackingReports.priceAgorot)}, שניתן לרכוש עבור דוח אפס עצמאי קיים כדי לעקוב אחר התקציב מול הביצוע לאורך הבנייה.`,
+  },
+  {
+    q: "האם כלי דירוג הדירות בתשלום?",
+    a: "לא. כלי דירוג הדירות למיזמי פינוי־בינוי פתוח לשימוש חינמי מלא, כולל Excel והדפסה/PDF. הדירוג קובע סדר בחירה ואינו משייך דירות אוטומטית.",
   },
   {
     q: "אילו סוגי עסקה נתמכים?",
@@ -83,8 +92,8 @@ export default function Home() {
         <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
           <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי</div>
           <p className="text-sm text-gray-600 mb-3">
-            שטחים, תמהיל דירות, עלויות והכנסות. כולל דוח מלא, ייצוא Excel והדפסה/PDF. במיזמי
-            פינוי בינוי כולל גם טבלאות דירוג דירות, ללא תשלום נוסף.
+            שטחים, תמהיל דירות, עלויות והכנסות. כולל דוח מלא, ייצוא Excel והדפסה/PDF. כלי
+            דירוג הדירות למיזמי פינוי־בינוי זמין בחינם לכל משתמש.
           </p>
           <a href="/dohefes/start/" className="text-sm font-medium text-[#1D6F42] hover:underline">
             פתיחת מחולל דוחות אפס ←
@@ -103,6 +112,18 @@ export default function Home() {
             מעבר לתיאור הפרויקט ←
           </a>
         </div>
+      </section>
+
+      <section className="bg-white border border-[#BFE0CC] rounded-xl p-5 shadow-sm mb-10">
+        <div className="font-bold text-[#14502F] mb-1">{CATALOG.trackingReports.displayName}</div>
+        <p className="text-sm text-gray-600 mb-2">
+          מוצר המשך אופציונלי ונפרד לדוח אפס עצמאי קיים: מעקב תקציב מול ביצוע לפי שלבי הבנייה, Excel
+          והדפסה/PDF. המחיר הוא {formatPriceNis(CATALOG.trackingReports.priceAgorot)} ואינו כלול
+          במחיר דוח האפס.
+        </p>
+        <a href="/dohefes/tracking-sample/" className="text-sm font-medium text-[#1D6F42] hover:underline">
+          צפייה בדוגמת דוח מעקב בנייה ←
+        </a>
       </section>
 
       <section className="bg-[#EAF3EC] border border-[#BFE0CC] rounded-xl p-5 mb-10">

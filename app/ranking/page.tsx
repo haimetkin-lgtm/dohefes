@@ -209,8 +209,8 @@ export default function RankingPage() {
     <main className="max-w-5xl mx-auto px-4 py-8">
       <h1 className="text-xl font-bold text-[#14502F] mb-1">כלי דירוג ובחירת יחידות</h1>
       <p className="text-sm text-gray-500 mb-4">
-        לשימוש בפרויקטי פינוי בינוי: דירוג הדירות הישנות של הדיירים הקיימים, וחישוב פער ערך מול
-        הדירה החדשה שכל דייר בפועל בחר.
+        כלי חינמי מלא לפרויקטי פינוי בינוי: דירוג הדירות הישנות של הדיירים הקיימים וחישוב פער
+        ערך מול הדירה החדשה שכל דייר בפועל בחר. אין צורך ברכישה או בדוח קיים.
       </p>
 
       <div className="print:hidden flex flex-col sm:flex-row gap-2 mb-6">

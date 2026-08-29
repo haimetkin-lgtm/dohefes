@@ -17,6 +17,7 @@ const START = readApp("start/page.tsx");
 const CALCULATOR = readApp("calculator/page.tsx");
 const REPORT = readApp("report/page.tsx");
 const TRACKING = readApp("tracking/page.tsx");
+const TRACKING_SAMPLE = readApp("tracking-sample/page.tsx");
 const SAMPLE = readApp("sample/page.tsx");
 
 const CHANGED_FILES: Record<string, string> = {
@@ -25,6 +26,7 @@ const CHANGED_FILES: Record<string, string> = {
   "calculator/page.tsx": CALCULATOR,
   "report/page.tsx": REPORT,
   "tracking/page.tsx": TRACKING,
+  "tracking-sample/page.tsx": TRACKING_SAMPLE,
   "sample/page.tsx": SAMPLE,
 };
 
@@ -93,11 +95,20 @@ describe("4. התזרים אינו מוצג ככלול בדוח האפס", () =>
   });
 });
 
-describe("5. דירוג מוצג רק בהקשר פינוי-בינוי", () => {
+describe("5. דירוג הוא כלי חינמי מלא בהקשר פינוי-בינוי", () => {
   it("start/page.tsx - הערת הדירוג (note) נמצאת בתוך אובייקט ה-DEAL_TYPES של pinuyBinui, לא גורפת", () => {
     const pinuyBlockMatch = START.match(/id: "pinuyBinui"[\s\S]{0,300}/);
     expect(pinuyBlockMatch).not.toBeNull();
     expect(pinuyBlockMatch![0]).toContain("דירוג");
+  });
+
+  it("ranking/ranking-sample מצהירים על שימוש חינמי ואינם דורשים reportId/Supabase", () => {
+    const ranking = readApp("ranking/page.tsx");
+    const rankingSample = readApp("ranking-sample/page.tsx");
+    expect(ranking).toContain("כלי חינמי מלא");
+    expect(rankingSample).toContain("הכלי החינמי");
+    expect(ranking).not.toMatch(/reportId|supabase/i);
+    expect(rankingSample).not.toMatch(/reportId|supabase/i);
   });
 
   it("calculator/page.tsx - קישור/טקסט הדירוג מותנה ב-dealType === \"pinuyBinui\" בסמיכות (לא מוצג לכל סוגי העסקה)", () => {
@@ -158,11 +169,19 @@ describe("8. אין שכפול מספרי מחיר במסכים ששונו", () 
   });
 });
 
-describe("ranking/ranking-sample - לא נדרש שינוי מנוע/הרשאה ב-Commit 3, רק תיקון ניסוח מטעה אם קיים", () => {
+describe("ranking/ranking-sample - נשארים פתוחים ללא מנגנון הרשאה", () => {
   it("שני הדפים עדיין לא תלויים ב-reportId/Supabase - המנוע לא השתנה", () => {
     const ranking = readApp("ranking/page.tsx");
     const rankingSample = readApp("ranking-sample/page.tsx");
     expect(ranking).not.toMatch(/supabase/i);
     expect(rankingSample).not.toMatch(/supabase/i);
+  });
+});
+
+describe("tracking-sample - דוגמה פתוחה ונפרדת מהמוצר האמיתי", () => {
+  it("מבהירה שהמעקב בתשלום נפרד, משתמשת במחיר מהקטלוג ולא פונה למסד", () => {
+    expect(TRACKING_SAMPLE).toContain("אינו כלול במחיר דוח האפס");
+    expect(TRACKING_SAMPLE).toMatch(/formatPriceNis\(CATALOG\.trackingReports\.priceAgorot\)/);
+    expect(TRACKING_SAMPLE).not.toMatch(/supabase|reportId|purchaseProduct/);
   });
 });

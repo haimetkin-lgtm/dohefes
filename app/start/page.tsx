@@ -22,7 +22,7 @@ const DEAL_TYPES: { id: DealType; title: string; description: string; note?: str
     id: "pinuyBinui",
     title: "פינוי בינוי",
     description: "פינוי מבנים קיימים ובנייה מחדש, הדיירים הקיימים מקבלים דירות חדשות.",
-    note: "כולל טבלאות לדירוג דירות עם אפשרות לקביעת הפרמטרים לדירוג על ידי המשתמש, ללא תשלום נוסף.",
+    note: "כלי דירוג דירות חינמי ומלא זמין למיזמי פינוי־בינוי, כולל Excel והדפסה/PDF.",
   },
   {
     id: "kombinatsia",

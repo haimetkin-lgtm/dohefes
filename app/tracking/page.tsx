@@ -326,6 +326,12 @@ function renderByState(state: TrackingAccessState, cb: RenderCallbacks) {
           <h1 className="text-lg font-bold text-[#14502F] mb-2">{trackingProduct.displayName}</h1>
           {/* ניסוח כללי בכוונה - אין שם פרויקט לפני entitlement פעיל (Commit 5b-fix). */}
           <p className="text-sm text-gray-500 mb-6">דוחות מעקב עבור הדוח הקיים - {formatPriceNis(trackingProduct.priceAgorot)}, תשלום חד פעמי, מוצר המשך לדוח קיים.</p>
+          <p className="text-xs text-gray-500 mb-4">
+            מוצר זה אינו כלול במחיר דוח האפס.{" "}
+            <a href="/dohefes/tracking-sample/" className="text-[#1D6F42] underline">
+              צפייה בדוגמת דוח מעקב ←
+            </a>
+          </p>
           {cb.actionUi.kind === "error" && (
             <p className="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm">{cb.actionUi.message}</p>
           )}

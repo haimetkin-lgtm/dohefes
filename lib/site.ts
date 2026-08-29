@@ -19,6 +19,7 @@ export const SITE_PATHS = {
   calculator: `${BASE_PATH}/calculator/`,
   calculatorReport: (reportId: string) => `${BASE_PATH}/calculator/?id=${encodeURIComponent(reportId)}`,
   tracking: (reportId: string) => `${BASE_PATH}/tracking/?id=${encodeURIComponent(reportId)}`,
+  trackingSample: `${BASE_PATH}/tracking-sample/`,
   /** **אין route בענף הזה** - `app/cashflow/page.tsx` לא הובא (ר' ההערה למעלה). המחרוזת קיימת
    *  רק כדי ש-payment-return.ts ידע למפות productType='cashFlowAnalysis' לכתובת-יעד עתידית,
    *  בלי לנחש/להמציא נתיב אחר כשה-route הזה ייפתח בפועל. */

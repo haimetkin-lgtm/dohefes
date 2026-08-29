@@ -90,6 +90,16 @@ export default function SamplePage() {
       {/* outputAccess="sample" - נתוני דוגמה בדויים, לא דוח אמיתי של אף לקוח. ייצוא נעול. */}
       <ReportView inputs={SAMPLE_INPUTS} result={result} outputAccess="sample" />
 
+      <div className="print:hidden mt-6 bg-[#FFF7E8] border border-[#E7C98B] rounded-lg p-4 text-sm text-gray-700">
+        <strong className="text-[#8A5A12]">דוחות המעקב אינם כלולים בדוח האפס.</strong>{" "}
+        זהו מוצר המשך אופציונלי ונפרד לדוח עצמאי קיים, במחיר{" "}
+        {formatPriceNis(CATALOG.trackingReports.priceAgorot)}. אפשר{" "}
+        <a href="/dohefes/tracking-sample/" className="text-[#1D6F42] underline">
+          לצפות בדוגמת דוח מעקב
+        </a>
+        .
+      </div>
+
       <div className="print:hidden mt-6 text-center">
         <a
           href="/dohefes/start/"

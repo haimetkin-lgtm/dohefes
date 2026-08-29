@@ -105,7 +105,7 @@ export default function RankingSamplePage() {
       <div className="text-center mb-6">
         <h1 className="text-lg font-bold text-[#14502F] mb-1">דוגמת דירוג ובחירת יחידות, פינוי בינוי</h1>
         <p className="text-sm text-gray-500 mb-4">
-          נתונים לדוגמה בלבד, כדי להראות איך הכלי עובד. לא פרויקט אמיתי.
+          נתונים לדוגמה בלבד, כדי להראות איך הכלי החינמי עובד. לא פרויקט אמיתי.
         </p>
         <div className="print:hidden flex flex-col sm:flex-row gap-2 max-w-sm mx-auto">
           <button
@@ -193,7 +193,7 @@ export default function RankingSamplePage() {
           href="/dohefes/ranking/"
           className="inline-block bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold px-6 py-3 rounded-lg transition-colors"
         >
-          בניית טבלת דירוג לפרויקט שלי ←
+          מעבר לכלי הדירוג החינמי ←
         </a>
       </div>
 

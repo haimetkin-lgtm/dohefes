@@ -219,6 +219,14 @@ export default function CustomSamplePage() {
           ההערה בראש הקובץ), לא דוח אמיתי של אף לקוח. ייצוא נעול. */}
       <ReportView inputs={FINAL_INPUTS} result={result} outputAccess="sample" />
 
+      <div className="print:hidden mt-6 bg-[#EAF3EC] border border-[#BFE0CC] rounded-lg p-4 text-sm text-gray-700">
+        כלי דירוג הדירות למיזמי פינוי־בינוי הוא כלי חינמי נפרד, כולל Excel והדפסה/PDF.{" "}
+        <a href="/dohefes/ranking-sample/" className="text-[#1D6F42] underline">
+          צפייה בדוגמת דירוג דירות
+        </a>
+        . דוחות מעקב בנייה אינם חלק מדוגמת דוח האפס הזו ואינם כלולים במחיר הדוח.
+      </div>
+
       <div className="print:hidden mt-6 text-center">
         <a
           href="/dohefes/custom/"
