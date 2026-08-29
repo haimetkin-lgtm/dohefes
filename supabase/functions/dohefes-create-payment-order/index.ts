@@ -6,12 +6,16 @@
 // גודל body/Idempotency-Key/פענוח JSON) ו-(ב) בונה את התלויות האמיתיות (Supabase, Cardcom, Web
 // Crypto, שעון) ומזריק אותן ל-createPaymentOrder.
 //
-// חתימה: POST בלבד. גוף: { reportId: string (uuid), productType: "baseReport"|"cashFlowAnalysis"|"trackingReports" }.
-// חובה header: Idempotency-Key (uuid). שום שדה אחר לא נקרא מהלקוח - לא amount, לא currency, לא
-// productName, לא כתובת callback כלשהי (כולן קבועות בצד שרת, ר' secrets למטה).
+// **Commit 6a**: החוזה הפך ל-union מבחין (ר' _shared/create-payment-order-request-parser.ts) -
+//   - productType='baseReport': גוף { productType, dealType } - **בלי** reportId (הדוח עדיין
+//     לא קיים - נוצר אטומית עם ההזמנה, ר' _shared/payment-order-service.ts::createBaseReportOrder).
+//   - כל מוצר המשך: גוף { productType, reportId } - **בלי** dealType (כמו קודם).
+// חובה header בשני המקרים: Idempotency-Key (uuid). שום שדה אחר לא נקרא מהלקוח - לא amount, לא
+// currency, לא productName, לא כתובת callback כלשהי (כולן קבועות בצד שרת, ר' secrets למטה).
 //
-// **אין entitlement בשלב הזה** - רק "ניסיון תשלום" (payment_order). entitlement נוצרת רק על ידי
-// dohefes-cardcom-payment-indicator (עתידית, לא כתובה עדיין) אחרי אימות אמיתי מול Cardcom.
+// **אין entitlement בשלב הזה** - רק "ניסיון תשלום" (payment_order, ולעבור baseReport - גם
+// draft של דוח). entitlement נוצרת רק על ידי dohefes-cardcom-payment-indicator (אחרי אימות
+// אמיתי מול Cardcom) - אותו RPC דבר בדיוק (dohefes_finalize_verified_payment), לא שונה כאן.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
@@ -26,18 +30,20 @@ import {
   byteLength,
 } from "../_shared/payment-security.ts";
 import { corsPreflightResponse, jsonResponse } from "../_shared/cors.ts";
-import { isProductType, type ProductType } from "../_shared/payment-products.ts";
+import type { ProductType } from "../_shared/payment-products.ts";
 import { createCardcomClient } from "../_shared/cardcom-client.ts";
+import { parseCreatePaymentOrderRequestBody } from "../_shared/create-payment-order-request-parser.ts";
 import { createPaymentOrder } from "../_shared/payment-order-service.ts";
 import type {
   ClaimResult,
+  CreateBaseReportDraftOutcome,
   InsertOrderResult,
+  NewBaseReportDraftInput,
   NewOrderInput,
   OrderEntitlementLookup,
   OrderRecord,
   PaymentOrderAnomalyLogger,
   PaymentOrderDatabase,
-  ReportLookupResult,
 } from "../_shared/payment-order-service.ts";
 
 // --- Secrets: שמות בלבד, אין ערכים בקוד. ר' דוח ה-commit לרשימה המלאה. ---
@@ -54,27 +60,6 @@ const DOHEFES_ALLOWED_ORIGINS = parseAllowedOrigins(Deno.env.get("DOHEFES_ALLOWE
 const ALLOWED_REQUEST_HEADERS = "Content-Type, Idempotency-Key";
 // jsonResponse/corsPreflightResponse: חולצו ל-_shared/cors.ts (משותף גם עם dohefes-get-product-access
 // העתידית) - אותה התנהגות בדיוק כמו קודם, רק לא משוכפלת בקובץ הזה יותר.
-
-interface RequestBody {
-  reportId: string;
-  productType: ProductType;
-}
-
-/** דוחה במפורש שדות שהלקוח אסור לו לשלוח (amount/currency/productName/כתובת callback כלשהי) -
- *  לא רק "מתעלמת" מהם בשקט. שדה עודף = קלט לא-תקין, לא ניחוש כוונה. */
-function parseRequestBody(raw: unknown): { ok: true; body: RequestBody } | { ok: false; error: string } {
-  if (typeof raw !== "object" || raw === null) return { ok: false, error: "invalid_body" };
-  const record = raw as Record<string, unknown>;
-
-  const allowedKeys = new Set(["reportId", "productType"]);
-  const extraKeys = Object.keys(record).filter((key) => !allowedKeys.has(key));
-  if (extraKeys.length > 0) return { ok: false, error: "unexpected_fields" };
-
-  if (!isUuid(record.reportId)) return { ok: false, error: "invalid_report_id" };
-  if (!isProductType(record.productType)) return { ok: false, error: "invalid_product_type" };
-
-  return { ok: true, body: { reportId: record.reportId, productType: record.productType } };
-}
 
 // --- מימוש PaymentOrderDatabase האמיתי, מעל Supabase service_role client ---
 
@@ -108,15 +93,43 @@ const ACTIVE_ORDER_INDEX_NAME = "idx_dohefes_payment_orders_one_active_per_repor
 
 type EntitlementRow = { entitlement_status: OrderEntitlementLookup["entitlementStatus"] };
 
+/** צורת השורה הגולמית שחוזרת מ-dohefes_create_base_report_payment_order (snake_case) - מיפוי
+ *  מפורש ל-CreateBaseReportDraftOutcome (camelCase), אותו דפוס בדיוק כמו mapOrderRow/
+ *  mapTrackingDataRow. outcome!=='created' לא נושא order כלל - report_id/order_id/וכו' חוזרים
+ *  null מה-RPC באותם מקרים (ר' המיגרציה). */
+type BaseReportDraftRpcRow = {
+  outcome: "invalid_input" | "invalid_deal_type" | "idempotency_race" | "created";
+  report_id: string | null;
+  order_id: string | null;
+  order_status: OrderRecord["status"] | null;
+  provider_order_reference: string | null;
+  checkout_url: string | null;
+};
+
+function mapBaseReportDraftRow(row: BaseReportDraftRpcRow): CreateBaseReportDraftOutcome {
+  if (row.outcome === "invalid_deal_type") return { outcome: "invalid_deal_type" };
+  if (row.outcome === "idempotency_race") return { outcome: "idempotency_race" };
+  if (row.outcome !== "created" || !row.report_id || !row.order_id || !row.order_status || !row.provider_order_reference) {
+    // 'invalid_input'/צורה לא-שלמה בלתי-צפויה - לא אמור לקרות בזרימה תקינה (ה-Edge Function
+    // כבר סיננה קלט null לפני הקריאה) - נזרקת, לא "מתוקנת" בשקט. הופכת ל-internal_error
+    // ב-catch הכללי של Deno.serve למטה, בדיוק כמו כל שגיאת DB בלתי-צפויה אחרת.
+    throw new Error(`dohefes_create_base_report_payment_order: unexpected outcome shape (${row.outcome})`);
+  }
+  return {
+    outcome: "created",
+    order: {
+      id: row.order_id,
+      status: row.order_status,
+      reportId: row.report_id,
+      productType: "baseReport",
+      providerOrderReference: row.provider_order_reference,
+      checkoutUrl: row.checkout_url,
+    },
+  };
+}
+
 function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
   return {
-    async getReportPaymentStatus(reportId: string): Promise<ReportLookupResult> {
-      const { data, error } = await supabase.from("dohefes_reports").select("id, payment_status").eq("id", reportId).maybeSingle();
-      if (error) throw error;
-      if (!data) return { found: false, paymentStatus: null };
-      return { found: true, paymentStatus: data.payment_status ?? null };
-    },
-
     async findOrderByIdempotencyKey(idempotencyKey: string): Promise<OrderRecord | null> {
       const { data, error } = await supabase
         .from("dohefes_payment_orders")
@@ -167,6 +180,25 @@ function buildDatabase(supabase: SupabaseClient): PaymentOrderDatabase {
       }
       if (!data) throw new Error("insertOrder: no row returned");
       return { ok: true, order: mapOrderRow(data) };
+    },
+
+    async createBaseReportDraftAndOrder(input: NewBaseReportDraftInput): Promise<CreateBaseReportDraftOutcome> {
+      // RPC יחיד - draft (dohefes_reports) + order (dohefes_payment_orders) נוצרים אטומית
+      // בתוך dohefes_create_base_report_payment_order, לא בשתי קריאות Supabase נפרדות מכאן
+      // (ר' migrations/20260829151144_dohefes_base_report_secure_backend.sql, RPC 1, ואת ההערה
+      // המלאה ב-payment-order-service.ts על הבעיה שזה פותר).
+      const { data, error } = await supabase
+        .rpc("dohefes_create_base_report_payment_order", {
+          p_deal_type: input.dealType,
+          p_idempotency_key: input.idempotencyKey,
+          p_amount_agorot: input.amountAgorot,
+          p_currency_code: input.currencyCode,
+          p_provider_order_reference: input.providerOrderReference,
+          p_access_token_hash: input.accessTokenHash,
+        })
+        .single<BaseReportDraftRpcRow>();
+      if (error) throw error;
+      return mapBaseReportDraftRow(data);
     },
 
     async updateAccessTokenHash(orderId: string, accessTokenHash: string): Promise<void> {
@@ -282,7 +314,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "invalid_json" }, 400, origin, DOHEFES_ALLOWED_ORIGINS);
   }
 
-  const parsed = parseRequestBody(parsedJson);
+  const parsed = parseCreatePaymentOrderRequestBody(parsedJson);
   if (!parsed.ok) {
     return jsonResponse({ error: parsed.error }, 400, origin, DOHEFES_ALLOWED_ORIGINS);
   }
@@ -306,7 +338,10 @@ Deno.serve(async (req: Request) => {
         errorRedirectUrl: DOHEFES_CARDCOM_ERROR_URL,
         indicatorUrl: DOHEFES_CARDCOM_INDICATOR_URL,
       },
-      { reportId: parsed.body.reportId, productType: parsed.body.productType, idempotencyKey }
+      // parsed.body כבר הוא CreatePaymentOrderRequest-shaped (בלי idempotencyKey) - union מבחין
+      // תואם אחד-לאחד למה ש-create-payment-order-request-parser.ts כבר אימת (baseReport עם
+      // dealType בלי reportId, מוצר המשך עם reportId בלי dealType).
+      { ...parsed.body, idempotencyKey }
     );
     return jsonResponse(result.body, result.status, origin, DOHEFES_ALLOWED_ORIGINS);
   } catch {

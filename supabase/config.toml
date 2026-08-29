@@ -29,3 +29,9 @@ verify_jwt = false
 #
 # dohefes-get-tracking-data ו-dohefes-save-tracking-data (Commit 5a, product-catalog-implementation):
 # אותה סיבה בדיוק - גם הן נקראות מהדפדפן עם מפתח ה-anon, נשארות עם ברירת המחדל (verify_jwt=true).
+#
+# dohefes-get-report-data ו-dohefes-save-report-data (Commit 6a, baseReport secure backend):
+# אותה סיבה בדיוק - גם הן נקראות מהדפדפן עם מפתח ה-anon, נשארות עם ברירת המחדל (verify_jwt=true).
+# dohefes-create-payment-order הקיימת (למעלה) מתעדכנת לתמוך ב-baseReport (union מבחין, בלי
+# reportId), אך נשארת עם אותו verify_jwt=true - שום Function חדשה/משתנה בקומיט הזה לא נוגעת
+# בהחרגה של dohefes-cardcom-payment-indicator. אף אחת משתי הפונקציות החדשות **לא פרוסה עדיין**.

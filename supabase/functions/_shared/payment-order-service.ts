@@ -16,6 +16,22 @@
 // את **אותה** שורה יחידה ב-status='created' ומנסות שתיהן לקרוא ל-Cardcom במקביל. advanceOrderToCheckout
 // למטה עוטפת כל קריאה ל-Cardcom ב-claim (dohefes_claim_checkout_creation, ר' migrations/20260828062934_dohefes_payment_infrastructure.sql) -
 // רק בעל ה-claim קורא ל-Cardcom בפועל; המפסיד מקבל תגובה כללית retryable, בלי token מטעה.
+//
+// --- Commit 6a (baseReport secure backend) ---
+//
+// שני ענפים נפרדים לגמרי ב-createPaymentOrder, לפי productType, ר' CreatePaymentOrderRequest:
+//   - baseReport: אין reportId מהלקוח בכלל - הדוח **עדיין לא קיים**. draft+order נוצרים יחד,
+//     אטומית, בתוך dohefes_create_base_report_payment_order (RPC יחיד, ר'
+//     migrations/20260829151144_dohefes_base_report_secure_backend.sql) - **לא** שתי קריאות
+//     Supabase עוקבות מה-Edge Function (לא טרנזקציה אמיתית, ר' audit ה-blocker). כל מה
+//     שקורה **אחרי** יצירת ה-draft+order (claim/lease, קריאת Cardcom, סיבוב token) משתמש
+//     **באותו קוד בדיוק** כמו מוצרי המשך - createBaseReportOrder/createAddOnOrder שתיהן
+//     מסתיימות באותה קריאה ל-rotateTokenAndEnsureCheckout, שלא משוכפלת בשום מקום.
+//   - כל מוצר המשך (cashFlowAnalysis/trackingReports): reportId כבר קיים, נדרש entitlement
+//     **פעיל** מסוג baseReport לאותו reportId - **לא** dohefes_reports.payment_status (הוסר
+//     כליל מהקובץ הזה, ר' PaymentOrderDatabase - אין עוד getReportPaymentStatus). היעדר
+//     entitlement מכסה גם "דוח לא קיים" וגם "קיים אך baseReport לא פעיל/בוטל" - אותה תגובה
+//     גנרית (403 report_not_eligible) לשני המקרים, לא חושפים קיום דוח.
 
 import { getProduct, type ProductType } from "./payment-products.ts";
 
@@ -42,19 +58,41 @@ export interface NewOrderInput {
 
 /** תוצאת insertOrder - **לא** תמיד "הצליח" יותר: אם ה-partial unique index (migrations/20260828062934_dohefes_payment_infrastructure.sql)
  *  תפס race (מישהו אחר יצר הזמנה חוסמת בין הבדיקה המוקדמת לבין ה-INSERT עצמו), מוחזר
- *  `{ ok: false }` - לא נזרקת שגיאת unique גולמית. ה-caller (createPaymentOrder למטה) מטפל
+ *  `{ ok: false }` - לא נזרקת שגיאת unique גולמית. ה-caller (createAddOnOrder למטה) מטפל
  *  בזה על ידי איתור ההזמנה שניצחה, בדיוק כמו בנתיב "יש כבר הזמנה חוסמת" הרגיל. */
 export type InsertOrderResult = { ok: true; order: OrderRecord } | { ok: false };
-
-export interface ReportLookupResult {
-  found: boolean;
-  /** dohefes_reports.payment_status הישן - ר' הערת "תאימות זמנית" למטה */
-  paymentStatus: string | null;
-}
 
 export interface OrderEntitlementLookup {
   entitlementStatus: "active" | "revoked" | "refunded";
 }
+
+/** קלט ל-createBaseReportDraftAndOrder - dealType כבר אומת (isDealType, ר'
+ *  create-payment-order-request-parser.ts) **לפני** שהוא מגיע לכאן; amountAgorot/currencyCode
+ *  מגיעים מה-registry (payment-products.ts) בלבד, לעולם לא מהלקוח - אותו עיקרון בדיוק כמו
+ *  NewOrderInput הרגילה. */
+export interface NewBaseReportDraftInput {
+  dealType: string;
+  idempotencyKey: string;
+  amountAgorot: number;
+  currencyCode: number;
+  providerOrderReference: string;
+  accessTokenHash: string;
+}
+
+/**
+ * תוצאת createBaseReportDraftAndOrder - עוטפת קריאה ל-dohefes_create_base_report_payment_order
+ * (RPC אטומית, ר' המיגרציה). שלושה outcome:
+ *   - 'created': draft+order נוצרו יחד בהצלחה, order כולל reportId שנוצר עכשיו.
+ *   - 'idempotency_race': שתי בקשות עם אותו idempotency-key ניסו ליצור draft+order בו-זמנית -
+ *     ה-RPC כבר דאגה (exception block יחיד סביב שני ה-INSERTs) שהמפסידה לא משאירה draft יתום -
+ *     ה-caller מאתר את המנצחת דרך findOrderByIdempotencyKey, בדיוק כמו race על insertOrder
+ *     הרגילה (ר' createPaymentOrder למטה).
+ *   - 'invalid_deal_type': לא אמור לקרות בזרימה תקינה (ה-Edge Function כבר מסננת) - הגנת-עומק.
+ */
+export type CreateBaseReportDraftOutcome =
+  | { outcome: "created"; order: OrderRecord }
+  | { outcome: "idempotency_race" }
+  | { outcome: "invalid_deal_type" };
 
 /** תוצאת claimCheckoutCreation - עוטפת את dohefes_claim_checkout_creation (RPC, UPDATE אטומי
  *  יחיד בתבנית CAS - לא select+update). claimed:false לא מבחינה בין "claim אחר פעיל" ל"ההזמנה
@@ -63,9 +101,10 @@ export interface ClaimResult {
   claimed: boolean;
 }
 
-/** מופשט מעל Supabase - לא חושף client קונקרטי, כדי שאפשר יהיה להזריק fake ב-Vitest */
+/** מופשט מעל Supabase - לא חושף client קונקרטי, כדי שאפשר יהיה להזריק fake ב-Vitest.
+ *  **אין getReportPaymentStatus** (הוסרה, Commit 6a) - מוצרי המשך נבדקים דרך getEntitlement
+ *  בלבד (entitlement פעיל של baseReport), לא דרך dohefes_reports.payment_status. */
 export interface PaymentOrderDatabase {
-  getReportPaymentStatus(reportId: string): Promise<ReportLookupResult>;
   findOrderByIdempotencyKey(idempotencyKey: string): Promise<OrderRecord | null>;
   /** מחפשת הזמנה "חוסמת" קיימת (created/pending/paid בלבד - תואם בדיוק לפרדיקט של ה-partial
    *  unique index) לאותו report+product, **ללא תלות ב-idempotency_key** - זו ההגנה מול בקשה עם
@@ -73,6 +112,11 @@ export interface PaymentOrderDatabase {
    *  ה-index) להחזיר לכל היותר שורה אחת - אין ריבוי-תוצאות אפשרי. */
   findBlockingOrderForProduct(reportId: string, productType: ProductType): Promise<OrderRecord | null>;
   insertOrder(input: NewOrderInput): Promise<InsertOrderResult>;
+  /** יצירת draft+order אטומית עבור baseReport בלבד - ר' NewBaseReportDraftInput/
+   *  CreateBaseReportDraftOutcome למעלה. תמיד קוראת ל-dohefes_create_base_report_payment_order
+   *  (RPC יחיד), לעולם לא INSERT ישיר על dohefes_reports/dohefes_payment_orders משתי קריאות
+   *  נפרדות - ר' audit ה-blocker ("שתי קריאות Supabase עוקבות אינן טרנזקציה"). */
+  createBaseReportDraftAndOrder(input: NewBaseReportDraftInput): Promise<CreateBaseReportDraftOutcome>;
   updateAccessTokenHash(orderId: string, accessTokenHash: string): Promise<void>;
   /** claim אטומי - UPDATE יחיד, לא select+update (ר' dohefes_claim_checkout_creation). לא קוראת
    *  ל-Cardcom, לא מחזיקה שום דבר פתוח מעבר לזמן ה-UPDATE עצמו - הקריאה ל-Cardcom קורית **אחרי**
@@ -132,15 +176,23 @@ export interface PaymentOrderServiceDeps {
   indicatorUrl: string;
 }
 
-export interface CreatePaymentOrderRequest {
-  reportId: string;
-  productType: ProductType;
-  idempotencyKey: string;
-}
+/**
+ * union מבחין אמיתי (Commit 6a) - לא reportId+productType גנרי יותר: baseReport (הדוח עדיין
+ * לא קיים) שולח dealType ו**לא** reportId; כל מוצר המשך שולח reportId ו**לא** dealType. אכיפת
+ * הצורה בפועל מול קלט HTTP חיצוני (JSON גולמי) קורית ב-create-payment-order-request-parser.ts,
+ * לא כאן - הטיפוס הזה הוא כבר התוצאה **המאומתת**.
+ */
+export type CreatePaymentOrderRequest =
+  | { productType: "baseReport"; dealType: string; idempotencyKey: string }
+  | { productType: Exclude<ProductType, "baseReport">; reportId: string; idempotencyKey: string };
 
 export type CreatePaymentOrderResult =
-  | { status: 200; body: { orderId: string; checkoutUrl: string; accessToken: string; paymentContextId: string; status: "pending" } }
-  | { status: 200; body: { status: "paid" | "failed" | "cancelled" | "refunded" } }
+  | {
+      status: 200;
+      body: { reportId: string; orderId: string; checkoutUrl: string; accessToken: string; paymentContextId: string; status: "pending" };
+    }
+  | { status: 200; body: { reportId: string; status: "paid" | "failed" | "cancelled" | "refunded" } }
+  | { status: 400; body: { error: "invalid_deal_type" } }
   | { status: 403; body: { error: "report_not_eligible" } }
   | { status: 409; body: { error: "idempotency_key_conflict" } }
   | { status: 500; body: { error: "internal_error" } }
@@ -148,6 +200,7 @@ export type CreatePaymentOrderResult =
   | { status: 503; body: { error: "checkout_creation_in_progress" } };
 
 const NOT_ELIGIBLE = { status: 403 as const, body: { error: "report_not_eligible" as const } };
+const INVALID_DEAL_TYPE = { status: 400 as const, body: { error: "invalid_deal_type" as const } };
 const PROVIDER_ERROR = { status: 502 as const, body: { error: "payment_provider_error" as const } };
 const INTERNAL_ERROR = { status: 500 as const, body: { error: "internal_error" as const } };
 const CHECKOUT_IN_PROGRESS = { status: 503 as const, body: { error: "checkout_creation_in_progress" as const } };
@@ -169,45 +222,95 @@ function isAmbiguousCardcomFailure(failureCode: string): boolean {
   return failureCode === "provider_unreachable" || failureCode.startsWith("provider_http_");
 }
 
-/** מוצרים ש**דורשים** baseReport משולם קודם - כל "מוצר המשך" (add-on) על דוח בסיס קיים, לא
- *  מוצר עצמאי. trackingReports נוסף כאן ב-product-catalog-implementation Commit 2, לצד
- *  cashFlowAnalysis הקיים - **אותה בדיקת תאימות זמנית בדיוק**, לא מסלול חדש - ר' PRODUCT_CATALOG_AUDIT.md,
- *  "דוחות מעקב - אינם כלולים עוד ברכישת דוח אפס": מעקב מותר רק לדוח בסיס שכבר נרכש, לעולם לא
- *  entitlement חופשי. baseReport עצמו **לא** ברשימה - הוא המוצר שכל השאר תלויים בו, לא תלוי באף
- *  אחד. אין מסלול חלופי/הרשאה לפי query string - הבדיקה כאן היא היחידה, מול payment_status
- *  בשרת בלבד. */
-const PRODUCTS_REQUIRING_PAID_BASE_REPORT: ReadonlySet<ProductType> = new Set(["cashFlowAnalysis", "trackingReports"]);
-
 /**
- * הרצף המלא:
- * 1. קיום דוח + (למוצרי המשך בלבד - ר' PRODUCTS_REQUIRING_PAID_BASE_REPORT למעלה) בדיקת baseReport
- *    משולם - **תאימות זמנית** מול dohefes_reports.payment_status הישן, עד ש-baseReport עצמו יעבור
- *    ל-product_entitlements (GEN2_PAYMENT_ENTITLEMENT_DESIGN.md §6.2 שלב 4). הודעת השגיאה זהה בין
- *    "דוח לא קיים" ל-"קיים אך לא זכאי" - לא חושפים קיום דוח מעבר לנדרש.
- * 2. idempotency-key מדויק: אם כבר קיימת הזמנה עם המפתח הזה **בדיוק** - פועלים לפי מצבה (ר'
- *    respondToBlockingOrder למטה), לא יוצרים הזמנה נוספת.
- * 3. אם אין התאמה לפי idempotency-key: בודקים אם קיימת הזמנה **חוסמת** לאותו report+product
- *    תחת Idempotency-Key **אחר** (findBlockingOrderForProduct).
- * 4. רק אם שום דבר לא חוסם - ניסיון insert אמיתי. אם ה-insert עצמו נכשל בגלל race - מאתרים
- *    את המנצח ופועלים לפי מצבו, **לא** מחזירים שגיאת unique גולמית.
- * 5. יצירת/המשך checkout: תמיד דרך advanceOrderToCheckout, שעוטפת claim אטומי - רק בעל ה-claim
- *    קורא בפועל ל-Cardcom. מפסיד ה-claim מקבל checkout_creation_in_progress (503), בלי token.
- * 6. מחזירה רק orderId/checkoutUrl/accessToken/paymentContextId/status - לא entitlement, לא פרטי
- *    Cardcom גולמיים. paymentContextId (=providerOrderReference הפנימי) הוא מזהה הקשר בלבד -
- *    ר' ההערה ליד ה-return בפועל ב-rotateTokenAndEnsureCheckout - אינו secret, אינו access token,
- *    אינו הוכחת תשלום, ואינו נשלח בחזרה לשום endpoint.
+ * נקודת הכניסה היחידה - מפצלת לפי productType לשני ענפים עצמאיים (ר' הערת הכותרת למעלה).
+ * שני הענפים חולקים את אותה תשתית downstream (respondToBlockingOrder/rotateTokenAndEnsureCheckout/
+ * advanceOrderToCheckout) - לא משוכפלת, רק נקודת הכניסה ליצירת ההזמנה עצמה שונה.
  */
 export async function createPaymentOrder(
   deps: PaymentOrderServiceDeps,
   request: CreatePaymentOrderRequest
 ): Promise<CreatePaymentOrderResult> {
+  if (request.productType === "baseReport") {
+    return await createBaseReportOrder(deps, request);
+  }
+  return await createAddOnOrder(deps, request);
+}
+
+/**
+ * baseReport בלבד - **אין reportId מהלקוח**, הדוח עדיין לא קיים. הרצף:
+ * 1. idempotency-key מדויק: אם כבר קיימת הזמנה עם המפתח הזה **בדיוק** (retry רגיל, לא race -
+ *    ה-draft+order כבר נוצרו בקריאה קודמת) - פועלים לפי מצבה, **לא** קוראים ל-RPC האטומית שוב.
+ * 2. אחרת: קריאה יחידה ל-createBaseReportDraftAndOrder (RPC אטומית - draft+order יחד, ר'
+ *    NewBaseReportDraftInput). 'invalid_deal_type' -> 400. 'idempotency_race' -> מאתרים את
+ *    המנצחת (findOrderByIdempotencyKey) ופועלים לפי מצבה - אותו עיקרון בדיוק כמו race על
+ *    insertOrder הרגילה, רק שכאן ה-RPC עצמה (לא ה-partial unique index) מגלה את המרוץ.
+ * 3. יצירת/המשך checkout: rotateTokenAndEnsureCheckout, **אותה פונקציה בדיוק** שמוצרי המשך
+ *    משתמשים בה - לא כתובה פעמיים.
+ */
+async function createBaseReportOrder(
+  deps: PaymentOrderServiceDeps,
+  request: { productType: "baseReport"; dealType: string; idempotencyKey: string }
+): Promise<CreatePaymentOrderResult> {
+  const { database } = deps;
+  const { dealType, idempotencyKey } = request;
+
+  const existingOrder = await database.findOrderByIdempotencyKey(idempotencyKey);
+  if (existingOrder) {
+    if (existingOrder.productType !== "baseReport") {
+      // אותו idempotency-key חייב להיות עקבי - לא "מוחלף" בשקט אם הבקשה השנייה שונה במוצר.
+      return { status: 409, body: { error: "idempotency_key_conflict" } };
+    }
+    return await respondToBlockingOrder(deps, existingOrder);
+  }
+
+  const product = getProduct("baseReport");
+  const providerOrderReference = deps.tokenGenerator.generateProviderOrderReference();
+
+  const draftResult = await database.createBaseReportDraftAndOrder({
+    dealType,
+    idempotencyKey,
+    amountAgorot: product.amountAgorot,
+    currencyCode: product.currencyCode,
+    providerOrderReference,
+    // access_token_hash הראשוני - אותו עיקרון בדיוק כמו insertOrder הרגילה: מוחלף מיד על ידי
+    // rotateTokenAndEnsureCheckout לפני שנמסר ללקוח, אף אחד לא מקבל את הערך הזמני הזה.
+    accessTokenHash: await deps.tokenGenerator.hashAccessToken(deps.tokenGenerator.generateAccessToken()),
+  });
+
+  if (draftResult.outcome === "invalid_deal_type") {
+    return INVALID_DEAL_TYPE;
+  }
+
+  if (draftResult.outcome === "idempotency_race") {
+    // מרוץ אמיתי (לא retry רגיל) - שתי בקשות עם אותו idempotency-key ניסו ליצור draft+order
+    // בו-זמנית. ה-RPC האטומית כבר דאגה שהמפסידה לא משאירה draft יתום (ר' המיגרציה). המנצחת
+    // כבר commit-ה בהכרח בשלב הזה (Postgres חוסם את המפסידה על נעילת השורה עד commit המנצחת) -
+    // findOrderByIdempotencyKey ימצא אותה.
+    const winner = await database.findOrderByIdempotencyKey(idempotencyKey);
+    if (!winner) return PROVIDER_ERROR;
+    return await respondToBlockingOrder(deps, winner);
+  }
+
+  return await rotateTokenAndEnsureCheckout(deps, draftResult.order);
+}
+
+/**
+ * מוצר המשך בלבד (cashFlowAnalysis/trackingReports) - reportId כבר קיים מהלקוח. הרצף:
+ * 1. entitlement **פעיל** של baseReport לאותו reportId - **לא** payment_status (הוסר כליל,
+ *    Commit 6a). היעדר entitlement מכסה גם "דוח לא קיים" וגם "קיים אך baseReport לא פעיל" -
+ *    אותה תגובה גנרית לשניהם, לא חושפים קיום דוח מעבר לנדרש.
+ * 2-6. זהה למנגנון המקורי (idempotency-key מדויק -> הזמנה חוסמת -> insert -> race -> checkout).
+ */
+async function createAddOnOrder(
+  deps: PaymentOrderServiceDeps,
+  request: { productType: Exclude<ProductType, "baseReport">; reportId: string; idempotencyKey: string }
+): Promise<CreatePaymentOrderResult> {
   const { database } = deps;
   const { reportId, productType, idempotencyKey } = request;
 
-  const report = await database.getReportPaymentStatus(reportId);
-  if (!report.found) return NOT_ELIGIBLE;
-
-  if (PRODUCTS_REQUIRING_PAID_BASE_REPORT.has(productType) && report.paymentStatus !== "paid") {
+  const baseEntitlement = await database.getEntitlement(reportId, "baseReport");
+  if (!baseEntitlement || baseEntitlement.entitlementStatus !== "active") {
     return NOT_ELIGIBLE;
   }
 
@@ -257,7 +360,7 @@ export async function createPaymentOrder(
 }
 
 /** נתיב משותף להזמנה קיימת "חוסמת" - בין אם נמצאה לפי idempotency-key מדויק, לפי חיפוש
- *  report+product, או כמנצחת race על ה-insert. */
+ *  report+product, או כמנצחת race (על insertOrder או על createBaseReportDraftAndOrder). */
 async function respondToBlockingOrder(deps: PaymentOrderServiceDeps, order: OrderRecord): Promise<CreatePaymentOrderResult> {
   if (order.status === "paid") {
     return await respondToPaidOrder(deps, order);
@@ -268,7 +371,7 @@ async function respondToBlockingOrder(deps: PaymentOrderServiceDeps, order: Orde
   }
 
   // failed/cancelled/refunded - מצב סופי, לא retryable אוטומטית תחת אותו idempotency-key/חיפוש.
-  return { status: 200, body: { status: order.status } };
+  return { status: 200, body: { reportId: order.reportId, status: order.status } };
 }
 
 /** "אם קיימת הזמנה paid והרשאה פעילה, החזר status:paid בלי token ובלי session חדש. אם קיימת
@@ -280,7 +383,7 @@ async function respondToBlockingOrder(deps: PaymentOrderServiceDeps, order: Orde
 async function respondToPaidOrder(deps: PaymentOrderServiceDeps, order: OrderRecord): Promise<CreatePaymentOrderResult> {
   const entitlement = await deps.database.getEntitlement(order.reportId, order.productType);
   if (entitlement) {
-    return { status: 200, body: { status: "paid" } };
+    return { status: 200, body: { reportId: order.reportId, status: "paid" } };
   }
   // reportId **לא** נכלל בכוונה - הוא מזהה גישה לדוח בפועל (קישור פרטי, ר' "Supabase ללא Auth"),
   // לא רק "מזהה טכני" - לא נכתב ללוג גם כ-UUID.
@@ -306,6 +409,10 @@ async function rotateTokenAndEnsureCheckout(
   return {
     status: 200,
     body: {
+      // reportId - Commit 6a: baseReport לא שלח reportId מלכתחילה, זו הפעם הראשונה שהלקוח
+      // מקבל אותו. נכלל תמיד (גם עבור מוצרי המשך, שכבר ידעו אותו) - חוזה אחיד אחד, לא שני
+      // חוזים שונים לפי productType.
+      reportId: order.reportId,
       orderId: order.id,
       checkoutUrl: advance.checkoutUrl,
       accessToken: rawToken,
