@@ -185,3 +185,10 @@ describe("tracking-sample - דוגמה פתוחה ונפרדת מהמוצר הא
     expect(TRACKING_SAMPLE).not.toMatch(/supabase|reportId|purchaseProduct/);
   });
 });
+
+describe("start - דוגמת המעקב גלויה ליד תנאי המוצר", () => {
+  it("מקשר לדוגמה מתוך מסך הרכישה", () => {
+    expect(START).toContain('/dohefes/tracking-sample/');
+    expect(START).toContain("צפייה בדוגמת דוח מעקב בנייה");
+  });
+});

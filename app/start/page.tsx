@@ -146,6 +146,12 @@ export default function StartPage() {
           {CATALOG.trackingReports.displayName}: מוצר המשך אופציונלי לדוח קיים,{" "}
           {formatPriceNis(CATALOG.trackingReports.priceAgorot)} נוספים.
         </p>
+        <a
+          href="/dohefes/tracking-sample/"
+          className="inline-block text-xs font-medium text-[#1D6F42] underline mt-2"
+        >
+          צפייה בדוגמת דוח מעקב בנייה ←
+        </a>
       </div>
 
       {error && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">{error}</p>}
