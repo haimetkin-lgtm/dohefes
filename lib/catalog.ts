@@ -51,7 +51,7 @@ export const CATALOG: Readonly<Record<ProductId, CatalogEntry>> = Object.freeze(
     displayName: "דוח אפס",
     priceAgorot: PAYMENT_PRODUCTS.baseReport.amountAgorot,
     description: 'בדיקת כדאיות כלכלית והיתכנות לפרויקט נדל"ן',
-    includedFeatures: Object.freeze(["מילוי נתוני הפרויקט", "דוח כדאיות מלא", "ייצוא Excel", "הדפסה/PDF"]),
+    includedFeatures: Object.freeze(["דוח מלא לאחר רכישה", "צפייה בתוצאות", "ייצוא Excel", "הדפסה/PDF"]),
     requiresReportId: true,
     relevantDealTypes: "all",
     allowedActions: Object.freeze<AllowedAction[]>(["view", "excel", "print"]),
@@ -89,6 +89,18 @@ export function isProductId(value: unknown): value is ProductId {
 
 export function getCatalogEntry(id: ProductId): CatalogEntry {
   return CATALOG[id];
+}
+
+/**
+ * מחיר בש"ח לתצוגה - "980 ₪". פונקציה טהורה (בלי window/Intl גלובלי מעבר ל-toLocaleString
+ * הרגיל, אותה מוסכמה שהייתה כתובה בנפרד בכל עמוד - `X.toLocaleString("he-IL")} ₪`) - כדי
+ * שמסכים יקראו ממנה במקום לכתוב את נוסחת ההמרה (agorot/100) בעצמם, בכל עמוד בנפרד
+ * (product-catalog-implementation, Commit 3: "מקור אמת" §"אם נדרש formatter"). כל מחירי
+ * הקטלוג היום הם סכומים שלמים בש"ח (980/1,800/1,180) - Math.round כאן הוא הגנת-עומק בלבד,
+ * לא צפוי לשנות ערך בפועל.
+ */
+export function formatPriceNis(priceAgorot: number): string {
+  return `${Math.round(priceAgorot / 100).toLocaleString("he-IL")} ₪`;
 }
 
 // --- unitRanking: feature כלול, לא מוצר בתשלום ---

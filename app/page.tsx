@@ -1,5 +1,7 @@
 import Banner from "./components/Banner";
 import InfoTooltip from "./components/InfoTooltip";
+import { CATALOG, formatPriceNis } from "@/lib/catalog";
+import { CUSTOM_PRICE_NIS } from "@/lib/supabase";
 
 const SERVICE_JSON_LD = {
   "@context": "https://schema.org",
@@ -24,7 +26,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "כמה עולה?",
-    a: "דוח אפס עצמאי עולה 980 ₪ לפרויקט, כולל את כל דוחות המעקב לאותו פרויקט ללא תשלום נוסף. דוח בהתאמה אישית, שבו סוכן חכם בונה עבורכם את שלד הדוח מתוך תיאור וקבצים, עולה 1,800 ₪.",
+    a: `דוח אפס עצמאי עולה ${formatPriceNis(CATALOG.baseReport.priceAgorot)} לפרויקט, וכולל דוח מלא לאחר רכישה, צפייה בתוצאות, ייצוא Excel והדפסה/PDF. ${CATALOG.trackingReports.displayName} הם מוצר המשך אופציונלי בתשלום נפרד לדוח קיים, לא כלולים במחיר. דוח בהתאמה אישית, שבו סוכן חכם בונה עבורכם את שלד הדוח מתוך תיאור וקבצים, עולה ${CUSTOM_PRICE_NIS.toLocaleString("he-IL")} ₪.`,
   },
   {
     q: "מה ההבדל בין המסלול העצמאי להתאמה האישית?",
@@ -81,8 +83,8 @@ export default function Home() {
         <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
           <div className="font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי</div>
           <p className="text-sm text-gray-600 mb-3">
-            שטחים, תמהיל דירות, עלויות והכנסות. התשלום כולל את דוח האפס וגם את כל דוחות המעקב
-            לאותו פרויקט, ללא תשלום נוסף. כולל טבלאות דירוג למיזמי פינוי בינוי.
+            שטחים, תמהיל דירות, עלויות והכנסות. כולל דוח מלא, ייצוא Excel והדפסה/PDF. במיזמי
+            פינוי בינוי כולל גם טבלאות דירוג דירות, ללא תשלום נוסף.
           </p>
           <a href="/dohefes/start/" className="text-sm font-medium text-[#1D6F42] hover:underline">
             פתיחת מחולל דוחות אפס ←

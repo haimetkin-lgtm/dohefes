@@ -6,6 +6,7 @@ import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/cal
 import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import ReportView from "./ReportView";
 
 const HEIGHT_LABELS: Record<BuildingHeight, string> = {
@@ -384,6 +385,8 @@ export default function CalculatorPage() {
             {`${SITE_URL}/calculator/?id=${reportId}`}
           </a>
           <p className="mt-1">
+            {CATALOG.trackingReports.displayName} - מוצר המשך אופציונלי לדוח זה,{" "}
+            {formatPriceNis(CATALOG.trackingReports.priceAgorot)} נוספים.{" "}
             <a href={`${SITE_URL}/tracking/?id=${reportId}`} className="text-[#1D6F42] underline">
               מעבר לדוח מעקב בנייה ←
             </a>
@@ -397,7 +400,9 @@ export default function CalculatorPage() {
       ) : (
         <>
           <p className="text-sm text-gray-500 mb-1">
-            גרסת בדיקה: התוצאה מוצגת מיד, ללא תשלום. לשמירת הדוח וקבלת קישור קבוע, יש לרכוש דרך{" "}
+            <strong className="text-[#123640]">גרסת בדיקה להתרשמות</strong> - אפשר להזין נתונים
+            ולצפות בתוצאה מיד, ללא תשלום. הדוח המלא, כולל קישור קבוע לשמירה וחזרה, ייצוא ל-Excel
+            והדפסה/PDF, מתקבל ברכישה דרך{" "}
             <a href="/dohefes/start/" className="text-[#1D6F42] underline">
               עמוד ההזמנה
             </a>

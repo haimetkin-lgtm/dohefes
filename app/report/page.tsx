@@ -6,6 +6,7 @@ import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
 import ReportView from "@/app/calculator/ReportView";
 import { downloadWorkbook } from "@/lib/report/exportExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { CATALOG, formatPriceNis } from "@/lib/catalog";
 
 export default function SavedReportPage() {
   const [inputs, setInputs] = useState<ProjectInputs | null>(null);
@@ -65,6 +66,8 @@ export default function SavedReportPage() {
           </a>
         </p>
         <p className="text-sm text-gray-500 mt-1">
+          {CATALOG.trackingReports.displayName} - מוצר המשך אופציונלי לדוח זה,{" "}
+          {formatPriceNis(CATALOG.trackingReports.priceAgorot)} נוספים.{" "}
           <a href={`/dohefes/tracking/?id=${reportId}`} className="text-[#1D6F42] underline">
             מעבר לדוח מעקב בנייה ←
           </a>

@@ -5,6 +5,7 @@ import type { TrackingItem } from "@/lib/tracking/types";
 import { computeTrackingTotals, itemBudgetNis } from "@/lib/tracking/types";
 import { downloadTrackingWorkbook } from "@/lib/report/exportTrackingExcel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { CATALOG, formatPriceNis } from "@/lib/catalog";
 
 function emptyItem(): TrackingItem {
   return { id: crypto.randomUUID(), phase: "", description: "", quantity: 1, unitPriceNis: 0, actualNis: 0 };
@@ -99,8 +100,12 @@ export default function TrackingPage() {
   return (
     <>
       <main className="max-w-4xl mx-auto px-4 py-8 print:hidden">
-        <h1 className="text-xl font-bold text-[#14502F] mb-1">דוח מעקב בנייה</h1>
+        <h1 className="text-xl font-bold text-[#14502F] mb-1">{CATALOG.trackingReports.displayName}</h1>
         <p className="text-sm text-gray-500 mb-1">{projectName || "פרויקט ללא שם"}</p>
+        <p className="text-xs text-gray-500 mb-1">
+          מוצר המשך אופציונלי לדוח קיים, {formatPriceNis(CATALOG.trackingReports.priceAgorot)}{" "}
+          נוספים.
+        </p>
         <p className="text-xs text-gray-500 mb-6">
           תקציב מול ביצוע בפועל, לפי שלבי בנייה. הדוח נשמר אוטומטית עם כל שינוי.{" "}
           <a href={`/dohefes/calculator/?id=${reportId}`} className="text-[#1D6F42] underline">

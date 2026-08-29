@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BASIC_PRICE_NIS } from "@/lib/supabase";
+import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import type { DealType } from "@/lib/calc/types";
 
 const CARDCOM_LINK = process.env.NEXT_PUBLIC_CARDCOM_LINK_BASIC;
@@ -22,7 +22,7 @@ const DEAL_TYPES: { id: DealType; title: string; description: string; note?: str
     id: "pinuyBinui",
     title: "פינוי בינוי",
     description: "פינוי מבנים קיימים ובנייה מחדש, הדיירים הקיימים מקבלים דירות חדשות.",
-    note: "כולל טבלאות לדירוג דירות עם אפשרות לקביעת הפרמטרים לדירוג על ידי המשתמש.",
+    note: "כולל טבלאות לדירוג דירות עם אפשרות לקביעת הפרמטרים לדירוג על ידי המשתמש, ללא תשלום נוסף.",
   },
   {
     id: "kombinatsia",
@@ -69,8 +69,8 @@ export default function StartPage() {
     <main className="max-w-lg mx-auto px-4 py-10">
       <h1 className="text-xl font-bold text-[#14502F] mb-1">בנה דוח אפס עצמאי</h1>
       <p className="text-sm text-gray-500 mb-6">
-        תשלום חד פעמי לפרויקט, {BASIC_PRICE_NIS.toLocaleString("he-IL")} ₪. קודם בוחרים את סוג
-        הפרויקט, ורק אחר כך עוברים לתשלום.
+        תשלום חד פעמי לפרויקט, {formatPriceNis(CATALOG.baseReport.priceAgorot)}. קודם בוחרים את
+        סוג הפרויקט, ורק אחר כך עוברים לתשלום.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
@@ -113,9 +113,18 @@ export default function StartPage() {
         <div className="font-bold text-[#123640] mb-2 text-sm">כלול במחיר</div>
         <ul className="text-sm text-gray-700 space-y-1.5 list-disc pr-5">
           <li>מילוי שטחים, תמהיל דירות, עלויות והכנסות</li>
-          <li>דוח כדאיות כלכלית מלא, ניתן להורדה כ-Excel ולהדפסה כ-PDF</li>
-          <li>כל דוחות המעקב לאותו פרויקט לאורך הביצוע, ללא תשלום נוסף</li>
+          {CATALOG.baseReport.includedFeatures.map((feature) => (
+            <li key={feature}>{feature}</li>
+          ))}
         </ul>
+        <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+          אינו כולל {CATALOG.cashFlowAnalysis.displayName} או {CATALOG.trackingReports.displayName} - אלה
+          מוצרי המשך נפרדים בתשלום לדוח קיים.
+        </p>
+        <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+          {CATALOG.trackingReports.displayName}: מוצר המשך אופציונלי לדוח קיים,{" "}
+          {formatPriceNis(CATALOG.trackingReports.priceAgorot)} נוספים.
+        </p>
       </div>
 
       {error && <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">{error}</p>}
@@ -125,7 +134,7 @@ export default function StartPage() {
         disabled={!selected}
         className="w-full bg-[#1D6F42] hover:bg-[#14502F] disabled:opacity-40 disabled:cursor-default text-white font-bold py-3 rounded-lg transition-colors"
       >
-        מעבר לרכישה ותשלום - {BASIC_PRICE_NIS.toLocaleString("he-IL")} ₪
+        מעבר לרכישה ותשלום - {formatPriceNis(CATALOG.baseReport.priceAgorot)}
       </button>
 
       <p className="text-xs text-gray-400 text-center mt-4">

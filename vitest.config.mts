@@ -23,6 +23,12 @@ import { defineConfig } from "vitest/config";
 // סטטיות (טקסטואליות בלבד, לא SQL אמיתי) על קובצי migration/rollback של trackingReports.
 // תיקייה נפרדת מ-supabase/migrations/ עצמה בכוונה (לא נסרקת על ידי `supabase db push`, שמחפש
 // רק supabase/migrations/*.sql) - אותה סיבה ש-migrations_rollback/ נפרדת.
+//
+// עדכון (product-catalog-implementation, Commit 3): נוסף app/__content_tests__/ - בדיקות
+// סטטיות (טקסטואליות, קריאת קובצי המסך כטקסט - לא רינדור React/JSX) שמוודאות התאמת תוכן
+// המסכים לקטלוג. **בכוונה .test.ts בלבד** (לא .test.tsx) - אין בפרויקט תשתית רינדור React
+// (jsdom/@testing-library) היום, ר' ההערה למעלה ("לא מרחיבים כרגע למסכי React") - זו עדיין
+// אמת, הבדיקות כאן לא סותרות אותה כי הן טקסטואליות בלבד, לא מרנדרות שום קומפוננטה.
 export default defineConfig({
   test: {
     include: [
@@ -31,6 +37,7 @@ export default defineConfig({
       "lib/catalog.test.ts",
       "supabase/functions/_shared/**/*.test.ts",
       "supabase/migrations_tests/**/*.test.ts",
+      "app/__content_tests__/**/*.test.ts",
     ],
   },
 });

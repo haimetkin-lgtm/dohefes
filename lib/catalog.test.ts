@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PRODUCTS as PAYMENT_PRODUCTS } from "../supabase/functions/_shared/payment-products";
-import { CATALOG, UNIT_RANKING_FEATURE, getCatalogEntry, isProductId } from "./catalog";
+import { CATALOG, UNIT_RANKING_FEATURE, formatPriceNis, getCatalogEntry, isProductId } from "./catalog";
 import type { ProductId } from "./catalog";
 
 describe("CATALOG - שלושת המוצרים במחיר 98,000 אגורות", () => {
@@ -132,5 +132,33 @@ describe("CATALOG - אי-מוטציה (immutability)", () => {
     expect(Object.isFrozen(UNIT_RANKING_FEATURE)).toBe(true);
     expect(Object.isFrozen(UNIT_RANKING_FEATURE.relevantDealTypes)).toBe(true);
     expect(Object.isFrozen(UNIT_RANKING_FEATURE.allowedActions)).toBe(true);
+  });
+});
+
+describe("formatPriceNis - פורמט מחיר טהור, לשימוש משותף בכל המסכים (Commit 3)", () => {
+  it("98,000 אגורות -> '980 ₪' - מחיר baseReport/cashFlowAnalysis/trackingReports בפועל", () => {
+    expect(formatPriceNis(98_000)).toBe("980 ₪");
+    expect(formatPriceNis(CATALOG.baseReport.priceAgorot)).toBe("980 ₪");
+    expect(formatPriceNis(CATALOG.cashFlowAnalysis.priceAgorot)).toBe("980 ₪");
+    expect(formatPriceNis(CATALOG.trackingReports.priceAgorot)).toBe("980 ₪");
+  });
+
+  it("מפריד אלפים בעברית - 180,000 אגורות -> '1,800 ₪'", () => {
+    expect(formatPriceNis(180_000)).toBe("1,800 ₪");
+  });
+
+  it("0 אגורות -> '0 ₪' (קצה, לא קורס)", () => {
+    expect(formatPriceNis(0)).toBe("0 ₪");
+  });
+
+  it("מעגל לשקל שלם - הגנת-עומק, לא צפוי לקרות בערכי הקטלוג בפועל (כולם עגולים)", () => {
+    expect(formatPriceNis(98_050)).toBe("981 ₪");
+    expect(formatPriceNis(98_049)).toBe("980 ₪");
+  });
+
+  it("תמיד מסתיים ב-' ₪' עם רווח לפני הסימן, לשלושת מחירי הקטלוג", () => {
+    for (const entry of Object.values(CATALOG)) {
+      expect(formatPriceNis(entry.priceAgorot)).toMatch(/^[\d,]+ ₪$/);
+    }
   });
 });
