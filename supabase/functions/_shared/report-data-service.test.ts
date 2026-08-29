@@ -163,6 +163,16 @@ describe("saveReportData - שמירה ראשונה ועדכון", () => {
     expect(second).toEqual({ status: "saved" });
     expect(database.calls[1].projectName).toBe("שם חדש");
   });
+
+  it("Commit 6a-fix: dealType ניתן לשינוי בין שמירות - הוחלט להשאיר (ר' ראיה ב-app/calculator/page.tsx, מתועד ב-migrations_tests) - עדכון עובר לפי הערך האחרון שנשלח", async () => {
+    const database = new FakeWriteDatabase();
+    database.results = [{ outcome: "saved" }, { outcome: "saved" }];
+    const deps: SaveReportDataServiceDeps = { database, tokenHasher: fakeTokenHasher() };
+    await saveReportData(deps, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN, payload: { ...VALID_PAYLOAD, dealType: "tama38" } });
+    await saveReportData(deps, { reportId: REPORT_ID, rawAccessToken: RAW_TOKEN, payload: { ...VALID_PAYLOAD, dealType: "basic" } });
+    expect(database.calls[0].dealType).toBe("tama38");
+    expect(database.calls[1].dealType).toBe("basic");
+  });
 });
 
 describe("revoke מקביל אינו מאפשר כתיבה לאחר הביטול", () => {

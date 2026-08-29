@@ -114,7 +114,58 @@ describe("21. dohefes_create_base_report_payment_order - draft+order אטומי�
     expect(functionBody).toMatch(/payment_status\)\s*\n?\s*values \(null, p_deal_type, '\{\}'::jsonb, null, 'pending'\)/);
     expect(functionBody.toLowerCase()).not.toMatch(/'paid'/);
   });
+});
 
+describe("Commit 6a-fix: טיפול מדויק ב-unique_violation - שם ה-constraint המדויק, לא כל unique_violation", () => {
+  function createFunctionBody(): string {
+    return activeSql(migrationSql).split("create or replace function dohefes_create_base_report_payment_order")[1]?.split("$$;")[0] ?? "";
+  }
+
+  it("שם ה-constraint המדויק של idempotency_key מופיע מילולית - אומת מול הסכמה המותקנת בפועל (pg_constraint), לא נוחש", () => {
+    // dohefes_payment_orders_idempotency_key_key - נבדק מול הפרויקט המקושר עצמו לפני כתיבת
+    // הקוד הזה (npx supabase db query --linked), לא הונח מקונבנציית שמות בלבד.
+    expect(createFunctionBody()).toMatch(/'dohefes_payment_orders_idempotency_key_key'/);
+  });
+
+  it("get stacked diagnostics מחלץ constraint_name בתוך ה-exception handler - לא parsing של הודעת השגיאה", () => {
+    const functionBody = createFunctionBody();
+    expect(functionBody).toMatch(/get stacked diagnostics v_constraint_name = constraint_name/);
+    // מופיע **אחרי** exception when unique_violation, **לפני** הבדיקה על השם - סדר חייב להיות נכון.
+    const exceptionIndex = functionBody.indexOf("exception when unique_violation");
+    const diagnosticsIndex = functionBody.indexOf("get stacked diagnostics");
+    const checkIndex = functionBody.indexOf("if v_constraint_name = 'dohefes_payment_orders_idempotency_key_key'");
+    expect(exceptionIndex).toBeGreaterThan(-1);
+    expect(diagnosticsIndex).toBeGreaterThan(exceptionIndex);
+    expect(checkIndex).toBeGreaterThan(diagnosticsIndex);
+  });
+
+  it("fallback הוא 'raise;' חשוף (re-raise, לא הודעה חדשה) - לא רשימת constraints ידועים מפורטת, כך שגם constraint עתידי לא-מוכר מגיע לאותו fallback", () => {
+    const functionBody = createFunctionBody();
+    // בדיוק בדיקת-שוויון אחת (idempotency_key) בתוך ה-handler, לא switch/case על כמה שמות -
+    // מוכיח מבנית שכל דבר שאינו idempotency_key (כולל constraint שעדיין לא קיים היום) נופל
+    // לאותו fallback יחיד, לא לרשימה סגורה של constraints "מוכרים".
+    const ifCount = (functionBody.match(/if v_constraint_name = /g) || []).length;
+    expect(ifCount).toBe(1);
+    expect(functionBody).toMatch(/\braise;/);
+    // ה-raise החשוף מגיע **אחרי** ה-if/end if על idempotency_key, לא לפניו.
+    const endIfIndex = functionBody.indexOf("end if;", functionBody.indexOf("if v_constraint_name = "));
+    const raiseIndex = functionBody.indexOf("raise;");
+    expect(raiseIndex).toBeGreaterThan(endIfIndex);
+  });
+
+  it("5/6. אין exception name/message מותאם אישית שעלול לכלול פרטי DB - raise; חשוף בלבד, בלי raise exception '...' עם טקסט חדש", () => {
+    const functionBody = createFunctionBody();
+    // אחרי exception when unique_violation, אסור שתופיע 'raise exception' (הודעה חדשה שהמפתח
+    // כותב) - רק 'raise;' החשוף שמעביר את השגיאה המקורית כלשונה, בלי לבנות טקסט חדש שעלול
+    // (בטעות עתידית) לכלול v_constraint_name או פרטי DB אחרים.
+    const exceptionBlockStart = functionBody.indexOf("exception when unique_violation");
+    const exceptionBlockEnd = functionBody.indexOf("end;", exceptionBlockStart);
+    const handlerBody = functionBody.slice(exceptionBlockStart, exceptionBlockEnd);
+    expect(handlerBody).not.toMatch(/raise exception/);
+  });
+});
+
+describe("21. אין dynamic SQL, dealType מאומת מול רשימה קשיחה", () => {
   it("אין EXECUTE של מחרוזת (dynamic SQL) בקובץ כולו", () => {
     expect(activeSql(migrationSql).toLowerCase()).not.toMatch(/execute\s+['"$]/);
   });
@@ -202,5 +253,54 @@ describe("אין נגיעה ב-RLS/policies הפתוחות של dohefes_reports"
   it("שום 'alter table dohefes_reports' בקובץ המיגרציה או ה-rollback", () => {
     expect(activeSql(migrationSql).toLowerCase()).not.toMatch(/alter table dohefes_reports/);
     expect(activeSql(rollbackSql).toLowerCase()).not.toMatch(/alter table dohefes_reports/);
+  });
+});
+
+describe("Commit 6a-fix: החלטת deal_type - הראיה מ-/calculator מתועדת במקור", () => {
+  it("הערת dohefes_save_report_data מפנה במפורש לשורות 333/360/437-449 של app/calculator/page.tsx (הראיה הנבדקת בפועל, לא הנחה)", () => {
+    expect(migrationSql).toMatch(/app\/calculator\/page\.tsx/);
+    expect(migrationSql).toMatch(/333/);
+    expect(migrationSql).toMatch(/360/);
+    expect(migrationSql).toMatch(/437-449/);
+  });
+
+  it("p_deal_type עדיין קיים בחתימת dohefes_save_report_data (הוחלט להשאיר, לא להסיר) - נבדק structurally מול app/calculator/page.tsx בפועל בהמשך הקובץ הזה", () => {
+    const signature = migrationSql.split("create or replace function dohefes_save_report_data")[1]?.split(")")[0] ?? "";
+    expect(signature).toMatch(/p_deal_type text/);
+  });
+
+  it("הכפתורים בפועל ב-app/calculator/page.tsx (בורר סוג עסקה) הם ללא disabled/readOnly - מוכיח שה-UI אכן מאפשר שינוי בכל שלב, לא רק בהנחה", () => {
+    const calculatorSource = readFileSync(join(process.cwd(), "app/calculator/page.tsx"), "utf-8");
+    // הבורר עצמו (onClick={() => setDealType(dt)}) קיים ולא מותנה ב-!reportId/disabled באזור שלו.
+    // עוגן על הערת ה-JSX הייעודית ({/* סוג עסקה */}) - לא על המחרוזת "סוג עסקה" הכללית, שמופיעה
+    // גם בתוך הערות קוד אחרות בקובץ (תיאור מודל עסקי, לא ה-JSX של הבורר עצמו).
+    const dealTypeSectionMatch = calculatorSource.match(/\{\/\* סוג עסקה \*\/\}[\s\S]{0,600}/);
+    expect(dealTypeSectionMatch).not.toBeNull();
+    const dealTypeSection = dealTypeSectionMatch ? dealTypeSectionMatch[0] : "";
+    expect(dealTypeSection).toMatch(/onClick=\{\(\) => setDealType\(dt\)\}/);
+    expect(dealTypeSection).not.toMatch(/disabled/);
+  });
+
+  it("effect 'שמירה רציפה' (autosave) כותב deal_type בכל שמירה, לא רק ביצירה הראשונית - שתי הופעות של deal_type: inputs.dealType", () => {
+    const calculatorSource = readFileSync(join(process.cwd(), "app/calculator/page.tsx"), "utf-8");
+    const occurrences = (calculatorSource.match(/deal_type: inputs\.dealType/g) || []).length;
+    expect(occurrences).toBe(2); // insert הראשוני + update ה-autosave
+  });
+});
+
+describe("Commit 6a-fix: אין דליפת constraint name/פרטי DB בתגובת ה-HTTP (dohefes-create-payment-order)", () => {
+  const indexSource = readFileSync(join(process.cwd(), "supabase/functions/dohefes-create-payment-order/index.ts"), "utf-8");
+
+  it("ה-catch הכללי ב-Deno.serve הוא 'catch {' חשוף - בלי לקשור משתנה שגיאה בכלל, כך שאין אפשרות מבנית להעביר את תוכנו לתגובה", () => {
+    // 'catch {' (בלי פרמטר) מופיע לפחות פעם אחת - לא catch (error)/catch (err) שמסתמך על
+    // "לא להשתמש במשתנה בטעות" - כאן אין בכלל משתנה לגשת אליו.
+    expect(indexSource).toMatch(/\}\s*catch\s*\{/);
+    // אין אף 'catch (' עם פרמטר קשור בקובץ כולו.
+    expect(indexSource).not.toMatch(/catch\s*\(/);
+  });
+
+  it("תגובת השגיאה הכללית היא ליטרל קבוע {error:\"internal_error\"} - לא בנויה מתוכן ה-exception", () => {
+    const genericErrorOccurrences = (indexSource.match(/jsonResponse\(\{ error: "internal_error" \}, 500/g) || []).length;
+    expect(genericErrorOccurrences).toBeGreaterThanOrEqual(1);
   });
 });

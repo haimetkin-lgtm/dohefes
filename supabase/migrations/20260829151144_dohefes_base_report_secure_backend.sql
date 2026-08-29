@@ -49,13 +49,35 @@
 -- **"כל כשל ביצירת order מבטל גם את יצירת draft" + "exception handling אינו בולע unique
 -- violation ומשאיר draft יתום"** (דרישות מפורשות): שני ה-INSERTs (dohefes_reports ואז
 -- dohefes_payment_orders) חיים **בתוך אותו BEGIN...EXCEPTION...END פנימי אחד**. PL/pgSQL פותח
--- savepoint מרומז בתחילת בלוק כזה - אם unique_violation נזרק (על idempotency_key/
--- provider_order_reference/access_token_hash, כולם unique בטבלה) בשלב ה-INSERT השני, Postgres
--- מגלגל אחורה **לנקודת תחילת הבלוק**, כלומר **גם** את ה-INSERT הראשון (ל-dohefes_reports) שכבר
--- הצליח לפני-כן - לא רק את השני. זה **לא** "תופס את ה-exception ואז ממשיך בשקט" - זהו בלוק
--- אחד יחיד שמגלגל את כל תוכנו אחורה כאילו לא קרה כלום, ומחזיר 'idempotency_race' כדי שהקורא
--- (payment-order-service.ts) יאתר את ההזמנה שניצחה דרך findOrderByIdempotencyKey - בדיוק אותו
--- עיקרון כמו הטיפול הקיים ב-race על insertOrder הרגילה (partial unique index, migrations/20260828062934_...sql).
+-- savepoint מרומז בתחילת בלוק כזה - כל unique_violation שנזרק בשלב ה-INSERT השני (הטבלה כוללת
+-- שישה unique constraints נפרדים: idempotency_key/provider_order_reference/access_token_hash/
+-- cardcom_low_profile_code/cardcom_internal_deal_number/id+report_id+product_type - ר' migrations/20260828062934_dohefes_payment_infrastructure.sql)
+-- גורם ל-Postgres לגלגל אחורה **לנקודת תחילת הבלוק**, כלומר **גם** את ה-INSERT הראשון (ל-
+-- dohefes_reports) שכבר הצליח לפני-כן - זה קורה **לכל** unique_violation, לא רק לזה שאנחנו
+-- מתייחסים אליו כ-"מרוץ idempotency לגיטימי" (ר' Commit 6a-fix למטה).
+--
+-- **Commit 6a-fix - ממצא ביקורת**: הגרסה המקורית (Commit 6a) סיווגה **כל** unique_violation,
+-- מכל אחד משישה ה-constraints, כ-'idempotency_race' - זה שגוי: רק התנגשות על
+-- **`dohefes_payment_orders_idempotency_key_key`** (השם המדויק, מאומת מול הסכמה המותקנת בפועל
+-- דרך `select conname from pg_constraint where conrelid='dohefes_payment_orders'::regclass and
+-- contype='u'` - **לא** מנוחש) היא באמת "שתי בקשות מקבילות עם אותו Idempotency-Key מהלקוח" -
+-- תרחיש לגיטימי שה-caller (payment-order-service.ts) יודע לטפל בו (findOrderByIdempotencyKey
+-- אחרי idempotency_race). התנגשות על provider_order_reference/access_token_hash (או כל
+-- constraint עתידי שיתווסף) מעידה על **תקלה בייצור הערכים האקראיים עצמם** (generateProviderOrderReference/
+-- generateAccessToken ב-payment-security.ts) - תקלה אמיתית ובלתי-צפויה, לא "מרוץ תקין" - אסור
+-- להסוות אותה כ-idempotency_race (שהיה גורם ל-caller לחפש הזמנה קיימת לפי idempotency_key,
+-- למצוא כזו אולי לא-קשורה בכלל, ולפעול לפי מצבה בטעות).
+--
+-- **המנגנון**: `get stacked diagnostics v_constraint_name = constraint_name` - הדרך התקנית של
+-- PL/pgSQL לחלץ את שם ה-constraint המדויק שגרם ל-unique_violation מתוך ה-exception context
+-- הפעיל (לא ניחוש/parsing של הודעת השגיאה). רק אם השם תואם בדיוק ל-constraint של idempotency_key -
+-- 'idempotency_race' מוחזר. **בכל מקרה אחר - `raise;` (re-raise חשוף, בלי פרמטרים) - זורק
+-- מחדש את ה-exception המקורי בדיוק כפי שהתקבל**, לא "בולע" אותו ולא "מתקן" אותו בשקט. ה-draft
+-- **כבר** התגלגל אחורה בשלב הזה (הרולבק ל-savepoint קורה **לפני** שקוד ה-handler בכלל רץ,
+-- ר' תיעוד PL/pgSQL) - זה נכון גם כש-raise מחדש קורה, לא רק כש-idempotency_race מוחזר.
+-- ה-exception שנזרק מחדש עוצר את הפונקציה כליל ומגיע ל-Edge Function כשגיאת RPC גולמית - ה-
+-- catch הכללי שם (dohefes-create-payment-order/index.ts) כבר מחזיר `{error:"internal_error"}`
+-- גנרי בלי לבחון את תוכן השגיאה בכלל - שם ה-constraint/פרטי ה-DB **לעולם לא** מגיעים ללקוח.
 --
 -- **"מרוץ עם אותו idempotency key אינו יוצר שני drafts"**: מכוסה ישירות על ידי הפסקה הקודמת -
 -- המפסידה מתגלגלת אחורה במלואה, אין לה draft בכלל אחרי ה-EXCEPTION.
@@ -93,6 +115,7 @@ declare
   v_report_id uuid;
   v_order_id uuid;
   v_order_status text;
+  v_constraint_name text;
 begin
   if p_deal_type is null
      or p_idempotency_key is null
@@ -126,9 +149,19 @@ begin
     )
     returning id, status into v_order_id, v_order_status;
   exception when unique_violation then
-    -- ר' הערת הכותרת - שני ה-INSERTs מתגלגלים אחורה יחד, כולל ה-draft. לא נכתב כלום.
-    return query select 'idempotency_race'::text, null::uuid, null::uuid, null::text, null::text, null::text;
-    return;
+    -- ר' הערת הכותרת (Commit 6a-fix) - שני ה-INSERTs כבר התגלגלו אחורה יחד בשלב הזה, כולל
+    -- ה-draft, בלי קשר לאיזה constraint גרם לכך. השם המדויק קובע איך מגיבים מכאן ואילך.
+    get stacked diagnostics v_constraint_name = constraint_name;
+
+    if v_constraint_name = 'dohefes_payment_orders_idempotency_key_key' then
+      return query select 'idempotency_race'::text, null::uuid, null::uuid, null::text, null::text, null::text;
+      return;
+    end if;
+
+    -- כל constraint אחר (provider_order_reference/access_token_hash/עתידי) - **לא** מוסווה
+    -- כמרוץ idempotency. re-raise חשוף - זורק את ה-exception המקורי בדיוק כפי שהתקבל, בלי
+    -- לבנות הודעה חדשה ובלי לחשוף את v_constraint_name בעצמו לשום מקום נוסף.
+    raise;
   end;
 
   return query select 'created'::text, v_report_id, v_order_id, v_order_status, p_provider_order_reference, null::text;
@@ -214,11 +247,23 @@ revoke execute on function dohefes_get_report_data(uuid, text) from public, anon
 grant execute on function dohefes_get_report_data(uuid, text) to service_role;
 
 -- p_project_name/p_deal_type: **כן** ניתנים לשינוי (בניגוד ל-id/created_at/payment_status/
--- tracking, שאין להם פרמטר מקביל בכלל בחתימה הזו) - משקף התנהגות קיימת בפועל של
--- app/calculator/page.tsx (effect "שמירה רציפה" כותב project_name/deal_type בכל autosave, לא
--- רק בשמירה הראשונה - בורר סוג העסקה נשאר פעיל בטופס אחרי יצירת הדוח, ר' audit ה-commit).
--- p_deal_type מאומת מול אותה רשימה קשיחה כמו RPC 1 - הגנת-עומק, הוולידציה הראשית ב-
--- report-data-validator.ts (Edge Function, לפני שמגיע לכאן).
+-- tracking, שאין להם פרמטר מקביל בכלל בחתימה הזו).
+--
+-- **Commit 6a-fix - ראיה מדויקת מה-UI הקיים (נבדק בפועל, לא הונח)**: app/calculator/page.tsx -
+--   1. שורות 437-449: בורר "סוג עסקה" - כפתורי `<button onClick={() => setDealType(dt)}>`
+--      עבור כל DealType, **בלי שום `disabled`/תנאי על reportId** - נבדק grep מפורש על
+--      disabled/readOnly/!reportId בקובץ כולו (Commit 6a-fix) - הכפתורים תמיד לחיצים, גם אחרי
+--      שהדוח כבר נוצר (reportId קיים).
+--   2. שורה 333: ה-INSERT הראשוני כותב `deal_type: inputs.dealType`.
+--   3. שורה 360: effect "שמירה רציפה" (autosave, debounce 1500ms) כותב `deal_type: inputs.dealType`
+--      **בכל שינוי**, לא רק בשמירה הראשונה - אותו נתיב קוד בדיוק כמו project_name/inputs/results.
+-- כלומר: המשתמש יכול ללחוץ על כפתור סוג עסקה אחר בכל שלב, גם אחרי שהדוח נשמר, וזה נכתב בפועל
+-- דרך אותו מנגנון autosave - **לא** הרחבה חדשה של המודל העסקי, רק שיקוף מדויק של מה שה-UI
+-- הקיים כבר עושה. ברירת המחדל הבטוחה (לא לאפשר שינוי שדה שה-UI לא דורש) **לא** חלה כאן, כי
+-- ה-UI כן דורש זאת בפועל.
+--
+-- p_deal_type מאומת מול אותה רשימה קשיחה כמו RPC 1, **לפני** ה-UPDATE (לא אחריו) - הגנת-עומק,
+-- הוולידציה הראשית ב-report-data-validator.ts (Edge Function, לפני שמגיע לכאן).
 --
 -- גודל payload: 500,000 בתים לכל אחד מ-inputs/results בנפרד - **אותו ערך בדיוק** כמו
 -- MAX_REPORT_DATA_BODY_BYTES ב-_shared/report-data-validator.ts (אין דרך טכנית לשתף קבוע
@@ -366,3 +411,11 @@ grant execute on function dohefes_save_report_data(uuid, text, text, text, jsonb
 -- 8. token של דוח אחר -> unavailable (לא חושף קיום/אי-קיום):
 --   select * from dohefes_get_report_data('<report-אחר>', 'hash-1');
 --   -- צפוי: outcome='unavailable'.
+--
+-- 9. (Commit 6a-fix) התנגשות על provider_order_reference (לא idempotency_key) -> נזרקת מחדש,
+--    לא מוסווית כ-idempotency_race, ואין draft שני:
+--   select * from dohefes_create_base_report_payment_order('tama38', 'idem-unique-9', 98000, 1, 'po_1', 'hash-9');
+--   -- po_1 כבר קיים מתרחיש 1 - idempotency_key שונה ('idem-unique-9'), provider_order_reference זהה.
+--   -- צפוי: EXCEPTION duplicate key value violates unique constraint "dohefes_payment_orders_provider_order_reference_key"
+--   -- (לא outcome='idempotency_race' - נזרקת גולמית, ה-Edge Function הופכת אותה ל-internal_error).
+--   select count(*) from dohefes_reports; -- צפוי: ללא שינוי (ה-draft של הניסיון הזה התגלגל אחורה).

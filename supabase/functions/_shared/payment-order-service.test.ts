@@ -55,6 +55,10 @@ class FakeDatabase implements PaymentOrderDatabase {
 
   createBaseReportDraftAndOrderCallCount = 0;
   simulateIdempotencyRaceOnNextDraft = false;
+  /** מדמה unique_violation על constraint **שאינו** idempotency_key (provider_order_reference/
+   *  access_token_hash/עתידי) - ר' Commit 6a-fix. ה-RPC האמיתית עושה `raise;` חשוף במקרה הזה -
+   *  לא מוחזר outcome מובנה בכלל, ה-Promise נדחית (throw), בדיוק כמו שגיאת DB אמיתית ולא-צפויה. */
+  simulateOtherUniqueViolationOnNextDraft = false;
   draftReportsById = new Map<string, { dealType: string }>();
 
   findBlockingOrderCalls: Array<{ reportId: string; productType: string }> = [];
@@ -126,6 +130,16 @@ class FakeDatabase implements PaymentOrderDatabase {
       // מתגלגל אחורה יחד (savepoint אחד עוטף את שני ה-INSERTs). אם המנצחת עוד לא "commit-ה"
       // (לא נמצאת ב-ordersByIdempotencyKey), findOrderByIdempotencyKey יחזיר null.
       return { outcome: "idempotency_race" };
+    }
+
+    if (this.simulateOtherUniqueViolationOnNextDraft) {
+      this.simulateOtherUniqueViolationOnNextDraft = false;
+      // ר' Commit 6a-fix: הרצה האמיתית (`raise;` חשוף ב-SQL אחרי `get stacked diagnostics`
+      // שמזהה שהשם **לא** תואם ל-constraint של idempotency_key) לא מוחזרת כ-outcome מובנה -
+      // היא נזרקת. לא נוצר draft (savepoint rollback), בדיוק כמו idempotency_race, אך הקורא
+      // (payment-order-service.ts) לא מטפל בה בכלל - היא ממשיכה לזרוק עד ה-catch הכללי
+      // ב-Deno.serve (index.ts), שמחזיר internal_error גנרי בלי לגעת בתוכן השגיאה.
+      throw new Error("duplicate key value violates unique constraint \"dohefes_payment_orders_provider_order_reference_key\"");
     }
 
     const reportId = `draft-report-${this.nextReportId++}`;
@@ -1091,6 +1105,59 @@ describe("baseReport - כשל order מבטל גם draft (2)", () => {
     expect(result.status).toBe(200);
     if (result.status === 200 && "reportId" in result.body) {
       expect(result.body.reportId).toBe("draft-report-winner");
+    }
+  });
+});
+
+describe("Commit 6a-fix: טיפול מדויק ב-unique_violation - רק idempotency_key הוא 'מרוץ לגיטימי'", () => {
+  it("1. התנגשות idempotency_key -> 'idempotency_race' (לא נזרקת), אין draft", async () => {
+    const deps = buildDeps({ database: db });
+    db.simulateIdempotencyRaceOnNextDraft = true;
+
+    const result = await createPaymentOrder(deps, { productType: "baseReport", dealType: "tama38", idempotencyKey: IDEMPOTENCY_KEY });
+
+    // אין winner מוגדר כאן בכוונה (בניגוד לתרחיש למעלה) - התוצאה עצמה פחות חשובה כאן מאשר
+    // ההוכחה ש-createBaseReportDraftAndOrder לא זרקה exception (לא הגיעה ל-500) ושלא נוצר draft.
+    expect(result.status).not.toBe(500);
+    expect(db.draftReportsById.size).toBe(0);
+  });
+
+  it("2/3. התנגשות על constraint אחר (provider_order_reference/access_token_hash) -> נזרקת מחדש, לא 'idempotency_race' מוסווה, אין draft", async () => {
+    const deps = buildDeps({ database: db });
+    db.simulateOtherUniqueViolationOnNextDraft = true;
+
+    // הפונקציה לא "בולעת" את זה כ-outcome תקין - היא מציפה את השגיאה החוצה. ב-Deno.serve
+    // האמיתי (index.ts) זה הופך ל-500 internal_error כללי - כאן, ברמת ה-service הטהור, בודקים
+    // ישירות שה-Promise נדחית (throw), לא ש-createPaymentOrder "מתקנת" את זה לתגובה תקינה.
+    await expect(createPaymentOrder(deps, { productType: "baseReport", dealType: "tama38", idempotencyKey: IDEMPOTENCY_KEY })).rejects.toThrow(
+      /unique constraint/
+    );
+    expect(db.draftReportsById.size).toBe(0);
+  });
+
+  it("4. הבחנה מבוססת שם constraint בלבד - לא רשימת ידוע/לא-ידוע: כל דבר שאינו idempotency_key מטופל זהה (מדמה 'constraint עתידי')", async () => {
+    // אותו fake בדיוק (simulateOtherUniqueViolationOnNextDraft) מייצג גם constraint שעדיין לא
+    // קיים היום - מבחינת payment-order-service.ts אין שום הבדל בין "provider_order_reference
+    // מוכר" ל"constraint עתידי לא-מוכר" - שניהם פשוט "לא idempotency_key", ולכן שניהם נזרקים.
+    // ההוכחה המבנית האמיתית (שה-SQL לא מפרט constraints ידועים אלא עושה fallback גורף) נמצאת
+    // ב-migrations_tests/dohefes_base_report_secure_backend.test.ts.
+    const deps = buildDeps({ database: db });
+    db.simulateOtherUniqueViolationOnNextDraft = true;
+    await expect(createPaymentOrder(deps, { productType: "baseReport", dealType: "tama38", idempotencyKey: IDEMPOTENCY_KEY })).rejects.toThrow();
+  });
+
+  it("6. אין דליפת constraint name/פרטי DB דרך payment-order-service.ts עצמו - הוא לא בונה תגובה מהשגיאה, רק מעביר אותה הלאה", async () => {
+    const deps = buildDeps({ database: db });
+    db.simulateOtherUniqueViolationOnNextDraft = true;
+    try {
+      await createPaymentOrder(deps, { productType: "baseReport", dealType: "tama38", idempotencyKey: IDEMPOTENCY_KEY });
+      throw new Error("expected createPaymentOrder to throw");
+    } catch (err) {
+      // ה-exception עצמו עדיין מכיל את שם ה-constraint (זה תקין - הוא לא הגיע ללקוח עדיין) -
+      // הבדיקה האמיתית ש"הלקוח" (תגובת ה-HTTP) לא רואה את זה נמצאת ב-index.ts (catch חשוף,
+      // בלי `catch (error)`, ר' הבדיקה הסטטית על כך). כאן רק מוודאים ש-createPaymentOrder
+      // עצמה לא "עוטפת" את זה בתגובת CreatePaymentOrderResult תקינה כלשהי.
+      expect(err).toBeInstanceOf(Error);
     }
   });
 });
