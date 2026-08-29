@@ -26,3 +26,6 @@ verify_jwt = false
 # ה-anon, שהוא כשלעצמו JWT תקין וחתום שעובר את הבדיקה - אין להן צורך בפטור. ביטול verify_jwt
 # על פונקציה אחרת מלבד dohefes-cardcom-payment-indicator דורש החלטה מפורשת ונפרדת, לא נגזר
 # אוטומטית מהחריג הזה.
+#
+# dohefes-get-tracking-data ו-dohefes-save-tracking-data (Commit 5a, product-catalog-implementation):
+# אותה סיבה בדיוק - גם הן נקראות מהדפדפן עם מפתח ה-anon, נשארות עם ברירת המחדל (verify_jwt=true).
