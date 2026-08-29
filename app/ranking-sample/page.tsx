@@ -1,9 +1,10 @@
 "use client";
 
 import { downloadRankingWorkbook } from "@/lib/report/exportRankingExcel";
+import { calculateValueGap, totalCoefficient } from "@/lib/ranking";
 
 const CRITERIA = ["קומה", "כיוון אוויר ומספר חזיתות", "נוף", "מרחק ממעלית/מבואה", "הצמדות (חניה/מחסן/גינה)"];
-const CRITERIA_IDS = CRITERIA.map((name, i) => ({ id: `c${i}`, name }));
+const CRITERIA_IDS = CRITERIA.map((name, i) => ({ id: `c${i}`, name, weight: 1 }));
 
 interface SampleUnit {
   name: string;
@@ -18,7 +19,7 @@ function toUnitRow(u: SampleUnit, id: string) {
 }
 
 function total(coefficients: number[]): number {
-  return coefficients.reduce((acc, c) => acc * c, 1);
+  return totalCoefficient(toUnitRow({ name: "", coefficients, basePriceNis: 0 }, "calculation"), CRITERIA_IDS);
 }
 
 function nis(n: number): string {
@@ -44,9 +45,9 @@ const CHOSEN_NEW_INDEX = [0, 1, 2, 3]; // מקביל, אחרי מיון יורד
 
 function UnitTable({ title, units }: { title: string; units: SampleUnit[] }) {
   return (
-    <div className="mb-6">
+    <div className="min-w-0 mb-6">
       <div className="font-bold text-[#123640] text-sm mb-2">{title}</div>
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+      <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
         <table className="w-full text-xs border-collapse min-w-[640px]">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
@@ -101,7 +102,7 @@ export default function RankingSamplePage() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8">
+    <main className="w-full min-w-0 max-w-5xl mx-auto px-4 py-8 overflow-x-hidden">
       <div className="text-center mb-6">
         <h1 className="text-lg font-bold text-[#14502F] mb-1">דוגמת דירוג ובחירת יחידות, פינוי בינוי</h1>
         <p className="text-sm text-gray-500 mb-4">
@@ -131,7 +132,9 @@ export default function RankingSamplePage() {
           החדשות: דירת הגג (המקדם הגבוה ביותר, 1.367) בוחרת ראשונה, וכן הלאה.
         </p>
         <p>
-          שימו לב: גם כשדייר בוחר דירה חדשה בעלת מקדם דומה או נמוך במקצת מהדירה הישנה שלו (למשל
+          בדוגמה לכל הקריטריונים משקל 1, ולכן נשמרת מכפלת המקדמים המלאה. בכלי ניתן להפחית משקל
+          של קריטריון שהשפעתו המקצועית נמוכה יותר, בלי לשנות את המקדם שהוזן. שימו לב: גם כשדייר
+          בוחר דירה חדשה בעלת מקדם דומה או נמוך במקצת מהדירה הישנה שלו (למשל
           קומה 2 מול קומה 3), עדיין נוצר פער ערך חיובי, כי מחיר הבסיס של הדירה החדשה (בנייה חדשה)
           גבוה ממחיר הבסיס של הדירה הישנה. זה טיפוסי, לא טעות בחישוב.
         </p>
@@ -143,8 +146,8 @@ export default function RankingSamplePage() {
       <section className="mb-8">
         <div className="font-bold text-[#123640] text-sm mb-1">סדר בחירה ופער ערך</div>
         <p className="text-xs text-gray-500 mb-3">ממוין לפי מקדם הדירה הישנה, מהגבוה לנמוך (סדר הבחירה).</p>
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-xs border-collapse min-w-[640px]">
+        <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full text-xs border-collapse min-w-[900px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="text-right py-2 px-2">תור</th>
@@ -153,6 +156,9 @@ export default function RankingSamplePage() {
                 <th className="text-right py-2 px-2">דירה חדשה שנבחרה</th>
                 <th className="text-right py-2 px-2">מקדם חדש</th>
                 <th className="text-right py-2 px-2">פער מקדם</th>
+                <th className="text-right py-2 px-2">פער מחיר בסיס</th>
+                <th className="text-right py-2 px-2">ערך ישן מתואם</th>
+                <th className="text-right py-2 px-2">ערך חדש מתואם</th>
                 <th className="text-right py-2 px-2">פער ערך</th>
               </tr>
             </thead>
@@ -160,9 +166,10 @@ export default function RankingSamplePage() {
               {oldRanked.map((oldUnit, i) => {
                 const oldTotal = total(oldUnit.coefficients);
                 const newUnit = NEW_UNITS[CHOSEN_NEW_INDEX[i]];
+                const oldRow = toUnitRow(oldUnit, "old");
+                const newRow = toUnitRow(newUnit, "new");
                 const newTotal = total(newUnit.coefficients);
-                const coefGap = newTotal - oldTotal;
-                const valueGap = newUnit.basePriceNis * newTotal - oldUnit.basePriceNis * oldTotal;
+                const gap = calculateValueGap(oldRow, newRow, CRITERIA_IDS);
                 return (
                   <tr key={oldUnit.name} className="border-t border-gray-100 tabular-nums">
                     <td className="py-1.5 px-2 font-medium text-[#14502F]">{i + 1}</td>
@@ -170,11 +177,14 @@ export default function RankingSamplePage() {
                     <td className="py-1.5 px-2">{oldTotal.toFixed(3)}</td>
                     <td className="py-1.5 px-2 font-medium text-[#1D6F42]">{newUnit.name}</td>
                     <td className="py-1.5 px-2">{newTotal.toFixed(3)}</td>
-                    <td className={`py-1.5 px-2 font-medium ${coefGap < 0 ? "text-red-600" : "text-[#14502F]"}`}>
-                      {(coefGap >= 0 ? "+" : "") + coefGap.toFixed(3)}
+                    <td className={`py-1.5 px-2 font-medium ${gap.coefficientGap < 0 ? "text-red-600" : "text-[#14502F]"}`}>
+                      {(gap.coefficientGap >= 0 ? "+" : "") + gap.coefficientGap.toFixed(3)} ({(gap.coefficientGapPercent * 100).toFixed(1)}%)
                     </td>
+                    <td className="py-1.5 px-2">{(gap.basePriceGapNis >= 0 ? "+" : "") + nis(gap.basePriceGapNis)}</td>
+                    <td className="py-1.5 px-2">{nis(gap.oldAdjustedValueNis)}</td>
+                    <td className="py-1.5 px-2">{nis(gap.newAdjustedValueNis)}</td>
                     <td className="py-1.5 px-2 font-medium text-[#14502F]">
-                      {(valueGap >= 0 ? "+" : "") + nis(valueGap)}
+                      {(gap.valueGapNis >= 0 ? "+" : "") + nis(gap.valueGapNis)}
                     </td>
                   </tr>
                 );
@@ -183,8 +193,8 @@ export default function RankingSamplePage() {
           </table>
         </div>
         <p className="text-[11px] text-gray-400 mt-2">
-          פער ערך חיובי: הדירה החדשה שווה יותר, ייתכן תשלום איזון מהדייר. פער שלילי: הדירה החדשה
-          שווה פחות, ייתכן תשלום איזון לדייר.
+          ערך מתואם = מחיר בסיס × מקדם כולל. ההפרדה בין פער מחיר הבסיס לפער המקדם מונעת ייחוס
+          מוטעה של כל הפער לאיכות הדירה. תשלום איזון בפועל כפוף לקביעה מקצועית ולהסכמות הפרויקט.
         </p>
       </section>
 

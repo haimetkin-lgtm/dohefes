@@ -2,25 +2,23 @@
 
 import { useState } from "react";
 import { downloadRankingWorkbook } from "@/lib/report/exportRankingExcel";
-
-interface Criterion {
-  id: string;
-  name: string;
-}
-
-interface UnitRow {
-  id: string;
-  name: string;
-  basePriceNis: number;
-  coefficients: Record<string, number>;
-}
+import {
+  calculateValueGap,
+  availableNewUnits,
+  coefficientIssue,
+  criterionContribution,
+  rankUnits,
+  totalCoefficient,
+  type RankingCriterion as Criterion,
+  type RankingUnit as UnitRow,
+} from "@/lib/ranking";
 
 const DEFAULT_CRITERIA: Criterion[] = [
-  { id: "floor", name: "קומה" },
-  { id: "aspect", name: "כיוון אוויר ומספר חזיתות" },
-  { id: "view", name: "נוף" },
-  { id: "elevator", name: "מרחק ממעלית/מבואה" },
-  { id: "attachments", name: "הצמדות (חניה/מחסן/גינה)" },
+  { id: "floor", name: "קומה", weight: 1 },
+  { id: "aspect", name: "כיוון אוויר ומספר חזיתות", weight: 1 },
+  { id: "view", name: "נוף", weight: 1 },
+  { id: "elevator", name: "מרחק ממעלית/מבואה", weight: 1 },
+  { id: "attachments", name: "הצמדות (חניה/מחסן/גינה)", weight: 1 },
 ];
 
 let idCounter = 0;
@@ -33,10 +31,6 @@ function makeUnit(name: string, criteria: Criterion[]): UnitRow {
   const coefficients: Record<string, number> = {};
   criteria.forEach((c) => (coefficients[c.id] = 1));
   return { id: nextId("unit"), name, basePriceNis: 0, coefficients };
-}
-
-function totalCoefficient(unit: UnitRow, criteria: Criterion[]): number {
-  return criteria.reduce((acc, c) => acc * (unit.coefficients[c.id] ?? 1), 1);
 }
 
 function nis(n: number): string {
@@ -63,14 +57,14 @@ function UnitGroupTable({
   onUpdateCoefficient: (unitId: string, critId: string, value: number) => void;
 }) {
   return (
-    <section className="mb-8">
+    <section className="min-w-0 mb-8">
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-bold text-[#123640] text-sm">{title}</h2>
         <button onClick={onAddUnit} className="text-xs font-medium text-[#1D6F42] hover:underline">
           {addLabel}
         </button>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+      <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
         <table className="w-full text-xs border-collapse min-w-[700px]">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
@@ -78,6 +72,7 @@ function UnitGroupTable({
               {criteria.map((c) => (
                 <th key={c.id} className="text-right py-2 px-2 min-w-[110px]">
                   {c.name || "קריטריון"}
+                  <span className="block text-[10px] font-normal">משקל {c.weight}</span>
                 </th>
               ))}
               <th className="text-right py-2 px-2 min-w-[110px]">מחיר בסיס (₪)</th>
@@ -100,18 +95,26 @@ function UnitGroupTable({
                       className="w-24 border border-gray-200 rounded px-2 py-1"
                     />
                   </td>
-                  {criteria.map((c) => (
+                  {criteria.map((c) => {
+                    const value = u.coefficients[c.id] ?? 1;
+                    const issue = coefficientIssue(value);
+                    return (
                     <td key={c.id} className="py-1.5 px-2">
                       <input
                         type="number"
+                        min="0.01"
+                        max="3"
                         step="0.01"
-                        value={u.coefficients[c.id] ?? 1}
+                        value={value}
                         onChange={(e) => onUpdateCoefficient(u.id, c.id, Number(e.target.value))}
                         aria-label={`מקדם ${c.name || "קריטריון"}, ${title}, שורה ${i + 1}`}
-                        className="w-20 border border-gray-200 rounded px-2 py-1"
+                        aria-invalid={issue === "invalid"}
+                        title={`תרומה משוקללת: ${criterionContribution(value, c.weight).toFixed(3)}`}
+                        className={`w-20 border rounded px-2 py-1 ${issue === "invalid" ? "border-red-500 bg-red-50" : issue === "unusual" ? "border-amber-400 bg-amber-50" : "border-gray-200"}`}
                       />
                     </td>
-                  ))}
+                    );
+                  })}
                   <td className="py-1.5 px-2">
                     <input
                       type="number"
@@ -158,7 +161,7 @@ export default function RankingPage() {
   const [choices, setChoices] = useState<Record<string, string>>({});
 
   function addCriterion() {
-    const c = { id: nextId("crit"), name: "" };
+    const c = { id: nextId("crit"), name: "", weight: 1 };
     setCriteria((prev) => [...prev, c]);
     const withCoef = (list: UnitRow[]) =>
       list.map((u) => ({ ...u, coefficients: { ...u.coefficients, [c.id]: 1 } }));
@@ -170,8 +173,9 @@ export default function RankingPage() {
     setCriteria((prev) => prev.filter((c) => c.id !== id));
     const stripCoef = (list: UnitRow[]) =>
       list.map((u) => {
-        const { [id]: _removed, ...rest } = u.coefficients;
-        return { ...u, coefficients: rest };
+        const coefficients = { ...u.coefficients };
+        delete coefficients[id];
+        return { ...u, coefficients };
       });
     setOldUnits(stripCoef);
     setNewUnits(stripCoef);
@@ -179,6 +183,10 @@ export default function RankingPage() {
 
   function renameCriterion(id: string, name: string) {
     setCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+  }
+
+  function updateCriterionWeight(id: string, weight: number) {
+    setCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, weight } : c)));
   }
 
   function makeGroupHandlers(setUnits: React.Dispatch<React.SetStateAction<UnitRow[]>>, labelPrefix: string) {
@@ -199,14 +207,22 @@ export default function RankingPage() {
 
   // סדר בחירה: מיון הדירות הישנות לפי מקדם כולל יורד. ניקוד גבוה = בוחר קודם.
   // תיקו (מקדם זהה) מסומן לצורך הגרלה, לא נשבר אוטומטית על ידי הכלי.
-  const oldRanked = [...oldUnits]
-    .map((u) => ({ unit: u, total: totalCoefficient(u, criteria) }))
-    .sort((a, b) => b.total - a.total);
+  const oldRanked = rankUnits(oldUnits, criteria);
 
   const newUnitsById = new Map(newUnits.map((u) => [u.id, u]));
+  const invalidCoefficientCount = [...oldUnits, ...newUnits].reduce(
+    (count, unit) => count + criteria.filter((criterion) => coefficientIssue(unit.coefficients[criterion.id]) === "invalid").length,
+    0
+  );
+  const unusualCoefficientCount = [...oldUnits, ...newUnits].reduce(
+    (count, unit) => count + criteria.filter((criterion) => coefficientIssue(unit.coefficients[criterion.id]) === "unusual").length,
+    0
+  );
+  const invalidWeightCount = criteria.filter((criterion) => !Number.isFinite(criterion.weight) || criterion.weight < 0 || criterion.weight > 2).length;
+  const canExport = criteria.length > 0 && oldUnits.length > 0 && newUnits.length > 0 && invalidCoefficientCount === 0 && invalidWeightCount === 0;
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8">
+    <main className="w-full min-w-0 max-w-5xl mx-auto px-4 py-8 overflow-x-hidden">
       <h1 className="text-xl font-bold text-[#14502F] mb-1">כלי דירוג ובחירת יחידות</h1>
       <p className="text-sm text-gray-500 mb-4">
         כלי חינמי מלא לפרויקטי פינוי בינוי: דירוג הדירות הישנות של הדיירים הקיימים וחישוב פער
@@ -216,7 +232,8 @@ export default function RankingPage() {
       <div className="print:hidden flex flex-col sm:flex-row gap-2 mb-6">
         <button
           onClick={() => downloadRankingWorkbook(criteria, oldUnits, newUnits, choices)}
-          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          disabled={!canExport}
+          className="flex-1 bg-[#1D6F42] hover:bg-[#14502F] disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
         >
           הורדת קובץ Excel
         </button>
@@ -233,7 +250,9 @@ export default function RankingPage() {
         <p className="mb-2">
           לכל קריטריון (קומה, נוף, כיוון אוויר וכו&apos;) נקבע לכל דירה <b>מקדם התאמה סביב 1.0</b>:
           בדיוק 1 = ניטרלי, מעל 1 = משביח, מתחת ל-1 = פוגם. <b>המקדם הכולל של דירה הוא מכפלת כל
-          המקדמים שלה</b> (לא סכום).
+          התרומות שלה</b> (לא סכום). לכל קריטריון ניתן גם משקל: 1 = השפעה מלאה, 0.5 = חצי השפעה,
+          ו־0 = הקריטריון מוצג אך אינו משפיע. התרומה המחושבת היא מקדם בחזקת המשקל; לכן כל
+          משקלי ברירת המחדל 1 משמרים בדיוק את שיטת המכפלה המקורית.
         </p>
         <p className="mb-2">
           <b>הדירוג קובע סדר בחירה, לא שיוך אוטומטי</b>: מקדם הדירה הישנה של כל דייר קובע את התור
@@ -249,6 +268,14 @@ export default function RankingPage() {
         </p>
       </section>
 
+      {(invalidCoefficientCount > 0 || unusualCoefficientCount > 0 || invalidWeightCount > 0) && (
+        <div className="print:hidden mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          {invalidCoefficientCount > 0 && <div><b>{invalidCoefficientCount} מקדמים אינם תקינים.</b> נדרש ערך גדול מ־0 ועד 3; הייצוא נעול עד לתיקון.</div>}
+          {invalidWeightCount > 0 && <div><b>{invalidWeightCount} משקלים אינם תקינים.</b> נדרש ערך בין 0 ל־2; הייצוא נעול עד לתיקון.</div>}
+          {unusualCoefficientCount > 0 && <div>{unusualCoefficientCount} מקדמים מחוץ לטווח הבקרה 0.80–1.20. אפשר להמשיך, אך מומלץ לבדוק שהם מכוונים.</div>}
+        </div>
+      )}
+
       <section className="mb-4 flex items-center justify-between">
         <h2 className="font-bold text-[#123640] text-sm">קריטריונים (משותפים לשתי הקבוצות)</h2>
         <button onClick={addCriterion} className="text-xs font-medium text-[#1D6F42] hover:underline">
@@ -256,13 +283,13 @@ export default function RankingPage() {
         </button>
       </section>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 mb-8">
+      <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200 mb-8">
         <table className="w-full text-xs border-collapse min-w-[500px]">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
               {criteria.map((c) => (
                 <th key={c.id} className="text-right py-2 px-2 min-w-[140px]">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 mb-1">
                     <input
                       type="text"
                       value={c.name}
@@ -279,6 +306,20 @@ export default function RankingPage() {
                       ✕
                     </button>
                   </div>
+                  <label className="flex items-center gap-1 font-normal text-[10px] text-gray-500">
+                    משקל
+                    <input
+                      type="number"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={c.weight}
+                      onChange={(e) => updateCriterionWeight(c.id, Number(e.target.value))}
+                      aria-label={`משקל קריטריון ${c.name || "ללא שם"}`}
+                      aria-invalid={!Number.isFinite(c.weight) || c.weight < 0 || c.weight > 2}
+                      className={`w-16 border rounded px-1 py-0.5 bg-white ${!Number.isFinite(c.weight) || c.weight < 0 || c.weight > 2 ? "border-red-500" : "border-gray-200"}`}
+                    />
+                  </label>
                 </th>
               ))}
             </tr>
@@ -290,9 +331,16 @@ export default function RankingPage() {
         title="דירות ישנות (של הדיירים הקיימים)"
         addLabel="+ הוספת דירה ישנה"
         units={oldUnits}
-        criteria={criteria}
-        onAddUnit={oldHandlers.add}
-        onRemoveUnit={oldHandlers.remove}
+      criteria={criteria}
+      onAddUnit={oldHandlers.add}
+      onRemoveUnit={(id) => {
+        oldHandlers.remove(id);
+        setChoices((prev) => {
+          const { [id]: removedChoice, ...rest } = prev;
+          void removedChoice;
+          return rest;
+        });
+      }}
         onUpdateUnit={oldHandlers.update}
         onUpdateCoefficient={oldHandlers.updateCoef}
       />
@@ -301,21 +349,24 @@ export default function RankingPage() {
         title="דירות חדשות (קטלוג הדירות הזמינות בבניין החדש)"
         addLabel="+ הוספת דירה חדשה"
         units={newUnits}
-        criteria={criteria}
-        onAddUnit={newHandlers.add}
-        onRemoveUnit={newHandlers.remove}
+      criteria={criteria}
+      onAddUnit={newHandlers.add}
+      onRemoveUnit={(id) => {
+        newHandlers.remove(id);
+        setChoices((prev) => Object.fromEntries(Object.entries(prev).filter(([, chosenId]) => chosenId !== id)));
+      }}
         onUpdateUnit={newHandlers.update}
         onUpdateCoefficient={newHandlers.updateCoef}
       />
 
-      <section className="mb-8">
+      <section className="min-w-0 mb-8">
         <h2 className="font-bold text-[#123640] text-sm mb-1">סדר בחירה ופער ערך</h2>
         <p className="text-xs text-gray-500 mb-3">
           ממוין לפי מקדם הדירה הישנה, מהגבוה לנמוך (סדר הבחירה). לכל דייר, בחרו ידנית איזו דירה
           חדשה הוא בפועל לקח.
         </p>
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-xs border-collapse min-w-[640px]">
+        <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full text-xs border-collapse min-w-[980px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="text-right py-2 px-2">תור</th>
@@ -324,24 +375,24 @@ export default function RankingPage() {
                 <th className="text-right py-2 px-2">דירה חדשה שנבחרה</th>
                 <th className="text-right py-2 px-2">מקדם חדש</th>
                 <th className="text-right py-2 px-2">פער מקדם</th>
+                <th className="text-right py-2 px-2">פער מחיר בסיס</th>
+                <th className="text-right py-2 px-2">ערך ישן מתואם</th>
+                <th className="text-right py-2 px-2">ערך חדש מתואם</th>
                 <th className="text-right py-2 px-2">פער ערך (₪)</th>
               </tr>
             </thead>
             <tbody>
-              {oldRanked.map(({ unit, total }, i) => {
-                const tie = i > 0 && Math.abs(total - oldRanked[i - 1].total) < 0.0005;
+              {oldRanked.map(({ unit, coefficient: total, rank, tie }) => {
                 const chosenId = choices[unit.id] ?? "";
                 const chosenUnit = chosenId ? newUnitsById.get(chosenId) : undefined;
                 const chosenTotal = chosenUnit ? totalCoefficient(chosenUnit, criteria) : null;
-                const coefGap = chosenTotal !== null ? chosenTotal - total : null;
-                const valueGap =
-                  coefGap !== null && unit.basePriceNis > 0 && chosenUnit
-                    ? chosenUnit.basePriceNis * chosenTotal! - unit.basePriceNis * total
-                    : null;
+                const gap = chosenUnit && unit.basePriceNis > 0 && chosenUnit.basePriceNis > 0
+                  ? calculateValueGap(unit, chosenUnit, criteria)
+                  : null;
                 return (
                   <tr key={unit.id} className="border-t border-gray-100 tabular-nums">
                     <td className="py-1.5 px-2 font-medium text-[#14502F]">
-                      {i + 1}
+                      {rank}
                       {tie && (
                         <span className="block text-[10px] font-normal text-amber-600">תיקו, נדרשת הגרלה</span>
                       )}
@@ -356,7 +407,7 @@ export default function RankingPage() {
                         className="border border-gray-200 rounded px-2 py-1 max-w-[150px]"
                       >
                         <option value="">— טרם נבחר —</option>
-                        {newUnits.map((nu) => (
+                        {availableNewUnits(newUnits, choices, chosenId).map((nu) => (
                           <option key={nu.id} value={nu.id}>
                             {nu.name || "ללא שם"}
                           </option>
@@ -364,11 +415,14 @@ export default function RankingPage() {
                       </select>
                     </td>
                     <td className="py-1.5 px-2">{chosenTotal !== null ? chosenTotal.toFixed(3) : "-"}</td>
-                    <td className={`py-1.5 px-2 font-medium ${coefGap !== null && coefGap < 0 ? "text-red-600" : "text-[#14502F]"}`}>
-                      {coefGap !== null ? (coefGap >= 0 ? "+" : "") + coefGap.toFixed(3) : "-"}
+                    <td className={`py-1.5 px-2 font-medium ${gap && gap.coefficientGap < 0 ? "text-red-600" : "text-[#14502F]"}`}>
+                      {gap ? `${gap.coefficientGap >= 0 ? "+" : ""}${gap.coefficientGap.toFixed(3)} (${gap.coefficientGapPercent >= 0 ? "+" : ""}${(gap.coefficientGapPercent * 100).toFixed(1)}%)` : "-"}
                     </td>
-                    <td className={`py-1.5 px-2 font-medium ${valueGap !== null && valueGap < 0 ? "text-red-600" : "text-[#14502F]"}`}>
-                      {valueGap !== null ? (valueGap >= 0 ? "+" : "") + nis(valueGap) : "-"}
+                    <td className="py-1.5 px-2">{gap ? (gap.basePriceGapNis >= 0 ? "+" : "") + nis(gap.basePriceGapNis) : "-"}</td>
+                    <td className="py-1.5 px-2">{gap ? nis(gap.oldAdjustedValueNis) : "-"}</td>
+                    <td className="py-1.5 px-2">{gap ? nis(gap.newAdjustedValueNis) : "-"}</td>
+                    <td className={`py-1.5 px-2 font-medium ${gap && gap.valueGapNis < 0 ? "text-red-600" : "text-[#14502F]"}`}>
+                      {gap ? (gap.valueGapNis >= 0 ? "+" : "") + nis(gap.valueGapNis) : "-"}
                     </td>
                   </tr>
                 );
@@ -377,8 +431,9 @@ export default function RankingPage() {
           </table>
         </div>
         <p className="text-[11px] text-gray-400 mt-2">
-          פער ערך חיובי: הדירה החדשה שווה יותר מהישנה, ייתכן תשלום איזון מהדייר. פער שלילי: הדירה
-          החדשה שווה פחות, ייתכן תשלום איזון לדייר.
+          ערך מתואם = מחיר בסיס × מקדם כולל. פירוט מחיר הבסיס והמקדם מוצג בנפרד כדי להבהיר מה
+          יצר את הפער. פער חיובי עשוי להצביע על תשלום איזון מהדייר; פער שלילי עשוי להצביע על
+          תשלום איזון לדייר, בכפוף לקביעה מקצועית ולהסכמות הפרויקט.
         </p>
       </section>
 
