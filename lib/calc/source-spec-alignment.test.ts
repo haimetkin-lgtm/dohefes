@@ -94,6 +94,47 @@ describe("התאמה מפורשת למפרטי קובצי המקור", () => {
     expect(withLegacyRates.costs.indirectNis).toBeCloseTo(withoutLegacyRates.costs.indirectNis, 6);
   });
 
+  it("קבוצת רכישה: מפיק P&L נפרד למארגן לפי מקטע המקור", () => {
+    const result = computeProject(project("purchaseGroup", {
+      brokerageRate: 0.01,
+      purchaseTaxRate: 0.06,
+      organizerOptionTradingNis: 1_000_000,
+      organizerMarketingRate: 0.025,
+      organizerOverheadRate: 0.025,
+    }));
+    expect(result.organizerProfitability).toMatchObject({
+      landRevenueNis: 5_000_000,
+      optionTradingRevenueNis: 1_000_000,
+      managementRevenueNis: 150_000,
+      totalRevenueNis: 6_150_000,
+      landAcquisitionNis: 5_000_000,
+      purchaseTaxNis: 300_000,
+      brokerageNis: 50_000,
+      marketingNis: 500_000,
+      overheadNis: 125_000,
+      totalCostsNis: 5_975_000,
+      profitNis: 175_000,
+    });
+    expect(result.organizerProfitability?.profitToOrganizerRevenueRatio).toBeCloseTo(175_000 / 6_150_000, 8);
+  });
+
+  it("קבוצת רכישה: מציג את שתי חלופות חלוקת ההוצאות מהמקור", () => {
+    const inputs = project("purchaseGroup");
+    inputs.units = [
+      { name: "קטנה", count: 1, areaSqm: 100, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 1_000_000 },
+      { name: "גדולה", count: 1, areaSqm: 200, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 3_000_000 },
+    ];
+    const result = computeProject(inputs);
+    expect(result.purchaseGroupAllocation?.byMarketValue.map((row) => row.allocationShare)).toEqual([0.25, 0.75]);
+    expect(result.purchaseGroupAllocation?.byEquivalentArea[0].allocationShare).toBeCloseTo(1 / 3, 8);
+    expect(result.purchaseGroupAllocation?.byEquivalentArea[1].allocationShare).toBeCloseTo(2 / 3, 8);
+    for (const rows of [result.purchaseGroupAllocation!.byMarketValue, result.purchaseGroupAllocation!.byEquivalentArea]) {
+      expect(rows.reduce((sum, row) => sum + row.allocationShare, 0)).toBeCloseTo(1, 8);
+      expect(rows.reduce((sum, row) => sum + row.count * row.landSharePerUnitNis, 0)).toBeCloseTo(result.costs.landNis, 6);
+      expect(rows.reduce((sum, row) => sum + row.count * row.totalCostPerUnitNis, 0)).toBeCloseTo(result.costs.totalInclFinancingNis, 6);
+    }
+  });
+
   it("קומבינציית תמורות: עלות השיווק נגזרת מהכנסת הפרויקט המלאה ולא רק מחלק היזם", () => {
     const withMarketing = computeProject(project("kombinatsiaTemurot"));
     const withoutMarketing = computeProject(project("kombinatsiaTemurot", { marketingRate: 0 }));

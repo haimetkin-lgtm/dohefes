@@ -71,4 +71,20 @@ describe("ייצוא דוח אפס ל-Excel", () => {
     expect(assumptions.some((row) => row[0] === "עלות מגורים למ״ר (₪)" && row[1] === 1)).toBe(true);
     expect(assumptions.some((row) => row[0] === "ריבית שנתית (%)" && row[1] === 0)).toBe(true);
   });
+
+  it("מוסיף גיליון P&L נפרד בקבוצת רכישה", () => {
+    const inputs: ProjectInputs = {
+      dealType: "purchaseGroup",
+      projectName: "בדיקת מארגן",
+      units: [{ name: "דירה", count: 1, areaSqm: 100, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 1_170_000 }],
+      costs: { ...ZERO_COSTS, organizerFeeNis: 150_000, organizerOptionTradingNis: 250_000 },
+      land: { landPurchaseNis: 500_000, bettermentLevyNis: 0, combinationOwnerShare: 0, combinationLandValueForTaxNis: 0 },
+    };
+    const workbook = buildWorkbook(inputs, computeProject(inputs));
+    expect(workbook.SheetNames).toContain("תחשיב מארגן");
+    expect(workbook.SheetNames).toContain("חלוקה לפי שווי");
+    expect(workbook.SheetNames).toContain("חלוקה לפי שטח");
+    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(workbook.Sheets["תחשיב מארגן"], { header: 1 });
+    expect(rows.some((row) => row[0] === "הכנסה מסיחור אופציה (₪)" && row[1] === 250_000)).toBe(true);
+  });
 });

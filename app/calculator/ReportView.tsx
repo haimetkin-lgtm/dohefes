@@ -333,6 +333,50 @@ export default function ReportView({
           )}
         </div>
 
+        {result.organizerProfitability && (
+          <div className="mb-7 rounded-xl border border-[#D9E5DD] p-4">
+            <SectionTitle>תחשיב פנימי נפרד, מארגן קבוצת הרכישה</SectionTitle>
+            <p className="text-[11px] text-gray-500 mb-2">אינו חלק מחיסכון חברי הקבוצה. ההכנסות וההוצאות להלן הן של המארגן בלבד.</p>
+            <table className="w-full text-xs">
+              <tbody>
+                <Row label="הכנסה ממכירת הקרקע לקבוצה" value={nis(result.organizerProfitability.landRevenueNis)} />
+                <Row label="הכנסה מסיחור אופציה" value={nis(result.organizerProfitability.optionTradingRevenueNis)} />
+                <Row label="הכנסה מדמי ניהול/ארגון" value={nis(result.organizerProfitability.managementRevenueNis)} />
+                <Row label="סה״כ הכנסות המארגן" value={nis(result.organizerProfitability.totalRevenueNis)} strong />
+                <Row label="רכישת הקרקע" value={nis(result.organizerProfitability.landAcquisitionNis)} />
+                <Row label="מס רכישה" value={nis(result.organizerProfitability.purchaseTaxNis)} />
+                <Row label="תיווך" value={nis(result.organizerProfitability.brokerageNis)} />
+                <Row label="שיווק ופרסום" value={nis(result.organizerProfitability.marketingNis)} />
+                <Row label="תקורות וניהול" value={nis(result.organizerProfitability.overheadNis)} />
+                <Row label="סה״כ הוצאות המארגן" value={nis(result.organizerProfitability.totalCostsNis)} strong />
+                <Row label="רווח המארגן" value={nis(result.organizerProfitability.profitNis)} strong />
+                <Row label="רווח / הכנסות המארגן" value={`${fmt(result.organizerProfitability.profitToOrganizerRevenueRatio * 100, 1)}%`} strong />
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {result.purchaseGroupAllocation && (
+          <div className="mb-7">
+            <SectionTitle>חלוקת עלויות בין חברי קבוצת הרכישה</SectionTitle>
+            <p className="text-[11px] text-gray-500 mb-3">שתי החלופות מקובץ המקור מוצגות במקביל. החלופה המחייבת נקבעת בהסכם השיתוף ואינה נבחרת אוטומטית.</p>
+            {[
+              ["חלופה א׳, חלוקה לפי שווי הדירה", result.purchaseGroupAllocation.byMarketValue, "שווי בסיס"],
+              ["חלופה ב׳, חלוקה לפי מ״ר אקוויוולנטי לעלות", result.purchaseGroupAllocation.byEquivalentArea, "מ״ר אקוויוולנטי"],
+            ].map(([title, rows, basisLabel]) => (
+              <div key={title as string} className="mb-4 overflow-x-auto rounded-lg border border-gray-200">
+                <div className="bg-gray-50 px-3 py-2 text-xs font-bold text-[#14502F]">{title as string}</div>
+                <table className="w-full min-w-[820px] text-[11px]">
+                  <thead><tr className="text-gray-500"><th className="p-2 text-right">טיפוס</th><th className="p-2 text-right">כמות</th><th className="p-2 text-right">{basisLabel as string}</th><th className="p-2 text-right">חלק יחסי</th><th className="p-2 text-right">קרקע ליחידה</th><th className="p-2 text-right">יתר העלויות ליחידה</th><th className="p-2 text-right">עלות כוללת ליחידה</th><th className="p-2 text-right">חיסכון גלום ליחידה</th><th className="p-2 text-right">חיסכון/עלות</th></tr></thead>
+                  <tbody>{(rows as typeof result.purchaseGroupAllocation.byMarketValue).map((row) => (
+                    <tr key={row.name} className="border-t border-gray-100 tabular-nums"><td className="p-2">{row.name}</td><td className="p-2">{row.count}</td><td className="p-2">{basisLabel === "שווי בסיס" ? nis(row.allocationBasisPerUnit) : fmt(row.allocationBasisPerUnit, 1)}</td><td className="p-2">{fmt(row.allocationShare * 100, 2)}%</td><td className="p-2">{nis(row.landSharePerUnitNis)}</td><td className="p-2">{nis(row.otherCostsSharePerUnitNis)}</td><td className="p-2">{nis(row.totalCostPerUnitNis)}</td><td className="p-2">{nis(row.embeddedSavingsPerUnitNis)}</td><td className="p-2">{fmt(row.savingsToCostRatio * 100, 1)}%</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* מדדי היתכנות (דור 2): נקודת איזון, מרווח ביטחון, שווי קרקע שיורי - כולם מחושבים
             במנוע (lib/calc/engine.ts) על ידי הרצה מלאה וחוזרת של שרשרת החישוב, לא קירוב תצוגתי.
             מוסתר לגמרי כשאין מה להציג (שלד טרי בלי מחירים, ולא עסקת מזומן) */}

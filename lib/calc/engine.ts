@@ -6,6 +6,9 @@ import type {
   ConstructionCostRow,
   MunicipalFeeInputs,
   ProfitabilitySummary,
+  OrganizerProfitabilitySummary,
+  PurchaseGroupAllocationSummary,
+  PurchaseGroupAllocationRow,
   ProjectResult,
   UnitAllocationRow,
   BreakEvenResult,
@@ -431,6 +434,81 @@ export function computeProfitability(revenue: RevenueSummary, costs: CostBreakdo
   return { revenueNis, totalCostNis, currentProfitNis, profitToCostRatio, profitToRevenueRatio, cashOnCashAnnualRatio };
 }
 
+export function computeOrganizerProfitability(
+  inputs: ProjectInputs,
+  revenue: RevenueSummary,
+  projectCosts: CostBreakdown
+): OrganizerProfitabilitySummary | null {
+  if (inputs.dealType !== "purchaseGroup") return null;
+  const landRevenueNis = inputs.land.landPurchaseNis;
+  const optionTradingRevenueNis = inputs.costs.organizerOptionTradingNis ?? 0;
+  const managementRevenueNis = inputs.costs.organizerFeeNis;
+  const totalRevenueNis = landRevenueNis + optionTradingRevenueNis + managementRevenueNis;
+  const landAcquisitionNis = landRevenueNis;
+  const purchaseTaxNis = landAcquisitionNis * inputs.costs.purchaseTaxRate;
+  const brokerageNis = landAcquisitionNis * inputs.costs.brokerageRate;
+  const marketingNis = revenue.totalRevenueExclVatNis * (inputs.costs.organizerMarketingRate ?? 0.025);
+  const overheadNis = projectCosts.directConstructionNis * (inputs.costs.organizerOverheadRate ?? 0.025);
+  const totalCostsNis = landAcquisitionNis + purchaseTaxNis + brokerageNis + marketingNis + overheadNis;
+  const profitNis = totalRevenueNis - totalCostsNis;
+  const profitToOrganizerRevenueRatio = totalRevenueNis !== 0 ? profitNis / totalRevenueNis : 0;
+  return {
+    landRevenueNis,
+    optionTradingRevenueNis,
+    managementRevenueNis,
+    totalRevenueNis,
+    landAcquisitionNis,
+    purchaseTaxNis,
+    brokerageNis,
+    marketingNis,
+    overheadNis,
+    totalCostsNis,
+    profitNis,
+    profitToOrganizerRevenueRatio,
+  };
+}
+
+export function computePurchaseGroupAllocation(
+  inputs: ProjectInputs,
+  projectCosts: CostBreakdown
+): PurchaseGroupAllocationSummary | null {
+  if (inputs.dealType !== "purchaseGroup") return null;
+  const units = inputs.units.filter((unit) => unit.count > 0 && unitCategory(unit.category) !== "publicBuilding");
+  const totalMarketValueNis = units.reduce((sum, unit) => sum + unit.count * unit.priceNis, 0);
+  const equivalentArea = (unit: ProjectInputs["units"][number]) =>
+    unit.areaSqm + unit.mamadSqm + unit.balconySqm * 0.5 + unit.roofBalconySqm * 0.25;
+  const totalEquivalentArea = units.reduce((sum, unit) => sum + unit.count * equivalentArea(unit), 0);
+  const landTotalNis = projectCosts.landNis;
+  const otherCostsTotalNis = projectCosts.totalInclFinancingNis - landTotalNis;
+
+  const allocate = (basis: (unit: ProjectInputs["units"][number]) => number, totalBasis: number): PurchaseGroupAllocationRow[] =>
+    units.map((unit) => {
+      const allocationBasisPerUnit = basis(unit);
+      const allocationShare = totalBasis > 0 ? (unit.count * allocationBasisPerUnit) / totalBasis : 0;
+      const landSharePerUnitNis = unit.count > 0 ? (landTotalNis * allocationShare) / unit.count : 0;
+      const otherCostsSharePerUnitNis = unit.count > 0 ? (otherCostsTotalNis * allocationShare) / unit.count : 0;
+      const totalCostPerUnitNis = landSharePerUnitNis + otherCostsSharePerUnitNis;
+      const embeddedSavingsPerUnitNis = unit.priceNis - totalCostPerUnitNis;
+      return {
+        name: unit.name,
+        count: unit.count,
+        marketValuePerUnitNis: unit.priceNis,
+        allocationBasisPerUnit,
+        allocationShare,
+        landSharePerUnitNis,
+        otherCostsSharePerUnitNis,
+        totalCostPerUnitNis,
+        embeddedSavingsPerUnitNis,
+        savingsToCostRatio: totalCostPerUnitNis !== 0 ? embeddedSavingsPerUnitNis / totalCostPerUnitNis : 0,
+      };
+    });
+
+  return {
+    byMarketValue: allocate((unit) => unit.priceNis, totalMarketValueNis),
+    byEquivalentArea: allocate(equivalentArea, totalEquivalentArea),
+  };
+}
+
 /**
  * בדיקת הקצאה והוגנות ליחידה (נספח א.xlsx): מחלקת את שווי הקרקע ועלות ההקמה+כלליות בין כל
  * היחידות (יזם+דיירים קיימים גם יחד, יחד באותה טבלה) לפי שטח משוקלל יחסי, ומשווה לשווי השוק
@@ -682,6 +760,8 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   const revenue = computeRevenue(inputs, areas);
   const costs = computeCosts(inputs, areas, revenue);
   const profitability = computeProfitability(revenue, costs, inputs.costs);
+  const organizerProfitability = computeOrganizerProfitability(inputs, revenue, costs);
+  const purchaseGroupAllocation = computePurchaseGroupAllocation(inputs, costs);
   const unitAllocation = computeUnitAllocation(inputs, costs);
 
   const feasibility: FeasibilityMetrics = {
@@ -690,5 +770,5 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
     sensitivityMatrix: computeSensitivityMatrix(inputs),
   };
 
-  return { areas, revenue, costs, profitability, unitAllocation, feasibility, warnings };
+  return { areas, revenue, costs, profitability, organizerProfitability, purchaseGroupAllocation, unitAllocation, feasibility, warnings };
 }

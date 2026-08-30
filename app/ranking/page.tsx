@@ -9,6 +9,7 @@ import {
   criterionContribution,
   rankUnits,
   totalCoefficient,
+  validateRankingInputs,
   type RankingCriterion as Criterion,
   type RankingUnit as UnitRow,
 } from "@/lib/ranking";
@@ -210,16 +211,8 @@ export default function RankingPage() {
   const oldRanked = rankUnits(oldUnits, criteria);
 
   const newUnitsById = new Map(newUnits.map((u) => [u.id, u]));
-  const invalidCoefficientCount = [...oldUnits, ...newUnits].reduce(
-    (count, unit) => count + criteria.filter((criterion) => coefficientIssue(unit.coefficients[criterion.id]) === "invalid").length,
-    0
-  );
-  const unusualCoefficientCount = [...oldUnits, ...newUnits].reduce(
-    (count, unit) => count + criteria.filter((criterion) => coefficientIssue(unit.coefficients[criterion.id]) === "unusual").length,
-    0
-  );
-  const invalidWeightCount = criteria.filter((criterion) => !Number.isFinite(criterion.weight) || criterion.weight < 0 || criterion.weight > 2).length;
-  const canExport = criteria.length > 0 && oldUnits.length > 0 && newUnits.length > 0 && invalidCoefficientCount === 0 && invalidWeightCount === 0;
+  const validation = validateRankingInputs(criteria, oldUnits, newUnits, choices);
+  const canExport = validation.blockingErrors.length === 0;
 
   return (
     <main className="w-full min-w-0 max-w-5xl mx-auto px-4 py-8 overflow-x-hidden">
@@ -268,11 +261,10 @@ export default function RankingPage() {
         </p>
       </section>
 
-      {(invalidCoefficientCount > 0 || unusualCoefficientCount > 0 || invalidWeightCount > 0) && (
+      {(validation.blockingErrors.length > 0 || validation.warnings.length > 0) && (
         <div className="print:hidden mb-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-          {invalidCoefficientCount > 0 && <div><b>{invalidCoefficientCount} מקדמים אינם תקינים.</b> נדרש ערך גדול מ־0 ועד 3; הייצוא נעול עד לתיקון.</div>}
-          {invalidWeightCount > 0 && <div><b>{invalidWeightCount} משקלים אינם תקינים.</b> נדרש ערך בין 0 ל־2; הייצוא נעול עד לתיקון.</div>}
-          {unusualCoefficientCount > 0 && <div>{unusualCoefficientCount} מקדמים מחוץ לטווח הבקרה 0.80–1.20. אפשר להמשיך, אך מומלץ לבדוק שהם מכוונים.</div>}
+          {validation.blockingErrors.length > 0 && <div className="mb-1"><b>הייצוא נעול עד לתיקון:</b> {validation.blockingErrors.join(" ")}</div>}
+          {validation.warnings.length > 0 && <div>{validation.warnings.join(" ")}</div>}
         </div>
       )}
 

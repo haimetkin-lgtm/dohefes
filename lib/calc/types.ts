@@ -138,6 +138,12 @@ export interface CostInputs {
 
   /** שכר המארגן בקבוצת רכישה, סכום קבוע, ₪. נוסף לעלויות העקיפות, מוצג גם בנפרד. 0 בשאר סוגי העסקה */
   organizerFeeNis: number;
+  /** הכנסה נפרדת של המארגן מסיחור אופציה בקרקע; אינה עלות נוספת לקבוצה מעבר לקלט הקרקע. */
+  organizerOptionTradingNis?: number;
+  /** הוצאות שיווק של המארגן מתוך שווי הפרויקט. ברירת מקור 2.5%. */
+  organizerMarketingRate?: number;
+  /** תקורות המארגן מתוך הבנייה הישירה. ברירת מקור 2.5%. */
+  organizerOverheadRate?: number;
 }
 
 /**
@@ -280,6 +286,41 @@ export interface ProfitabilitySummary {
   cashOnCashAnnualRatio: number;
 }
 
+/** תחשיב פנימי נפרד למארגן קבוצת רכישה, לפי שורות 111–126 בקובץ המקור. */
+export interface OrganizerProfitabilitySummary {
+  landRevenueNis: number;
+  optionTradingRevenueNis: number;
+  managementRevenueNis: number;
+  totalRevenueNis: number;
+  landAcquisitionNis: number;
+  purchaseTaxNis: number;
+  brokerageNis: number;
+  marketingNis: number;
+  overheadNis: number;
+  totalCostsNis: number;
+  profitNis: number;
+  /** נוסחת המקור H124/H116: רווח חלקי הכנסות המארגן. */
+  profitToOrganizerRevenueRatio: number;
+}
+
+export interface PurchaseGroupAllocationRow {
+  name: string;
+  count: number;
+  marketValuePerUnitNis: number;
+  allocationBasisPerUnit: number;
+  allocationShare: number;
+  landSharePerUnitNis: number;
+  otherCostsSharePerUnitNis: number;
+  totalCostPerUnitNis: number;
+  embeddedSavingsPerUnitNis: number;
+  savingsToCostRatio: number;
+}
+
+export interface PurchaseGroupAllocationSummary {
+  byMarketValue: PurchaseGroupAllocationRow[];
+  byEquivalentArea: PurchaseGroupAllocationRow[];
+}
+
 /**
  * שורת בדיקת הקצאה והוגנות ליחידה, לפי נספח א.xlsx: מחלקת את שווי הקרקע+עלות ההקמה בין
  * כל היחידות (יזם+דיירים קיימים גם יחד) לפי שטח משוקלל יחסי, ומשווה לשווי השוק שלהן - כלי
@@ -343,6 +384,8 @@ export interface ProjectResult {
   revenue: RevenueSummary;
   costs: CostBreakdown;
   profitability: ProfitabilitySummary;
+  organizerProfitability: OrganizerProfitabilitySummary | null;
+  purchaseGroupAllocation: PurchaseGroupAllocationSummary | null;
   unitAllocation: UnitAllocationRow[];
   feasibility: FeasibilityMetrics;
   warnings: string[];

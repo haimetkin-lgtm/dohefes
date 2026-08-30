@@ -133,6 +133,13 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["הון עצמי (₪)", inputs.costs.equityNis],
     ["מכירה מוקדמת (%)", inputs.costs.presaleRate * 100],
     ["שכר מארגן (₪)", inputs.costs.organizerFeeNis],
+    ...(inputs.dealType === "purchaseGroup"
+      ? [
+          ["הכנסת מארגן מסיחור אופציה (₪)", inputs.costs.organizerOptionTradingNis ?? 0],
+          ["שיווק המארגן משווי הפרויקט (%)", (inputs.costs.organizerMarketingRate ?? 0.025) * 100],
+          ["תקורות המארגן מהבנייה הישירה (%)", (inputs.costs.organizerOverheadRate ?? 0.025) * 100],
+        ]
+      : []),
     [],
     ["דיור חלופי"],
     ["יחידות זכאיות", inputs.costs.relocationUnitsCount],
@@ -235,6 +242,59 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
   const wsResults = XLSX.utils.aoa_to_sheet(resultRows);
   wsResults["!cols"] = [{ wch: 30 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, wsResults, "תוצאות");
+
+  if (result.organizerProfitability) {
+    const organizer = result.organizerProfitability;
+    const wsOrganizer = XLSX.utils.aoa_to_sheet([
+      ["תחשיב פנימי נפרד, מארגן קבוצת הרכישה"],
+      ["הכנסה ממכירת הקרקע לקבוצה (₪)", round(organizer.landRevenueNis)],
+      ["הכנסה מסיחור אופציה (₪)", round(organizer.optionTradingRevenueNis)],
+      ["הכנסה מדמי ניהול/ארגון (₪)", round(organizer.managementRevenueNis)],
+      ["סה״כ הכנסות המארגן (₪)", round(organizer.totalRevenueNis)],
+      [],
+      ["רכישת הקרקע (₪)", round(organizer.landAcquisitionNis)],
+      ["מס רכישה (₪)", round(organizer.purchaseTaxNis)],
+      ["תיווך (₪)", round(organizer.brokerageNis)],
+      ["שיווק ופרסום (₪)", round(organizer.marketingNis)],
+      ["תקורות וניהול (₪)", round(organizer.overheadNis)],
+      ["סה״כ הוצאות המארגן (₪)", round(organizer.totalCostsNis)],
+      [],
+      ["רווח המארגן (₪)", round(organizer.profitNis)],
+      ["רווח / הכנסות המארגן (%)", Number((organizer.profitToOrganizerRevenueRatio * 100).toFixed(1))],
+    ]);
+    wsOrganizer["!cols"] = [{ wch: 38 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, wsOrganizer, "תחשיב מארגן");
+  }
+
+  if (result.purchaseGroupAllocation) {
+    const appendAllocationSheet = (
+      sheetName: string,
+      title: string,
+      basisLabel: string,
+      rows: typeof result.purchaseGroupAllocation.byMarketValue
+    ) => {
+      const sheet = XLSX.utils.aoa_to_sheet([
+        [title],
+        ["טיפוס", "כמות", "שווי שוק ליחידה (₪)", basisLabel, "חלק יחסי (%)", "קרקע ליחידה (₪)", "יתר העלויות ליחידה (₪)", "עלות כוללת ליחידה (₪)", "חיסכון גלום ליחידה (₪)", "חיסכון לעלות (%)"],
+        ...rows.map((row) => [
+          row.name,
+          row.count,
+          round(row.marketValuePerUnitNis),
+          Number(row.allocationBasisPerUnit.toFixed(2)),
+          Number((row.allocationShare * 100).toFixed(3)),
+          round(row.landSharePerUnitNis),
+          round(row.otherCostsSharePerUnitNis),
+          round(row.totalCostPerUnitNis),
+          round(row.embeddedSavingsPerUnitNis),
+          Number((row.savingsToCostRatio * 100).toFixed(2)),
+        ]),
+      ]);
+      sheet["!cols"] = [{ wch: 24 }, { wch: 8 }, ...Array.from({ length: 8 }, () => ({ wch: 20 }))];
+      XLSX.utils.book_append_sheet(wb, sheet, sheetName);
+    };
+    appendAllocationSheet("חלוקה לפי שווי", "חלופה א׳, חלוקת עלויות לפי שווי", "שווי כבסיס חלוקה (₪)", result.purchaseGroupAllocation.byMarketValue);
+    appendAllocationSheet("חלוקה לפי שטח", "חלופה ב׳, חלוקת עלויות לפי מ״ר אקוויוולנטי", "מ״ר אקוויוולנטי לעלות", result.purchaseGroupAllocation.byEquivalentArea);
+  }
 
   return wb;
 }

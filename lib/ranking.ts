@@ -28,6 +28,84 @@ export interface ValueGapBreakdown {
   valueGapNis: number;
 }
 
+export interface RankingValidationResult {
+  blockingErrors: string[];
+  warnings: string[];
+}
+
+function normalizedName(value: string): string {
+  return value.trim().toLocaleLowerCase("he-IL");
+}
+
+/** Shared validation gate for both the interactive tool and its Excel export. */
+export function validateRankingInputs(
+  criteria: RankingCriterion[],
+  oldUnits: RankingUnit[],
+  newUnits: RankingUnit[],
+  choices: Record<string, string>
+): RankingValidationResult {
+  const blockingErrors: string[] = [];
+  const warnings: string[] = [];
+
+  if (criteria.length === 0) blockingErrors.push("נדרש לפחות קריטריון דירוג אחד.");
+  if (oldUnits.length === 0) blockingErrors.push("נדרשת לפחות דירה ישנה אחת לדירוג.");
+  if (newUnits.length === 0) blockingErrors.push("נדרשת לפחות דירה חדשה אחת לצורך בחירה והשוואה.");
+
+  const criterionNames = criteria.map((criterion) => normalizedName(criterion.name));
+  if (criterionNames.some((name) => !name)) blockingErrors.push("לכל קריטריון חייב להיות שם.");
+  if (new Set(criterionNames.filter(Boolean)).size !== criterionNames.filter(Boolean).length) {
+    blockingErrors.push("שמות הקריטריונים חייבים להיות ייחודיים.");
+  }
+
+  for (const criterion of criteria) {
+    if (!Number.isFinite(criterion.weight) || criterion.weight < 0 || criterion.weight > 2) {
+      blockingErrors.push(`המשקל של ${criterion.name || "קריטריון ללא שם"} חייב להיות בין 0 ל־2.`);
+    }
+  }
+
+  const allUnits = [...oldUnits, ...newUnits];
+  const ids = allUnits.map((unit) => unit.id);
+  if (ids.some((id) => !id.trim()) || new Set(ids).size !== ids.length) {
+    blockingErrors.push("לכל דירה חייב להיות מזהה פנימי ייחודי.");
+  }
+  for (const unit of allUnits) {
+    const label = unit.name.trim() || "דירה ללא שם";
+    if (!unit.name.trim()) blockingErrors.push("לכל דירה חייב להיות שם.");
+    if (!Number.isFinite(unit.basePriceNis) || unit.basePriceNis < 0) {
+      blockingErrors.push(`שווי הבסיס של ${label} חייב להיות מספר שאינו שלילי.`);
+    } else if (unit.basePriceNis === 0) {
+      warnings.push(`לא הוזן שווי בסיס עבור ${label}; פער הערך לא יהיה שימושי.`);
+    }
+    for (const criterion of criteria) {
+      const coefficient = unit.coefficients[criterion.id];
+      const issue = coefficientIssue(coefficient);
+      if (issue === "invalid") {
+        blockingErrors.push(`המקדם ${criterion.name || "ללא שם"} של ${label} חייב להיות גדול מ־0 ועד 3.`);
+      } else if (issue === "unusual") {
+        warnings.push(`המקדם ${criterion.name || "ללא שם"} של ${label} מחוץ לטווח הבקרה 0.80–1.20.`);
+      }
+    }
+  }
+
+  const oldIds = new Set(oldUnits.map((unit) => unit.id));
+  const newIds = new Set(newUnits.map((unit) => unit.id));
+  const selectedNewIds: string[] = [];
+  for (const [oldUnitId, newUnitId] of Object.entries(choices)) {
+    if (!newUnitId) continue;
+    if (!oldIds.has(oldUnitId)) blockingErrors.push("נמצאה בחירה המשויכת לדירה ישנה שאינה קיימת.");
+    if (!newIds.has(newUnitId)) blockingErrors.push("נמצאה בחירה של דירה חדשה שאינה קיימת.");
+    selectedNewIds.push(newUnitId);
+  }
+  if (new Set(selectedNewIds).size !== selectedNewIds.length) {
+    blockingErrors.push("אותה דירה חדשה נבחרה עבור יותר מדייר אחד.");
+  }
+
+  return {
+    blockingErrors: [...new Set(blockingErrors)],
+    warnings: [...new Set(warnings)],
+  };
+}
+
 export function criterionContribution(coefficient: number, weight: number): number {
   if (!Number.isFinite(coefficient) || coefficient <= 0) return 1;
   if (!Number.isFinite(weight) || weight <= 0) return 1;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availableNewUnits, calculateValueGap, coefficientIssue, rankUnits, totalCoefficient, type RankingCriterion, type RankingUnit } from "../ranking";
+import { availableNewUnits, calculateValueGap, coefficientIssue, rankUnits, totalCoefficient, validateRankingInputs, type RankingCriterion, type RankingUnit } from "../ranking";
 import { buildRankingWorkbook } from "./exportRankingExcel";
 
 const criteria: RankingCriterion[] = [
@@ -54,5 +54,30 @@ describe("ranking engine", () => {
     const workbook = buildRankingWorkbook(criteria, [oldUnit], [newUnit], { old: "new" });
     expect(workbook.SheetNames).toEqual(["שיטה ומשקלים", "דירות ישנות", "דירות חדשות", "סדר בחירה ופער ערך"]);
     expect(workbook.Sheets["סדר בחירה ופער ערך"].L1.v).toBe("פער ערך (₪)");
+  });
+
+  it("blocks ambiguous names, negative values and stale or duplicate selections", () => {
+    const oldA = unit("old-a", 1, 1, -1);
+    oldA.name = "";
+    const result = validateRankingInputs(
+      [{ id: "floor", name: " קומה ", weight: 1 }, { id: "view", name: "קומה", weight: 1 }],
+      [oldA, unit("old-b", 1, 1)],
+      [unit("new-a", 1, 1)],
+      { "old-a": "new-a", "old-b": "new-a", missing: "missing" }
+    );
+    expect(result.blockingErrors.join(" ")).toMatch(/ייחודיים|שם|שלילי|יותר מדייר|אינה קיימת/);
+    expect(() => buildRankingWorkbook(
+      [{ id: "floor", name: "קומה", weight: 1 }],
+      [unit("old", 1, 1, -1)],
+      [unit("new", 1, 1)],
+      {}
+    )).toThrow(/לא ניתן לייצא/);
+  });
+
+  it("warns, but does not block, when values are missing or unusual", () => {
+    const old = unit("old", 0.7, 1, 0);
+    const result = validateRankingInputs(criteria, [old], [unit("new", 1, 1)], {});
+    expect(result.blockingErrors).toEqual([]);
+    expect(result.warnings.join(" ")).toMatch(/שווי בסיס|טווח הבקרה/);
   });
 });

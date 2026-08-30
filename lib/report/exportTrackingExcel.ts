@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
-import type { TrackingItem } from "@/lib/tracking/types";
-import { computeTrackingTotals, itemBudgetNis } from "@/lib/tracking/types";
+import type { TrackingItem } from "../tracking/types";
+import { computeTrackingTotals, itemBudgetNis } from "../tracking/types";
 
 function round(n: number): number {
   return Math.round(n);

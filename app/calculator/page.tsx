@@ -91,6 +91,9 @@ const DEFAULT_COSTS: CostInputs = {
   equityNis: 0,
   presaleRate: 0.15,
   organizerFeeNis: 0,
+  organizerOptionTradingNis: 0,
+  organizerMarketingRate: 0.025,
+  organizerOverheadRate: 0.025,
   relocationUnitsCount: 0,
   relocationMonths: 0,
   relocationRentPerUnitMonthlyNis: 0,
@@ -160,6 +163,9 @@ export default function CalculatorPage() {
   const [interestRate, setInterestRate] = useState(0.04);
   const [constructionMonths, setConstructionMonths] = useState(30);
   const [organizerFee, setOrganizerFee] = useState(0);
+  const [organizerOptionTrading, setOrganizerOptionTrading] = useState(0);
+  const [organizerMarketingRate, setOrganizerMarketingRate] = useState(0.025);
+  const [organizerOverheadRate, setOrganizerOverheadRate] = useState(0.025);
 
   const [purchaseTaxRate, setPurchaseTaxRate] = useState(0.06);
   const [planningConsultantsRate, setPlanningConsultantsRate] = useState(0.025);
@@ -225,6 +231,9 @@ export default function CalculatorPage() {
     setEquity(costs.equityNis);
     setPresaleRate(costs.presaleRate);
     setOrganizerFee(costs.organizerFeeNis);
+    setOrganizerOptionTrading(costs.organizerOptionTradingNis ?? 0);
+    setOrganizerMarketingRate(costs.organizerMarketingRate ?? 0.025);
+    setOrganizerOverheadRate(costs.organizerOverheadRate ?? 0.025);
     setLandPurchase(land.landPurchaseNis);
     setBettermentLevy(land.bettermentLevyNis);
     setCombinationShare(land.combinationOwnerShare);
@@ -286,6 +295,9 @@ export default function CalculatorPage() {
         equityNis: equity,
         presaleRate,
         organizerFeeNis: organizerFee,
+        organizerOptionTradingNis: organizerOptionTrading,
+        organizerMarketingRate,
+        organizerOverheadRate,
       },
       land: {
         landPurchaseNis: landPurchase,
@@ -302,7 +314,7 @@ export default function CalculatorPage() {
       buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
-      interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare,
+      interestRate, constructionMonths, equity, presaleRate, organizerFee, organizerOptionTrading, organizerMarketingRate, organizerOverheadRate, landPurchase, bettermentLevy, combinationShare,
       mixedResidentialShare, mixedCommercialShare, mixedOfficeShare, combinationLandValue,
     ],
   );
@@ -952,18 +964,33 @@ export default function CalculatorPage() {
 
       {dealType === "purchaseGroup" && (
         <section className="bg-white border border-gray-200 rounded-xl p-4 mb-4 shadow-sm">
-          <div className="font-bold text-[#123640] mb-2 text-sm">שכר המארגן</div>
-          <label className="flex flex-col gap-1 text-sm">
+          <div className="font-bold text-[#123640] mb-2 text-sm">תחשיב פנימי למארגן הקבוצה</div>
+          <p className="text-xs text-gray-500 mb-3">נפרד מחיסכון חברי הקבוצה. מבוסס על מקטע המארגן בקובץ קבוצת הרכישה.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          <label className="flex flex-col gap-1">
             <span className="text-gray-500 text-xs">
-              עמלת ארגון הקבוצה, סכום קבוע (₪), נוסף לעלויות הקבוצה ומוצג גם כרווח המארגן בנפרד
+              דמי ניהול/ארגון (₪), נכללים גם בעלויות הקבוצה
             </span>
             <input
               type="number"
               value={organizerFee}
               onChange={(e) => setOrganizerFee(Number(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2 max-w-xs"
+              className="border border-gray-300 rounded-lg px-3 py-2"
             />
           </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">הכנסה מסיחור אופציה (₪)</span>
+            <input type="number" min="0" value={organizerOptionTrading} onChange={(e) => setOrganizerOptionTrading(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">שיווק המארגן, % משווי הפרויקט</span>
+            <input type="number" min="0" step="0.005" value={organizerMarketingRate} onChange={(e) => setOrganizerMarketingRate(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-500 text-xs">תקורות המארגן, % מהבנייה הישירה</span>
+            <input type="number" min="0" step="0.005" value={organizerOverheadRate} onChange={(e) => setOrganizerOverheadRate(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+          </label>
+          </div>
         </section>
       )}
 

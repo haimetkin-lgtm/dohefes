@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { calculateValueGap, rankUnits, totalCoefficient, type RankingCriterion, type RankingUnit } from "../ranking";
+import { calculateValueGap, rankUnits, totalCoefficient, validateRankingInputs, type RankingCriterion, type RankingUnit } from "../ranking";
 
 function round(n: number): number {
   return Math.round(n);
@@ -21,6 +21,10 @@ export function buildRankingWorkbook(
   newUnits: RankingUnit[],
   choices: Record<string, string>
 ): XLSX.WorkBook {
+  const validation = validateRankingInputs(criteria, oldUnits, newUnits, choices);
+  if (validation.blockingErrors.length > 0) {
+    throw new Error(`לא ניתן לייצא דירוג לא תקין: ${validation.blockingErrors.join(" ")}`);
+  }
   const wb = XLSX.utils.book_new();
 
   const wsMethod = XLSX.utils.aoa_to_sheet([
