@@ -79,7 +79,8 @@ const DEFAULT_COSTS: CostInputs = {
   legalRefundPerUnitNis: -5000,
   financialSupervisionFlatNis: 250000,
   overheadRate: 0.025,
-  managementFeeRate: 0.06,
+  // אופציונלי: מופיע בקובץ העזר "דוגמא.xlsx", אך לא בתבניות הסטנדרטיות של ששת המסלולים.
+  managementFeeRate: 0,
   contingencyRate: 0.05,
   guaranteeCommissionRate: 0.0085,
   unusedCreditCommissionRate: 0.0035,
@@ -99,6 +100,9 @@ const DEFAULT_LAND: LandInputs = {
   landPurchaseNis: 0,
   bettermentLevyNis: 0,
   combinationOwnerShare: 0.4,
+  mixedUseResidentialOwnerShare: 0.345,
+  mixedUseCommercialOwnerShare: 0.38,
+  mixedUseOfficeOwnerShare: 0.38,
   combinationLandValueForTaxNis: 0,
 };
 
@@ -146,6 +150,9 @@ export default function CalculatorPage() {
   const [landPurchase, setLandPurchase] = useState(0);
   const [bettermentLevy, setBettermentLevy] = useState(0);
   const [combinationShare, setCombinationShare] = useState(0.4);
+  const [mixedResidentialShare, setMixedResidentialShare] = useState(0.345);
+  const [mixedCommercialShare, setMixedCommercialShare] = useState(0.38);
+  const [mixedOfficeShare, setMixedOfficeShare] = useState(0.38);
   const [combinationLandValue, setCombinationLandValue] = useState(0);
 
   const [equity, setEquity] = useState(0);
@@ -160,7 +167,7 @@ export default function CalculatorPage() {
   const [marketingRate, setMarketingRate] = useState(0.025);
   const [legalRate, setLegalRate] = useState(0.01);
   const [overheadRate, setOverheadRate] = useState(0.025);
-  const [managementFeeRate, setManagementFeeRate] = useState(0.06);
+  const [managementFeeRate, setManagementFeeRate] = useState(0);
   const [contingencyRate, setContingencyRate] = useState(0.05);
 
   const [reportId, setReportId] = useState<string | null>(null);
@@ -221,6 +228,9 @@ export default function CalculatorPage() {
     setLandPurchase(land.landPurchaseNis);
     setBettermentLevy(land.bettermentLevyNis);
     setCombinationShare(land.combinationOwnerShare);
+    setMixedResidentialShare(land.mixedUseResidentialOwnerShare ?? land.combinationOwnerShare);
+    setMixedCommercialShare(land.mixedUseCommercialOwnerShare ?? land.combinationOwnerShare);
+    setMixedOfficeShare(land.mixedUseOfficeOwnerShare ?? land.combinationOwnerShare);
     setCombinationLandValue(land.combinationLandValueForTaxNis);
   }
 
@@ -281,6 +291,9 @@ export default function CalculatorPage() {
         landPurchaseNis: landPurchase,
         bettermentLevyNis: bettermentLevy,
         combinationOwnerShare: combinationShare,
+        mixedUseResidentialOwnerShare: mixedResidentialShare,
+        mixedUseCommercialOwnerShare: mixedCommercialShare,
+        mixedUseOfficeOwnerShare: mixedOfficeShare,
         combinationLandValueForTaxNis: combinationLandValue,
       },
     }),
@@ -289,7 +302,8 @@ export default function CalculatorPage() {
       buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
-      interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare, combinationLandValue,
+      interestRate, constructionMonths, equity, presaleRate, organizerFee, landPurchase, bettermentLevy, combinationShare,
+      mixedResidentialShare, mixedCommercialShare, mixedOfficeShare, combinationLandValue,
     ],
   );
 
@@ -730,18 +744,27 @@ export default function CalculatorPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            <label className="flex flex-col gap-1">
-              <span className="text-gray-500 text-xs">
-                {dealType === "mixedUse" ? "אחוז החלוקה לבעלים הקיימים" : "אחוז הקומבינציה לבעל הקרקע"}
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                value={combinationShare}
-                onChange={(e) => setCombinationShare(Number(e.target.value))}
-                className="border border-gray-300 rounded-lg px-3 py-2"
-              />
-            </label>
+            {dealType === "mixedUse" ? (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">אחוז הבעלים במגורים</span>
+                  <input type="number" min="0" max="1" step="0.001" value={mixedResidentialShare} onChange={(e) => setMixedResidentialShare(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">אחוז הבעלים במסחר</span>
+                  <input type="number" min="0" max="1" step="0.001" value={mixedCommercialShare} onChange={(e) => setMixedCommercialShare(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">אחוז הבעלים במשרדים</span>
+                  <input type="number" min="0" max="1" step="0.001" value={mixedOfficeShare} onChange={(e) => setMixedOfficeShare(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+              </>
+            ) : (
+              <label className="flex flex-col gap-1">
+                <span className="text-gray-500 text-xs">אחוז הקומבינציה לבעל הקרקע</span>
+                <input type="number" min="0" max="1" step="0.01" value={combinationShare} onChange={(e) => setCombinationShare(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+              </label>
+            )}
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">
                 {dealType === "kombinatsiaTemurot"

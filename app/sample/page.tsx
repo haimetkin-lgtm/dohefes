@@ -52,7 +52,7 @@ const SAMPLE_INPUTS: ProjectInputs = {
     legalRefundPerUnitNis: -5000,
     financialSupervisionFlatNis: 220000,
     overheadRate: 0.025,
-    managementFeeRate: 0.06,
+    managementFeeRate: 0,
     contingencyRate: 0.05,
     guaranteeCommissionRate: 0.0085,
     unusedCreditCommissionRate: 0.0035,

@@ -175,11 +175,17 @@ function mapCostAmounts(inputs: ProjectInputs): {
   }
 
   // המרה בטוחה - rate × בסיס חשוף/גולמי בלבד
-  amounts.electricConnection = areas.unitCount * costs.electricConnectionPerUnitNis;
-  amounts.legalRefund = areas.unitCount * costs.legalRefundPerUnitNis;
+  const residentialUnitCount = inputs.units
+    .filter((unit) => {
+      const category = unit.category ?? "residential";
+      return category === "residential" || category === "residentialPremium";
+    })
+    .reduce((sum, unit) => sum + unit.count, 0);
+  amounts.electricConnection = residentialUnitCount * costs.electricConnectionPerUnitNis;
+  amounts.legalRefund = dealType === "purchaseGroup" ? 0 : residentialUnitCount * costs.legalRefundPerUnitNis;
   amounts.constructionUnderground = costs.undergroundAreaSqm * costs.undergroundConstructionCostPerSqm;
   amounts.constructionDevelopment = (costs.netPlotAreaSqm / 2) * costs.developmentCostPerSqm;
-  amounts.brokerage = costBreakdown.landNis > 0 ? costBreakdown.landNis * costs.brokerageRate : 0;
+  amounts.brokerage = isCashLandDeal(dealType) ? land.landPurchaseNis * costs.brokerageRate : 0;
   const purchaseTaxBasis = isCashLandDeal(dealType) ? land.landPurchaseNis : land.combinationLandValueForTaxNis;
   amounts.purchaseTax = purchaseTaxBasis * costs.purchaseTaxRate;
   amounts.planningConsultants = costBreakdown.directConstructionNis * costs.planningConsultantsRate;
@@ -189,7 +195,18 @@ function mapCostAmounts(inputs: ProjectInputs): {
   amounts.marketing = revenue.developerRevenueExclVatNis * costs.marketingRate; // אין VAT_FACTOR בנוסחה הזו במקור
 
   // commit 8c: מקור אמת יחיד - אותו helper מיוצא ש-computeCosts עצמו משתמש בו ל-legalNis
-  amounts.legal = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.legalRate);
+  const developerResidentialRevenueExclVatNis =
+    revenue.byCategory.residential.developerRevenueExclVatNis +
+    revenue.byCategory.residentialPremium.developerRevenueExclVatNis;
+  const totalResidentialRevenueExclVatNis =
+    revenue.byCategory.residential.totalRevenueExclVatNis +
+    revenue.byCategory.residentialPremium.totalRevenueExclVatNis;
+  const legalRevenueBasisExclVatNis =
+    dealType === "kombinatsiaTemurot" ? totalResidentialRevenueExclVatNis : developerResidentialRevenueExclVatNis;
+  amounts.legal =
+    dealType === "purchaseGroup"
+      ? 0
+      : computeVatInclusiveRevenueBasedAmount(legalRevenueBasisExclVatNis, costs.legalRate);
 
   return { amounts };
 }

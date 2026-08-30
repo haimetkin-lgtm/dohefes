@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
-import { isCashLandDeal, profitToCostBenchmark } from "@/lib/calc/engine";
-import type { ProjectInputs, ProjectResult } from "@/lib/calc/types";
+import { isCashLandDeal, profitToCostBenchmark } from "../calc/engine";
+import type { ProjectInputs, ProjectResult, UnitCategory } from "../calc/types";
 
 const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
   basic: "דוח אפס בסיסי",
@@ -11,6 +11,19 @@ const DEAL_TYPE_LABEL: Record<ProjectInputs["dealType"], string> = {
   purchaseGroup: "קבוצת רכישה",
   mixedUse: "מעורב מגורים ותעסוקה",
 };
+
+const CATEGORY_LABEL: Record<UnitCategory, string> = {
+  residential: "מגורים",
+  residentialPremium: "מגורים פרימיום",
+  commercial: "מסחר",
+  office: "משרדים",
+  publicBuilding: 'מב"צ',
+};
+
+function priceVatBasis(category: UnitCategory | undefined): string {
+  const resolved = category ?? "residential";
+  return resolved === "residential" || resolved === "residentialPremium" ? "כולל מע\"מ" : "ללא מע\"מ";
+}
 
 function round(n: number): number {
   return Math.round(n);
@@ -25,10 +38,17 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     [],
     ["שם הפרויקט", inputs.projectName],
     ["סוג עסקה", DEAL_TYPE_LABEL[inputs.dealType]],
+    ...(inputs.dealType === "mixedUse"
+      ? [
+          ["אחוז בעלים במגורים", inputs.land.mixedUseResidentialOwnerShare ?? inputs.land.combinationOwnerShare],
+          ["אחוז בעלים במסחר", inputs.land.mixedUseCommercialOwnerShare ?? inputs.land.combinationOwnerShare],
+          ["אחוז בעלים במשרדים", inputs.land.mixedUseOfficeOwnerShare ?? inputs.land.combinationOwnerShare],
+        ]
+      : []),
     ["תאריך הפקה", new Date().toLocaleDateString("he-IL")],
     [],
     ["כלי חישוב עזר בלבד. כל נתון שהוזן הוא באחריות המזין. אינו מהווה חוות דעת שמאית ואינו תחליף לבדיקת שמאי מקרקעין מוסמך."],
-    ["ההכנסות והעלויות בדוח, לרבות ברווח לעלות, כולן לא כוללות מע\"מ (מתקזז ליזם רשום כדין ואינו משפיע על הרווח הכלכלי)."],
+    ["ההכנסות והעלויות בדוח, לרבות ברווח לעלות, מוצגות לא כולל מע\"מ. מחיר קלט למגורים כולל מע\"מ; מחיר קלט למסחר ולמשרדים אינו כולל מע\"מ."],
   ];
   const wsOverview = XLSX.utils.aoa_to_sheet(overviewRows);
   wsOverview["!cols"] = [{ wch: 24 }, { wch: 40 }];
@@ -36,9 +56,11 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
 
   // גיליון 2: תמהיל דירות
   const unitRows: (string | number)[][] = [
-    ["טיפוס", "יחידת תמורה", "מבנה קיים", "כמות", "שטח עיקרי (מ\"ר)", "ממ\"ד (מ\"ר)", "מרפסת (מ\"ר)", "מרפסת גג (מ\"ר)", "מחיר ליחידה כולל מע\"מ (₪)"],
+    ["טיפוס", "קטגוריה", "בסיס מע\"מ במחיר", "יחידת תמורה", "מבנה קיים", "כמות", "שטח עיקרי (מ\"ר)", "ממ\"ד (מ\"ר)", "מרפסת (מ\"ר)", "מרפסת גג (מ\"ר)", "מחיר ליחידה (₪)"],
     ...inputs.units.map((u) => [
       u.name,
+      CATEGORY_LABEL[u.category ?? "residential"],
+      priceVatBasis(u.category),
       u.isCompensationUnit ? "כן" : "",
       u.isExistingStructure ? "כן" : "",
       u.count,
@@ -50,10 +72,86 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ]),
   ];
   const wsUnits = XLSX.utils.aoa_to_sheet(unitRows);
-  wsUnits["!cols"] = [{ wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 18 }];
+  wsUnits["!cols"] = [{ wch: 24 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, wsUnits, "תמהיל דירות");
 
-  // גיליון 3: תוצאות
+  // גיליון 3: כל הנחות הקלט שהובילו לתוצאה. בלי גיליון זה הקובץ אינו ניתן לשחזור/ביקורת:
+  // התמהיל לבדו אינו מסביר עלויות בנייה, קרקע, אגרות או מימון.
+  const assumptionRows: (string | number)[][] = [
+    ["הנחות ועלויות קלט"],
+    [],
+    ["קרקע"],
+    ["רכישת קרקע (₪)", inputs.land.landPurchaseNis],
+    ["היטל השבחה (₪)", inputs.land.bettermentLevyNis],
+    ["אחוז קומבינציה/בעלים (%)", inputs.land.combinationOwnerShare * 100],
+    ...(inputs.dealType === "mixedUse"
+      ? [
+          ["אחוז בעלים במגורים (%)", (inputs.land.mixedUseResidentialOwnerShare ?? inputs.land.combinationOwnerShare) * 100],
+          ["אחוז בעלים במסחר (%)", (inputs.land.mixedUseCommercialOwnerShare ?? inputs.land.combinationOwnerShare) * 100],
+          ["אחוז בעלים במשרדים (%)", (inputs.land.mixedUseOfficeOwnerShare ?? inputs.land.combinationOwnerShare) * 100],
+        ]
+      : []),
+    ["שווי קרקע לצורך מס רכישה (₪)", inputs.land.combinationLandValueForTaxNis],
+    [],
+    ["בנייה"],
+    ["עלות מגורים למ״ר (₪)", inputs.costs.mainConstructionCostPerSqm],
+    ["עלות מגורים פרימיום למ״ר (₪)", inputs.costs.premiumConstructionCostPerSqm],
+    ["עלות מסחר למ״ר (₪)", inputs.costs.commercialConstructionCostPerSqm],
+    ["עלות משרדים למ״ר (₪)", inputs.costs.officeConstructionCostPerSqm],
+    ["עלות מב״צ למ״ר (₪)", inputs.costs.publicBuildingConstructionCostPerSqm],
+    ["עלות חיזוק מבנה קיים למ״ר (₪)", inputs.costs.reinforcementCostPerSqm],
+    ["עלות מרתף למ״ר (₪)", inputs.costs.undergroundConstructionCostPerSqm],
+    ["שטח מרתף (מ״ר)", inputs.costs.undergroundAreaSqm],
+    ["שטח מגרש נטו (מ״ר)", inputs.costs.netPlotAreaSqm],
+    ["עלות פיתוח למ״ר (₪)", inputs.costs.developmentCostPerSqm],
+    ["הריסה ופינוי, סכום קבוע (₪)", inputs.costs.demolitionFlatNis],
+    ["מקדם עלות מרפסות (%)", inputs.costs.balconyConstructionCostRatio * 100],
+    ["מקדם שטח שיווק למרפסות (%)", inputs.costs.balconyWeight * 100],
+    [],
+    ["עלויות עקיפות ועמלות"],
+    ["תיווך (%)", inputs.costs.brokerageRate * 100],
+    ["מס רכישה (%)", inputs.costs.purchaseTaxRate * 100],
+    ["חיבור חשמל ליח״ד (₪)", inputs.costs.electricConnectionPerUnitNis],
+    ["תכנון קבוע (₪)", inputs.costs.planningFlatNis],
+    ["תכנון ויועצים מעלות בנייה (%)", inputs.costs.planningConsultantsRate * 100],
+    ["פיקוח הנדסי קבוע (₪)", inputs.costs.engineeringInspectionFlatNis],
+    ["שיווק (%)", inputs.costs.marketingRate * 100],
+    ["משפטי (%)", inputs.costs.legalRate * 100],
+    ["החזר שכ״ט עו״ד ליח״ד (₪)", inputs.costs.legalRefundPerUnitNis],
+    ["פיקוח פיננסי קבוע (₪)", inputs.costs.financialSupervisionFlatNis],
+    ["תקורות (%)", inputs.costs.overheadRate * 100],
+    ["דמי ניהול אופציונליים (%)", inputs.costs.managementFeeRate * 100],
+    ["בצ״מ (%)", inputs.costs.contingencyRate * 100],
+    ["עמלת ערבות (%)", inputs.costs.guaranteeCommissionRate * 100],
+    ["עמלת אי ניצול אשראי (%)", inputs.costs.unusedCreditCommissionRate * 100],
+    ["עמלת פתיחת תיק (%)", inputs.costs.accountOpeningCommissionRate * 100],
+    [],
+    ["מימון ולוחות זמנים"],
+    ["ריבית שנתית (%)", inputs.costs.annualInterestRate * 100],
+    ["תקופה עד היתר (חודשים)", inputs.costs.permitMonths],
+    ["תקופת בנייה (חודשים)", inputs.costs.constructionMonths],
+    ["הון עצמי (₪)", inputs.costs.equityNis],
+    ["מכירה מוקדמת (%)", inputs.costs.presaleRate * 100],
+    ["שכר מארגן (₪)", inputs.costs.organizerFeeNis],
+    [],
+    ["דיור חלופי"],
+    ["יחידות זכאיות", inputs.costs.relocationUnitsCount],
+    ["משך תשלום (חודשים)", inputs.costs.relocationMonths],
+    ["שכירות חודשית ליחידה (₪)", inputs.costs.relocationRentPerUnitMonthlyNis],
+    [],
+    ["אגרות והיטלים עירוניים, תעריפים"],
+    ["אגרת בנייה למ״ר (₪)", inputs.costs.municipalFees.buildingFeeRatePerSqm],
+    ["מים למ״ר (₪)", inputs.costs.municipalFees.waterConnectionRatePerSqm],
+    ["ביוב למ״ר (₪)", inputs.costs.municipalFees.sewageConnectionRatePerSqm],
+    ["כביש/תיעול לפי מגרש למ״ר (₪)", inputs.costs.municipalFees.roadDrainagePlotRatePerSqm],
+    ["כביש/תיעול לפי בנייה למ״ר (₪)", inputs.costs.municipalFees.roadDrainageBuildingRatePerSqm],
+    ["כביש/תיעול לפי מרתף למ״ר (₪)", inputs.costs.municipalFees.roadDrainageUndergroundRatePerSqm],
+  ];
+  const wsAssumptions = XLSX.utils.aoa_to_sheet(assumptionRows);
+  wsAssumptions["!cols"] = [{ wch: 38 }, { wch: 22 }];
+  XLSX.utils.book_append_sheet(wb, wsAssumptions, "הנחות ועלויות");
+
+  // גיליון 4: תוצאות
   const resultRows: (string | number)[][] = [
     ["שטחים"],
     ["שטח עיקרי (מ\"ר)", round(result.areas.totalMainAreaSqm)],

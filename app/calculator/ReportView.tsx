@@ -188,11 +188,18 @@ export default function ReportView({
                         <td className="py-1.5 px-2">{fmt(row.mainAreaSqm)} מ&quot;ר</td>
                         <td className="py-1.5 px-2">{nis(row.mainCostNis)}</td>
                       </tr>
-                      {row.otherAreaSqm > 0 && (
+                      {row.mamadAreaSqm > 0 && (
+                        <tr className="border-t border-gray-100 tabular-nums">
+                          <td className="py-1.5 px-2">עלויות בנייה למ&quot;ר ממ&quot;ד {label}</td>
+                          <td className="py-1.5 px-2">{fmt(row.mamadAreaSqm)} מ&quot;ר</td>
+                          <td className="py-1.5 px-2">{nis(row.mamadCostNis)}</td>
+                        </tr>
+                      )}
+                      {row.balconyAreaSqm > 0 && (
                         <tr className="border-t border-gray-100 tabular-nums">
                           <td className="py-1.5 px-2">עלויות בנייה למ&quot;ר מרפסות {label}</td>
-                          <td className="py-1.5 px-2">{fmt(row.otherAreaSqm)} מ&quot;ר</td>
-                          <td className="py-1.5 px-2">{nis(row.otherCostNis)}</td>
+                          <td className="py-1.5 px-2">{fmt(row.balconyAreaSqm)} מ&quot;ר</td>
+                          <td className="py-1.5 px-2">{nis(row.balconyCostNis)}</td>
                         </tr>
                       )}
                     </Fragment>
@@ -257,6 +264,11 @@ export default function ReportView({
               <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
                 הכנסת היזם אינה כוללת את יחידות התמורה (מסומנות בטבלה למעלה), הן ניתנות לדיירים
                 הקיימים ואינן חלק ממכירות היזם.
+              </p>
+            )}
+            {inputs.dealType === "mixedUse" && (
+              <p className="text-[10px] text-gray-400 mt-1.5 leading-relaxed">
+                חלק הבעלים: מגורים {fmt((inputs.land.mixedUseResidentialOwnerShare ?? inputs.land.combinationOwnerShare) * 100, 1)}%, מסחר {fmt((inputs.land.mixedUseCommercialOwnerShare ?? inputs.land.combinationOwnerShare) * 100, 1)}%, משרדים {fmt((inputs.land.mixedUseOfficeOwnerShare ?? inputs.land.combinationOwnerShare) * 100, 1)}%.
               </p>
             )}
           </div>

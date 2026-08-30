@@ -68,6 +68,20 @@ function unitCategory(category: UnitCategory | undefined): UnitCategory {
   return category ?? "residential";
 }
 
+/** במעורב שימושים אחוז הקומבינציה אינו אחיד: המקור מחזיק אחוז נפרד למגורים, למסחר
+ * ולמשרדים (04-מעורב-מגורים-ותעסוקה.md §1.3). דוחות ישנים נשארים בני-קריאה באמצעות fallback
+ * מפורש לשדה האחיד הישן; אין שינוי בשאר סוגי העסקאות. */
+function ownerShareForCategory(inputs: ProjectInputs, category: UnitCategory): number {
+  if (inputs.dealType !== "mixedUse") return inputs.land.combinationOwnerShare;
+  if (category === "commercial") {
+    return inputs.land.mixedUseCommercialOwnerShare ?? inputs.land.combinationOwnerShare;
+  }
+  if (category === "office") {
+    return inputs.land.mixedUseOfficeOwnerShare ?? inputs.land.combinationOwnerShare;
+  }
+  return inputs.land.mixedUseResidentialOwnerShare ?? inputs.land.combinationOwnerShare;
+}
+
 /**
  * בנצ'מרק "רווח לעלות" מקובל לתצוגה בדוח, לצורך השוואה בלבד (לא אכיפה). פינוי בינוי: מעל 25%,
  * מאומת מ-Calculator-Pinui-Binui.xlsm (כלי שיווקי מהשוק). שאר סוגי העסקה: 20%, כלל אצבע מקובל
@@ -89,11 +103,11 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
   let unitCount = 0;
 
   const areaByCategory: AreaSummary["areaByCategory"] = {
-    residential: { mainAreaSqm: 0, otherAreaSqm: 0 },
-    residentialPremium: { mainAreaSqm: 0, otherAreaSqm: 0 },
-    commercial: { mainAreaSqm: 0, otherAreaSqm: 0 },
-    office: { mainAreaSqm: 0, otherAreaSqm: 0 },
-    publicBuilding: { mainAreaSqm: 0, otherAreaSqm: 0 },
+    residential: { mainAreaSqm: 0, mamadAreaSqm: 0, balconyAreaSqm: 0, otherAreaSqm: 0 },
+    residentialPremium: { mainAreaSqm: 0, mamadAreaSqm: 0, balconyAreaSqm: 0, otherAreaSqm: 0 },
+    commercial: { mainAreaSqm: 0, mamadAreaSqm: 0, balconyAreaSqm: 0, otherAreaSqm: 0 },
+    office: { mainAreaSqm: 0, mamadAreaSqm: 0, balconyAreaSqm: 0, otherAreaSqm: 0 },
+    publicBuilding: { mainAreaSqm: 0, mamadAreaSqm: 0, balconyAreaSqm: 0, otherAreaSqm: 0 },
   };
   let existingStructureAreaSqm = 0;
   let existingStructureOtherAreaSqm = 0;
@@ -114,6 +128,8 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
       existingStructureOtherAreaSqm += otherArea;
     } else {
       areaByCategory[cat].mainAreaSqm += mainArea;
+      areaByCategory[cat].mamadAreaSqm += u.count * u.mamadSqm;
+      areaByCategory[cat].balconyAreaSqm += u.count * (u.balconySqm + u.roofBalconySqm);
       areaByCategory[cat].otherAreaSqm += otherArea;
     }
   }
@@ -141,21 +157,40 @@ export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): Reven
   let totalRevenueExclVatNis = 0;
   // unitCompensation בלבד: סכום ההכנסה מהיחידות שאינן יחידות תמורה, נצבר תוך כדי הלולאה
   let nonCompensationRevenueExclVatNis = 0;
+  let percentageSplitDeveloperRevenueExclVatNis = 0;
+  const byCategory: RevenueSummary["byCategory"] = {
+    residential: { totalRevenueExclVatNis: 0, developerRevenueExclVatNis: 0 },
+    residentialPremium: { totalRevenueExclVatNis: 0, developerRevenueExclVatNis: 0 },
+    commercial: { totalRevenueExclVatNis: 0, developerRevenueExclVatNis: 0 },
+    office: { totalRevenueExclVatNis: 0, developerRevenueExclVatNis: 0 },
+    publicBuilding: { totalRevenueExclVatNis: 0, developerRevenueExclVatNis: 0 },
+  };
 
   const mechanism = landMechanism(inputs.dealType);
 
   for (const u of inputs.units) {
-    const inclVat = u.count * u.priceNis;
-    totalRevenueInclVatNis += inclVat;
+    const enteredAmount = u.count * u.priceNis;
     // מגורים (רגיל או פרימיום): המחיר שהוזן כולל מע"מ, מחולק ב-1.17. מסחר/משרדים: המחיר כבר נטו ממע"מ (04-מעורב-מגורים-ותעסוקה.md)
     const cat = unitCategory(u.category);
     const isResidential = cat === "residential" || cat === "residentialPremium";
-    const exclVat = isResidential ? inclVat / VAT_FACTOR : inclVat;
+    const inclVat = isResidential ? enteredAmount : enteredAmount * VAT_FACTOR;
+    const exclVat = isResidential ? enteredAmount / VAT_FACTOR : enteredAmount;
+    totalRevenueInclVatNis += inclVat;
     totalRevenueExclVatNis += exclVat;
+    byCategory[cat].totalRevenueExclVatNis += exclVat;
     // בתמ"א 38 "חיזוק ותוספת" הדיירים הקיימים משמרים את הדירה המחוזקת שלהם בלי תמורה חדשה,
     // בדיוק כמו יחידת תמורה: אין ליזם הכנסה משורה זו, ר' isExistingStructure ב-computeAreas.
     if (mechanism === "unitCompensation" && !u.isCompensationUnit && !u.isExistingStructure) {
       nonCompensationRevenueExclVatNis += exclVat;
+    }
+    if (mechanism === "percentageSplit") {
+      const developerAmount = exclVat * (1 - ownerShareForCategory(inputs, cat));
+      percentageSplitDeveloperRevenueExclVatNis += developerAmount;
+      byCategory[cat].developerRevenueExclVatNis += developerAmount;
+    } else if (mechanism === "cash") {
+      byCategory[cat].developerRevenueExclVatNis += exclVat;
+    } else if (!u.isCompensationUnit && !u.isExistingStructure) {
+      byCategory[cat].developerRevenueExclVatNis += exclVat;
     }
   }
 
@@ -166,12 +201,12 @@ export function computeRevenue(inputs: ProjectInputs, areas: AreaSummary): Reven
       ? totalRevenueExclVatNis
       : mechanism === "unitCompensation"
         ? nonCompensationRevenueExclVatNis
-        : totalRevenueExclVatNis * (1 - inputs.land.combinationOwnerShare);
+        : percentageSplitDeveloperRevenueExclVatNis;
 
   const averagePricePerSqmNis =
     areas.totalMarketableAreaSqm > 0 ? totalRevenueInclVatNis / areas.totalMarketableAreaSqm : 0;
 
-  return { totalRevenueInclVatNis, totalRevenueExclVatNis, developerRevenueExclVatNis, averagePricePerSqmNis };
+  return { totalRevenueInclVatNis, totalRevenueExclVatNis, developerRevenueExclVatNis, averagePricePerSqmNis, byCategory };
 }
 
 // אגרות והיטלים עירוניים מפורטים, ר' MunicipalFeeInputs ב-types.ts. מקדם 1.05 קבוע בכל קבצי המקור.
@@ -207,15 +242,26 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   let categorizedConstructionNis = 0;
   const constructionBreakdown: ConstructionCostRow[] = [];
   (Object.keys(areas.areaByCategory) as UnitCategory[]).forEach((cat) => {
-    const { mainAreaSqm, otherAreaSqm } = areas.areaByCategory[cat];
+    const { mainAreaSqm, mamadAreaSqm, balconyAreaSqm, otherAreaSqm } = areas.areaByCategory[cat];
     if (mainAreaSqm === 0 && otherAreaSqm === 0) return;
     const cost = costPerSqmByCategory[cat];
     const balconyCostPerSqm = cost * costs.balconyConstructionCostRatio;
     const mainCostNis = mainAreaSqm * cost;
-    const otherCostNis = otherAreaSqm * balconyCostPerSqm;
+    const mamadCostNis = mamadAreaSqm * cost;
+    const balconyCostNis = balconyAreaSqm * balconyCostPerSqm;
+    const otherCostNis = mamadCostNis + balconyCostNis;
     categorizedConstructionNis += mainCostNis + otherCostNis;
-    // הערה: otherAreaSqm כולל גם ממ"ד (לרוב רלוונטי רק למגורים, אבל אין נזק אם 0 בקטגוריות אחרות)
-    constructionBreakdown.push({ category: cat, mainAreaSqm, mainCostNis, otherAreaSqm, otherCostNis });
+    constructionBreakdown.push({
+      category: cat,
+      mainAreaSqm,
+      mainCostNis,
+      mamadAreaSqm,
+      mamadCostNis,
+      balconyAreaSqm,
+      balconyCostNis,
+      otherAreaSqm,
+      otherCostNis,
+    });
   });
 
   // חיזוק שלד קיים (תמ"א 38 חיזוק ותוספת), עלות נפרדת לגמרי מהקטגוריות, ר' UnitType.isExistingStructure.
@@ -224,12 +270,18 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     const reinforcementRate = costs.reinforcementCostPerSqm || costs.mainConstructionCostPerSqm;
     const reinforcementBalconyRate = reinforcementRate * costs.balconyConstructionCostRatio;
     const mainCostNis = areas.existingStructureAreaSqm * reinforcementRate;
+    // במבנה קיים אין כיום פילוח ממ"ד/מרפסת נפרד ב-AreaSummary; שומרים את התנהגות החיזוק
+    // הקיימת עד שיוגדר קלט מקצועי נפרד לעבודות החדשות בתוך המבנה הקיים.
     const otherCostNis = areas.existingStructureOtherAreaSqm * reinforcementBalconyRate;
     categorizedConstructionNis += mainCostNis + otherCostNis;
     constructionBreakdown.push({
       category: "existingStructure",
       mainAreaSqm: areas.existingStructureAreaSqm,
       mainCostNis,
+      mamadAreaSqm: 0,
+      mamadCostNis: 0,
+      balconyAreaSqm: areas.existingStructureOtherAreaSqm,
+      balconyCostNis: otherCostNis,
       otherAreaSqm: areas.existingStructureOtherAreaSqm,
       otherCostNis,
     });
@@ -243,14 +295,42 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
 
   // B. עלויות עקיפות. בסיס הכנסות = חלק היזם בלבד (developerRevenueExclVatNis).
   const purchaseTaxBasis = isCashLandDeal(dealType) ? land.landPurchaseNis : land.combinationLandValueForTaxNis;
-  const brokerageNis = landNis > 0 ? landNis * costs.brokerageRate : 0;
+  // יזמות/קבוצת רכישה: תיווך חל על מחיר רכישת הקרקע בלבד, לא על היטל ההשבחה. בעסקאות
+  // קומבינציה אין רכישת קרקע במזומן ושורת השיווק כוללת גם תיווך, ולכן אין להוסיף כאן תיווך
+  // נוסף על ההיטל (01/02/03 וכן 05/06 במפרטי המקור).
+  const brokerageNis = isCashLandDeal(dealType) ? land.landPurchaseNis * costs.brokerageRate : 0;
   const purchaseTaxNis = purchaseTaxBasis * costs.purchaseTaxRate;
-  const electricNis = areas.unitCount * costs.electricConnectionPerUnitNis;
+  const residentialUnitCount = inputs.units
+    .filter((unit) => {
+      const category = unitCategory(unit.category);
+      return category === "residential" || category === "residentialPremium";
+    })
+    .reduce((sum, unit) => sum + unit.count, 0);
+  // תעריף "ליח"ד" חל על יחידות מגורים בלבד. חיבורי תעסוקה במקורות מבוססי-שטח דורשים
+  // קלט נפרד שטרם קיים במודל; לפחות אין לחייב בטעות כל חנות/משרד כאילו היו דירה.
+  const electricNis = residentialUnitCount * costs.electricConnectionPerUnitNis;
   const planningConsultantsNis = directConstructionNis * costs.planningConsultantsRate;
   const engineeringInspectionNis = costs.engineeringInspectionFlatNis;
-  const marketingNis = revenue.developerRevenueExclVatNis * costs.marketingRate;
-  const legalNis = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.legalRate);
-  const legalRefundNis = areas.unitCount * costs.legalRefundPerUnitNis;
+  // בקבוצת רכישה הוצאות השיווק/משפטיות מוטלות ישירות על חברי הקבוצה ואינן חלק מתקציב
+  // הפרויקט (03-קבוצת-רכישה.md, סעיף 2.2). בקומבינציית תמורות היזם משווק את *כל* הפרויקט,
+  // לרבות החלק שמועבר לבעלי הקרקע, ולכן בסיס השיווק הוא ההכנסה הכוללת ולא רק חלק היזם
+  // (06-קומבינצית-תמורות.md, סעיף 2).
+  const marketingBasisNis =
+    dealType === "kombinatsiaTemurot" ? revenue.totalRevenueExclVatNis : revenue.developerRevenueExclVatNis;
+  const marketingNis = dealType === "purchaseGroup" ? 0 : marketingBasisNis * costs.marketingRate;
+  const developerResidentialRevenueExclVatNis =
+    revenue.byCategory.residential.developerRevenueExclVatNis +
+    revenue.byCategory.residentialPremium.developerRevenueExclVatNis;
+  const totalResidentialRevenueExclVatNis =
+    revenue.byCategory.residential.totalRevenueExclVatNis +
+    revenue.byCategory.residentialPremium.totalRevenueExclVatNis;
+  const legalRevenueBasisExclVatNis =
+    dealType === "kombinatsiaTemurot" ? totalResidentialRevenueExclVatNis : developerResidentialRevenueExclVatNis;
+  const legalNis =
+    dealType === "purchaseGroup"
+      ? 0
+      : computeVatInclusiveRevenueBasedAmount(legalRevenueBasisExclVatNis, costs.legalRate);
+  const legalRefundNis = dealType === "purchaseGroup" ? 0 : residentialUnitCount * costs.legalRefundPerUnitNis;
   const overheadNis = directConstructionNis * costs.overheadRate;
   const managementFeeNis = directConstructionNis * costs.managementFeeRate;
   const contingencyNis = directConstructionNis * costs.contingencyRate;
@@ -289,20 +369,30 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   //   - להפריד ערבות חוק מכר לרוכשים מערבויות לדיירים.
   //   - לבדוק בסיס עמלה, שיעור עמלה, מועד תחילה ומשך החשיפה לכל סוג בנפרד.
   //   - לא להניח ששני סוגי הערבות מחושבים באותו שיעור או על אותו בסיס.
-  const guaranteeCommissionNis = revenue.totalRevenueInclVatNis * costs.guaranteeCommissionRate * 0.5;
+  const guaranteeCommissionNis =
+    dealType === "purchaseGroup" ? 0 : revenue.totalRevenueInclVatNis * costs.guaranteeCommissionRate * 0.5;
 
   const totalDirectAndIndirect = directConstructionNis + indirectNis + landNis;
   const presaleInflowNis = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.presaleRate);
   const creditFacilityNis = Math.max(0, totalDirectAndIndirect - costs.equityNis - presaleInflowNis);
-  const unusedCreditCommissionNis = creditFacilityNis * costs.unusedCreditCommissionRate * 0.5;
+  const unusedCreditCommissionNis =
+    dealType === "purchaseGroup" ? 0 : creditFacilityNis * costs.unusedCreditCommissionRate * 0.5;
   // עמלת פתיחת תיק, % מהכנסות היזם כולל מע"מ (לא מהתזרים כמו שתי העמלות האחרות)
-  const accountOpeningCommissionNis = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.accountOpeningCommissionRate);
+  const accountOpeningCommissionNis =
+    dealType === "purchaseGroup"
+      ? 0
+      : computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.accountOpeningCommissionRate);
 
   const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis + accountOpeningCommissionNis;
 
   // F. מימון, מפושט: ריבית פשוטה על יתרת חוב ממוצעת (הנחת פריסה ליניארית).
   const avgOutstandingBalanceNis = creditFacilityNis / 2;
-  const financingNis = avgOutstandingBalanceNis * costs.annualInterestRate * (costs.constructionMonths / 12);
+  // בקבוצת רכישה תרחיש הבסיס ממומן מתשלומי החברים; גיליון המימון הוא חלופת השוואה בלבד ואינו
+  // זורם לרווחיות. לכן המימון בתוצאת הבסיס חייב להיות 0 גם אם נשמרו הנחות ריבית ישנות בדוח.
+  const financingNis =
+    dealType === "purchaseGroup"
+      ? 0
+      : avgOutstandingBalanceNis * costs.annualInterestRate * (costs.constructionMonths / 12);
 
   const totalExclFinancingNis = landNis + indirectNis + commissionsNis + directConstructionNis;
   const totalInclFinancingNis = totalExclFinancingNis + financingNis;
@@ -556,6 +646,21 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   const mechanism = landMechanism(inputs.dealType);
   if (mechanism === "percentageSplit" && inputs.land.combinationOwnerShare <= 0) {
     warnings.push("אחוז החלוקה לבעל הקרקע הוא 0 או לא הוזן, כדאי לבדוק.");
+  }
+  const percentageShares =
+    inputs.dealType === "mixedUse"
+      ? [
+          ["מגורים", inputs.land.mixedUseResidentialOwnerShare ?? inputs.land.combinationOwnerShare],
+          ["מסחר", inputs.land.mixedUseCommercialOwnerShare ?? inputs.land.combinationOwnerShare],
+          ["משרדים", inputs.land.mixedUseOfficeOwnerShare ?? inputs.land.combinationOwnerShare],
+        ] as const
+      : mechanism === "percentageSplit"
+        ? [["הפרויקט", inputs.land.combinationOwnerShare] as const]
+        : [];
+  for (const [label, share] of percentageShares) {
+    if (!Number.isFinite(share) || share < 0 || share > 1) {
+      warnings.push(`אחוז הבעלים עבור ${label} חייב להיות בין 0 ל-1; הוזן ${share}.`);
+    }
   }
   if (mechanism === "cash" && inputs.land.landPurchaseNis <= 0) {
     warnings.push("לא הוזנה עלות רכישת קרקע.");

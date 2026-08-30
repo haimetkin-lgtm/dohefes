@@ -153,7 +153,18 @@ describe("commit 8c: legal אינו חסום יותר על טעם טכני", () 
     if (result.status !== "ready") return;
     const areas = computeAreas(inputs);
     const revenue = computeRevenue(inputs, areas);
-    const expectedLegal = computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, inputs.costs.legalRate);
+    const developerResidentialRevenueExclVatNis =
+      revenue.byCategory.residential.developerRevenueExclVatNis +
+      revenue.byCategory.residentialPremium.developerRevenueExclVatNis;
+    const totalResidentialRevenueExclVatNis =
+      revenue.byCategory.residential.totalRevenueExclVatNis +
+      revenue.byCategory.residentialPremium.totalRevenueExclVatNis;
+    const legalBasis =
+      inputs.dealType === "kombinatsiaTemurot" ? totalResidentialRevenueExclVatNis : developerResidentialRevenueExclVatNis;
+    const expectedLegal =
+      inputs.dealType === "purchaseGroup"
+        ? 0
+        : computeVatInclusiveRevenueBasedAmount(legalBasis, inputs.costs.legalRate);
     expect(result.cashFlowInput.costSchedule.totalsByItemId.legal).toBeCloseTo(expectedLegal, 6);
   });
 });

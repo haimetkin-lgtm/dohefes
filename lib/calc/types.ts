@@ -170,6 +170,12 @@ export interface LandInputs {
 
   /** קומבינציה: אחוז השטח שחוזר לבעל הקרקע כתמורה בעין (למשל 0.4) */
   combinationOwnerShare: number;
+  /** מעורב שימושים: אחוז בעלים נפרד למגורים. אם חסר בדוח ישן, נופל ל-combinationOwnerShare. */
+  mixedUseResidentialOwnerShare?: number;
+  /** מעורב שימושים: אחוז בעלים נפרד למסחר. אם חסר בדוח ישן, נופל ל-combinationOwnerShare. */
+  mixedUseCommercialOwnerShare?: number;
+  /** מעורב שימושים: אחוז בעלים נפרד למשרדים. אם חסר בדוח ישן, נופל ל-combinationOwnerShare. */
+  mixedUseOfficeOwnerShare?: number;
   /** קומבינציה: שווי קרקע מוערך למ"ר/יח"ד, לצורך חישוב מס רכישה על חלק היזם בלבד */
   combinationLandValueForTaxNis: number;
 }
@@ -191,7 +197,13 @@ export interface AreaSummary {
   totalMarketableAreaSqm: number;
   unitCount: number;
   /** פילוח שטח עיקרי + מרפסות/ממ"ד לפי קטגוריה, לחישוב עלות בנייה נפרדת ב-mixedUse. לא כולל יחידות isExistingStructure */
-  areaByCategory: Record<UnitCategory, { mainAreaSqm: number; otherAreaSqm: number }>;
+  areaByCategory: Record<UnitCategory, {
+    mainAreaSqm: number;
+    mamadAreaSqm: number;
+    balconyAreaSqm: number;
+    /** תאימות לצרכנים קיימים: ממ"ד + מרפסות, אך אין להשתמש בו כבסיס תעריף אחיד. */
+    otherAreaSqm: number;
+  }>;
   /** שטח עיקרי/אחר של יחידות מבנה קיים המחוזק (isExistingStructure), בנפרד מ-areaByCategory */
   existingStructureAreaSqm: number;
   existingStructureOtherAreaSqm: number;
@@ -205,6 +217,11 @@ export interface RevenueSummary {
   /** חלק היזם מההכנסה לא כולל מע"מ (100% בתמ"א 38, לפי חלק היזם בקומבינציה) */
   developerRevenueExclVatNis: number;
   averagePricePerSqmNis: number;
+  /** פילוח הכנסות לא-כולל-מע"מ לפי קטגוריה, לצורך בסיסי משפטי ורווחיות מעורב-שימושים. */
+  byCategory: Record<UnitCategory, {
+    totalRevenueExclVatNis: number;
+    developerRevenueExclVatNis: number;
+  }>;
 }
 
 /**
@@ -217,7 +234,13 @@ export interface ConstructionCostRow {
   /** שטח עיקרי (הדירות/היחידות עצמן), מ"ר */
   mainAreaSqm: number;
   mainCostNis: number;
-  /** ממ"ד + מרפסת + מרפסת גג יחד, מ"ר */
+  /** ממ"ד מחויב בתעריף בנייה מלא, בנפרד ממרפסות. */
+  mamadAreaSqm: number;
+  mamadCostNis: number;
+  /** מרפסת + מרפסת גג, מחויבות לפי balconyConstructionCostRatio. */
+  balconyAreaSqm: number;
+  balconyCostNis: number;
+  /** שדות סיכום לתאימות: ממ"ד + מרפסות והעלות המשולבת שלהם. */
   otherAreaSqm: number;
   otherCostNis: number;
 }
