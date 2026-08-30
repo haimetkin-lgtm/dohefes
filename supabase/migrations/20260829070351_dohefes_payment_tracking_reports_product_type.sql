@@ -21,51 +21,113 @@
 -- את השגיאה), וה-constraint הישן והצר יותר היה **נשאר** לצד ניסיון הוספה חדש - כשל שקט, לא
 -- ברור מיד בזמן הרצה. הפתרון: מאתרים את ה-constraint לפי המבנה שלו בפועל (contype='c' על **בדיוק**
 -- העמודה product_type, דרך conkey/pg_attribute.attnum) - לא לפי שם - ומפילים אותו לפי השם
--- שהתגלה, לא לפי ניחוש. זה גם אידמפוטנטי-בטוח: אם ה-constraint שכבר יש לו את השם הקבוע החדש
--- (dohefes_payment_orders_product_type_check) קיים מריצה קודמת חלקית, הוא יימצא ויוסר גם הוא
--- לפני שהוא נוצר מחדש, כך שאין סיכון להתנגשות "constraint already exists".
+-- שהתגלה, לא לפי ניחוש.
 --
--- אין BEGIN;/COMMIT; מפורשים, מאותה סיבה בדיוק כמו במיגרציה המקורית (`supabase db push`
--- מריץ כל קובץ migration דרך pgx ExecBatch - טרנזקציונלי במובלע כבר).
+-- **תיקון (ממצא ביקורת - "ה-DO block רחב מדי")**: הגרסה הקודמת מצאה **כל** check constraint
+-- חד-עמודי על product_type והסירה את **כולם**, בלי לוודא (א) שיש בדיוק אחד, (ב) שההגדרה שלו
+-- היא בדיוק מה שמצופה - אם אי-פעם היה מתווסף constraint חד-עמודי נוסף על product_type (למשל
+-- בדיקת אורך), הוא היה נמחק בשקט לצד ה-enum, בלי אזהרה. **עכשיו**: שלב אימות מלא, קריאה-בלבד,
+-- על **שתי** הטבלאות **לפני** כל DROP/ALTER - סופר בדיוק כמה constraints חד-עמודיים תואמים
+-- (חייב 1, לא יותר ולא פחות), ומשווה את ההגדרה בפועל (`pg_get_constraintdef`) מילה-במילה מול
+-- הצורה המדויקת שה-check המקורי (`check (product_type in ('baseReport','cashFlowAnalysis'))`)
+-- מנורמל אליה על ידי Postgres (`CHECK ((product_type = ANY (ARRAY[...])))`) - **לא** מנוחשת,
+-- אומתה בפועל מול הסכמה החיה לפני כתיבת התיקון הזה. כל סטייה מכל אחד משני התנאים - `raise
+-- exception` **לפני** שום ALTER/DROP, על אף אחת משתי הטבלאות (גם אם רק אחת מהן סוטה - שתיהן
+-- נבדקות במלואן קודם, ה-DROP בפועל קורה רק בסוף, אחרי ששתיהן עברו). **תופעת לוואי מכוונת**:
+-- המיגרציה כבר לא "אידמפוטנטית-שקטה" אם מריצים אותה פעמיים - ריצה שנייה תמצא constraint עם
+-- שלושה ערכים (לא שניים) ותיכשל במפורש עם הודעה ברורה, במקום לנסות "לתקן" משהו בשקט - זו
+-- ההתנהגות הרצויה: ריצה כפולה היא סטייה מהצפוי, לא מצב לגיטימי לטפל בו בשקט.
+--
+-- אין BEGIN;/COMMIT; מפורשים בקובץ עצמו, מאותה סיבה בדיוק כמו במיגרציה המקורית (`supabase db
+-- push` מריץ כל קובץ migration דרך pgx ExecBatch - טרנזקציונלי במובלע כבר); בהתקנה ידנית
+-- (SQL Editor / `db query -f`, לא db push) יש לעטוף בעצמו ב-`begin;`/`commit;` מפורשים - אין
+-- אותה ערבות אוטומטית שם.
 
 do $$
 declare
-  v_conname text;
+  v_conname_orders text;
+  v_conname_entitlements text;
+  v_condef text;
   v_attnum smallint;
+  v_matching_count integer;
+  -- הצורה המדויקת שבה Postgres מנרמל `check (product_type in ('baseReport', 'cashFlowAnalysis'))` -
+  -- אומתה מול הסכמה החיה (pg_get_constraintdef) לפני כתיבת השורה הזו, לא מנוחשת.
+  v_expected_def constant text :=
+    $DEF$CHECK ((product_type = ANY (ARRAY['baseReport'::text, 'cashFlowAnalysis'::text])))$DEF$;
 begin
+  -- ==========================================================================================
+  -- שלב 1: אימות מלא, קריאה-בלבד, על שתי הטבלאות - לפני כל DROP/ALTER על אף אחת מהן.
+  -- ==========================================================================================
+
   -- --- dohefes_payment_orders.product_type ---
   select attnum into v_attnum
   from pg_attribute
   where attrelid = 'dohefes_payment_orders'::regclass and attname = 'product_type';
 
-  for v_conname in
-    select conname
-    from pg_constraint
-    where conrelid = 'dohefes_payment_orders'::regclass
-      and contype = 'c'
-      and conkey = array[v_attnum]
-  loop
-    execute format('alter table dohefes_payment_orders drop constraint %I', v_conname);
-  end loop;
+  select count(*) into v_matching_count
+  from pg_constraint
+  where conrelid = 'dohefes_payment_orders'::regclass
+    and contype = 'c'
+    and conkey = array[v_attnum];
 
-  -- --- dohefes_product_entitlements.product_type ---
+  if v_matching_count <> 1 then
+    raise exception
+      'dohefes migration refused: expected exactly one single-column check constraint on dohefes_payment_orders.product_type, found %. Not touching anything - inspect pg_constraint manually before retrying.',
+      v_matching_count;
+  end if;
+
+  select conname, pg_get_constraintdef(oid) into v_conname_orders, v_condef
+  from pg_constraint
+  where conrelid = 'dohefes_payment_orders'::regclass
+    and contype = 'c'
+    and conkey = array[v_attnum];
+
+  if v_condef <> v_expected_def then
+    raise exception
+      'dohefes migration refused: dohefes_payment_orders check constraint "%" has definition "%", which does not match the expected baseReport/cashFlowAnalysis-only shape "%". Not touching anything.',
+      v_conname_orders, v_condef, v_expected_def;
+  end if;
+
+  -- --- dohefes_product_entitlements.product_type --- (אותו דפוס בדיוק, טבלה נפרדת)
   select attnum into v_attnum
   from pg_attribute
   where attrelid = 'dohefes_product_entitlements'::regclass and attname = 'product_type';
 
-  for v_conname in
-    select conname
-    from pg_constraint
-    where conrelid = 'dohefes_product_entitlements'::regclass
-      and contype = 'c'
-      and conkey = array[v_attnum]
-  loop
-    execute format('alter table dohefes_product_entitlements drop constraint %I', v_conname);
-  end loop;
+  select count(*) into v_matching_count
+  from pg_constraint
+  where conrelid = 'dohefes_product_entitlements'::regclass
+    and contype = 'c'
+    and conkey = array[v_attnum];
+
+  if v_matching_count <> 1 then
+    raise exception
+      'dohefes migration refused: expected exactly one single-column check constraint on dohefes_product_entitlements.product_type, found %. Not touching anything - inspect pg_constraint manually before retrying.',
+      v_matching_count;
+  end if;
+
+  select conname, pg_get_constraintdef(oid) into v_conname_entitlements, v_condef
+  from pg_constraint
+  where conrelid = 'dohefes_product_entitlements'::regclass
+    and contype = 'c'
+    and conkey = array[v_attnum];
+
+  if v_condef <> v_expected_def then
+    raise exception
+      'dohefes migration refused: dohefes_product_entitlements check constraint "%" has definition "%", which does not match the expected baseReport/cashFlowAnalysis-only shape "%". Not touching anything.',
+      v_conname_entitlements, v_condef, v_expected_def;
+  end if;
+
+  -- ==========================================================================================
+  -- שלב 2: שתי הטבלאות עברו את שני התנאים במלואן - רק עכשיו, ורק כאן, מתבצע שינוי בפועל.
+  -- ==========================================================================================
+  execute format('alter table dohefes_payment_orders drop constraint %I', v_conname_orders);
+  execute format('alter table dohefes_product_entitlements drop constraint %I', v_conname_entitlements);
 end $$;
 
--- שמות מפורשים וקבועים מכאן ואילך - כדי שריצה עתידית (כולל rollback-ואז-forward-שוב) תדע בדיוק
--- מה למחוק, בלי לחזור על החיפוש הדינמי למעלה.
+-- שמות מפורשים וקבועים מכאן ואילך - כדי שריצה עתידית (rollback-ואז-forward-שוב, אחרי rollback
+-- אמיתי שהחזיר את ה-constraint לצורתו המקורית) תדע בדיוק מה למחוק, בלי לחזור על החיפוש הדינמי
+-- למעלה - וגם כדי שהשלב הבא (הבדיקה ב-DO block הבא, בפעם הבאה שירוצו על השורות האלה בהקשר אחר
+-- לגמרי) תמיד יידע איזה שם לצפות לו.
 alter table dohefes_payment_orders
   add constraint dohefes_payment_orders_product_type_check
   check (product_type in ('baseReport', 'cashFlowAnalysis', 'trackingReports'));
@@ -108,3 +170,18 @@ alter table dohefes_product_entitlements
 --      provider_order_reference, access_token_hash)
 --   values ('<report-A>', 'baseReport', 98000, 1, 'idem-regress-1', 'order-ref-regress-1', 'hash-regress-1');
 --   -- צפוי: מצליח, בלי שינוי התנהגות.
+--
+-- 5. (חדש - הגנת ה-count) הרצה כפולה של המיגרציה הזו על סכמה שכבר עברה אותה בהצלחה - נכשלת
+--    במפורש בשלב האימות, לא מנסה "לתקן" שוב בשקט:
+--    (מריצים את כל תוכן הקובץ הזה פעם שנייה, על סכמה שכבר יש בה dohefes_payment_orders_product_type_check
+--    עם שלושת הערכים)
+--   -- צפוי: EXCEPTION 'dohefes migration refused: dohefes_payment_orders check constraint
+--   -- "dohefes_payment_orders_product_type_check" has definition "...trackingReports..." which
+--   -- does not match the expected baseReport/cashFlowAnalysis-only shape...' - נכשל לפני כל שינוי.
+--
+-- 6. (חדש - הגנת ה-count) אם קיים constraint חד-עמודי נוסף על product_type (תרחיש מדומה, לא
+--    צפוי בפועל) - הוספה ידנית זמנית לצורך הבדיקה בלבד, בתוך אותה טרנזקציה עם rollback:
+--   alter table dohefes_payment_orders add constraint temp_extra_check check (length(product_type) > 0);
+--   -- הרצת שלב 1 של ה-DO block כאן (או המיגרציה כולה) -
+--   -- צפוי: EXCEPTION 'expected exactly one single-column check constraint ... found 2' - נכשל
+--   -- לפני כל DROP, כולל על ה-constraint המקורי התקין.

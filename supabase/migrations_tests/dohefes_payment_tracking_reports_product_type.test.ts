@@ -92,6 +92,43 @@ describe("מיגרציית trackingReports - תוספתית וממוקדת בל�
   });
 });
 
+describe("הגנת אימות לפני הסרה - בדיוק constraint אחד, בהגדרה הצפויה, לפני כל שינוי", () => {
+  it("סופרת כמה check constraints חד-עמודיים תואמים נמצאו בכל טבלה, ומסרבת (raise exception) אם הכמות אינה בדיוק 1", () => {
+    const countOccurrences = (migrationSql.match(/select count\(\*\) into v_matching_count/g) || []).length;
+    expect(countOccurrences).toBe(2); // dohefes_payment_orders + dohefes_product_entitlements
+    const refusalOccurrences = (migrationSql.match(/if v_matching_count <> 1 then/g) || []).length;
+    expect(refusalOccurrences).toBe(2);
+    expect(migrationSql).toMatch(/raise exception[\s\S]{0,300}found %/);
+  });
+
+  it("משווה את ההגדרה בפועל (pg_get_constraintdef) מול מחרוזת קבועה ומתועדת, לא מנחשת/מפרסרת חלקית", () => {
+    expect(migrationSql).toContain("pg_get_constraintdef(oid)");
+    expect(migrationSql).toMatch(/v_expected_def constant text/);
+    // הצורה המדויקת שאומתה מול הסכמה החיה (ANY(ARRAY[...]), לא IN(...)) - Postgres מנרמל אליה.
+    expect(migrationSql).toContain(
+      "CHECK ((product_type = ANY (ARRAY['baseReport'::text, 'cashFlowAnalysis'::text])))"
+    );
+    const mismatchOccurrences = (migrationSql.match(/if v_condef <> v_expected_def then/g) || []).length;
+    expect(mismatchOccurrences).toBe(2);
+  });
+
+  it("שני התנאים (כמות + הגדרה) נבדקים על שתי הטבלאות **לפני** שקורה ולו DROP/ALTER אחד - אין ALTER/DROP לפני כל בדיקות ה-raise exception", () => {
+    const raiseIndexes = [...migrationSql.matchAll(/raise exception/g)].map((m) => m.index ?? -1);
+    const executeDropIndexes = [...migrationSql.matchAll(/execute format\('alter table .* drop constraint/g)].map((m) => m.index ?? -1);
+    expect(raiseIndexes.length).toBe(4); // 2 constraints X (ספירה + הגדרה)
+    expect(executeDropIndexes.length).toBe(2); // dohefes_payment_orders + dohefes_product_entitlements
+
+    const lastRaiseIndex = Math.max(...raiseIndexes);
+    const firstDropIndex = Math.min(...executeDropIndexes);
+    expect(firstDropIndex).toBeGreaterThan(lastRaiseIndex);
+  });
+
+  it("שם הפונקציה/הקובץ עדיין מציין 'אידמפוטנטי' רק כהתייחסות היסטורית - ריצה כפולה נכשלת במפורש (מתועד בתרחישי הבדיקה), לא 'מתקנת' בשקט", () => {
+    expect(migrationSql).toMatch(/אידמפוטנטית-שקטה/);
+    expect(migrationSql).toMatch(/ריצה שנייה תמצא constraint עם/);
+  });
+});
+
 describe("rollback - חוסם את עצמו אם קיימות שורות trackingReports, לא מוחק/פוגם בשקט", () => {
   it("קובץ ה-rollback קיים ולא ריק", () => {
     expect(rollbackSql.length).toBeGreaterThan(0);
