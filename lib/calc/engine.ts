@@ -110,6 +110,8 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     publicBuilding: { mainAreaSqm: 0, mamadAreaSqm: 0, balconyAreaSqm: 0, otherAreaSqm: 0 },
   };
   let existingStructureAreaSqm = 0;
+  let existingStructureMamadAreaSqm = 0;
+  let existingStructureBalconyAreaSqm = 0;
   let existingStructureOtherAreaSqm = 0;
 
   for (const u of units) {
@@ -125,6 +127,8 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     // לא לפי הקטגוריה שלו. השטח הפיזי עצמו עדיין נספר בסיכומים הכוללים למעלה כרגיל.
     if (u.isExistingStructure) {
       existingStructureAreaSqm += mainArea;
+      existingStructureMamadAreaSqm += u.count * u.mamadSqm;
+      existingStructureBalconyAreaSqm += u.count * (u.balconySqm + u.roofBalconySqm);
       existingStructureOtherAreaSqm += otherArea;
     } else {
       areaByCategory[cat].mainAreaSqm += mainArea;
@@ -148,6 +152,8 @@ export function computeAreas(inputs: ProjectInputs): AreaSummary {
     unitCount,
     areaByCategory,
     existingStructureAreaSqm,
+    existingStructureMamadAreaSqm,
+    existingStructureBalconyAreaSqm,
     existingStructureOtherAreaSqm,
   };
 }
@@ -268,20 +274,20 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   // "פסאודו-קטגוריה" משלה בפירוט, לא מעורבבת עם עלות בנייה חדשה של אותה קטגוריה.
   if (areas.existingStructureAreaSqm > 0 || areas.existingStructureOtherAreaSqm > 0) {
     const reinforcementRate = costs.reinforcementCostPerSqm || costs.mainConstructionCostPerSqm;
-    const reinforcementBalconyRate = reinforcementRate * costs.balconyConstructionCostRatio;
     const mainCostNis = areas.existingStructureAreaSqm * reinforcementRate;
-    // במבנה קיים אין כיום פילוח ממ"ד/מרפסת נפרד ב-AreaSummary; שומרים את התנהגות החיזוק
-    // הקיימת עד שיוגדר קלט מקצועי נפרד לעבודות החדשות בתוך המבנה הקיים.
-    const otherCostNis = areas.existingStructureOtherAreaSqm * reinforcementBalconyRate;
+    const mamadCostNis = areas.existingStructureMamadAreaSqm * reinforcementRate;
+    const balconyCostNis =
+      areas.existingStructureBalconyAreaSqm * reinforcementRate * costs.balconyConstructionCostRatio;
+    const otherCostNis = mamadCostNis + balconyCostNis;
     categorizedConstructionNis += mainCostNis + otherCostNis;
     constructionBreakdown.push({
       category: "existingStructure",
       mainAreaSqm: areas.existingStructureAreaSqm,
       mainCostNis,
-      mamadAreaSqm: 0,
-      mamadCostNis: 0,
-      balconyAreaSqm: areas.existingStructureOtherAreaSqm,
-      balconyCostNis: otherCostNis,
+      mamadAreaSqm: areas.existingStructureMamadAreaSqm,
+      mamadCostNis,
+      balconyAreaSqm: areas.existingStructureBalconyAreaSqm,
+      balconyCostNis,
       otherAreaSqm: areas.existingStructureOtherAreaSqm,
       otherCostNis,
     });

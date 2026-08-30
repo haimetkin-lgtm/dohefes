@@ -206,6 +206,8 @@ export interface AreaSummary {
   }>;
   /** שטח עיקרי/אחר של יחידות מבנה קיים המחוזק (isExistingStructure), בנפרד מ-areaByCategory */
   existingStructureAreaSqm: number;
+  existingStructureMamadAreaSqm: number;
+  existingStructureBalconyAreaSqm: number;
   existingStructureOtherAreaSqm: number;
 }
 

@@ -250,4 +250,23 @@ describe("התאמה מפורשת למפרטי קובצי המקור", () => {
     expect(revenue.totalRevenueExclVatNis).toBeCloseTo(4_000_000, 6);
     expect(revenue.totalRevenueInclVatNis).toBeCloseTo(4_680_000, 6);
   });
+
+  it("גם במבנה קיים ממ״ד מוצג ומחויב בנפרד ממרפסת", () => {
+    const inputs = project("tama38", {
+      mainConstructionCostPerSqm: 9_000,
+      reinforcementCostPerSqm: 3_000,
+      balconyConstructionCostRatio: 0.5,
+    });
+    inputs.units = [{ name: "מבנה קיים", count: 1, areaSqm: 80, mamadSqm: 5, balconySqm: 10, roofBalconySqm: 0, priceNis: 0, isExistingStructure: true }];
+    const row = computeProject(inputs).costs.constructionBreakdown[0];
+    expect(row).toMatchObject({
+      category: "existingStructure",
+      mainCostNis: 240_000,
+      mamadAreaSqm: 5,
+      mamadCostNis: 15_000,
+      balconyAreaSqm: 10,
+      balconyCostNis: 15_000,
+      otherCostNis: 30_000,
+    });
+  });
 });
