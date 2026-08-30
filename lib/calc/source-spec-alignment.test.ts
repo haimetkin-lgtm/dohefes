@@ -188,6 +188,25 @@ describe("התאמה מפורשת למפרטי קובצי המקור", () => {
     expect(computeProject(changed).mixedUseProfitability![1].allocatedSharedCostsNis).toBeGreaterThan(result.mixedUseProfitability![1].allocatedSharedCostsNis);
   });
 
+  it("מסחר ומשרדים: חיבורי חשמל מחושבים לפי שטח ולא כמספר דירות", () => {
+    const inputs = project("mixedUse", {
+      electricConnectionPerUnitNis: 4_500,
+      commercialElectricConnectionPerSqmNis: 50,
+      officeElectricConnectionPerSqmNis: 25,
+    });
+    inputs.units = [
+      { name: "דירה", category: "residential", count: 2, areaSqm: 100, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 1_170_000 },
+      { name: "מסחר", category: "commercial", count: 10, areaSqm: 80, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 100_000 },
+      { name: "משרד", category: "office", count: 5, areaSqm: 120, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 100_000 },
+    ];
+    const withConnections = computeProject(inputs);
+    const withoutConnections = computeProject({ ...inputs, costs: { ...inputs.costs, electricConnectionPerUnitNis: 0, commercialElectricConnectionPerSqmNis: 0, officeElectricConnectionPerSqmNis: 0 } });
+    expect(withConnections.costs.indirectNis - withoutConnections.costs.indirectNis).toBeCloseTo(
+      2 * 4_500 + 10 * 80 * 50 + 5 * 120 * 25,
+      6
+    );
+  });
+
   it("מעורב שימושים: דוח ישן ללא שדות הפיצול נשאר תואם לאחוז האחיד הישן", () => {
     const inputs = project("mixedUse");
     inputs.land.combinationOwnerShare = 0.4;

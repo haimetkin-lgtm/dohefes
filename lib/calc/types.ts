@@ -109,6 +109,9 @@ export interface CostInputs {
   brokerageRate: number; // תיווך, % מעלות/תמורת הקרקע
   purchaseTaxRate: number; // מס רכישה, % (ברירת מחדל 6%)
   electricConnectionPerUnitNis: number; // חיבור חשמל ליח"ד
+  /** חיבורי חשמל למסחר/משרדים מחושבים לפי שטח עיקרי, בנפרד מתעריף ליח״ד מגורים. */
+  commercialElectricConnectionPerSqmNis?: number;
+  officeElectricConnectionPerSqmNis?: number;
   planningFlatNis: number; // תכנון ומדידות, סכום קבוע
   /** תכנון ויועצים, % מעלות בנייה ישירה (2.5% במקור, "עלויות!A12" בקבצי המקור) */
   planningConsultantsRate: number;

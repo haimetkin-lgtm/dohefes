@@ -318,7 +318,10 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     .reduce((sum, unit) => sum + unit.count, 0);
   // תעריף "ליח"ד" חל על יחידות מגורים בלבד. חיבורי תעסוקה במקורות מבוססי-שטח דורשים
   // קלט נפרד שטרם קיים במודל; לפחות אין לחייב בטעות כל חנות/משרד כאילו היו דירה.
-  const electricNis = residentialUnitCount * costs.electricConnectionPerUnitNis;
+  const electricNis =
+    residentialUnitCount * costs.electricConnectionPerUnitNis +
+    areas.areaByCategory.commercial.mainAreaSqm * (costs.commercialElectricConnectionPerSqmNis ?? 0) +
+    areas.areaByCategory.office.mainAreaSqm * (costs.officeElectricConnectionPerSqmNis ?? 0);
   const planningConsultantsNis = directConstructionNis * costs.planningConsultantsRate;
   const engineeringInspectionNis = costs.engineeringInspectionFlatNis;
   // בקבוצת רכישה הוצאות השיווק/משפטיות מוטלות ישירות על חברי הקבוצה ואינן חלק מתקציב
@@ -575,7 +578,9 @@ export function computeMixedUseProfitability(
     .filter((unit) => ["residential", "residentialPremium"].includes(unitCategory(unit.category)))
     .reduce((sum, unit) => sum + unit.count, 0);
   const purchaseTaxNis = inputs.land.combinationLandValueForTaxNis * inputs.costs.purchaseTaxRate;
-  const electricNis = residentialUnits * inputs.costs.electricConnectionPerUnitNis;
+  const residentialElectricNis = residentialUnits * inputs.costs.electricConnectionPerUnitNis;
+  const commercialElectricNis = areas.areaByCategory.commercial.mainAreaSqm * (inputs.costs.commercialElectricConnectionPerSqmNis ?? 0);
+  const officeElectricNis = areas.areaByCategory.office.mainAreaSqm * (inputs.costs.officeElectricConnectionPerSqmNis ?? 0);
   const planningConsultantsNis = projectCosts.directConstructionNis * inputs.costs.planningConsultantsRate;
   const marketingNis = revenue.developerRevenueExclVatNis * inputs.costs.marketingRate;
   const residentialRevenueNis = revenueByUse.residential;
@@ -587,13 +592,15 @@ export function computeMixedUseProfitability(
   const relocationNis = inputs.costs.relocationUnitsCount * inputs.costs.relocationMonths * inputs.costs.relocationRentPerUnitMonthlyNis;
   const directBasedIndirect = planningConsultantsNis + inputs.costs.engineeringInspectionFlatNis + overheadNis + managementNis + contingencyNis;
   const areaBasedIndirect = projectCosts.municipalFeesNis + inputs.costs.planningFlatNis + inputs.costs.financialSupervisionFlatNis;
-  const residentialIndirect = electricNis + legalNis + legalRefundNis + relocationNis;
-  const knownIndirect = purchaseTaxNis + directBasedIndirect + areaBasedIndirect + marketingNis + residentialIndirect;
+  const residentialIndirect = residentialElectricNis + legalNis + legalRefundNis + relocationNis;
+  const knownIndirect = purchaseTaxNis + directBasedIndirect + areaBasedIndirect + marketingNis + residentialIndirect + commercialElectricNis + officeElectricNis;
   addAllocated(sharedByUse, purchaseTaxNis, landWeights);
   addAllocated(sharedByUse, directBasedIndirect, directWeights);
   addAllocated(sharedByUse, areaBasedIndirect, areaWeights);
   addAllocated(sharedByUse, marketingNis, revenueWeights);
   sharedByUse.residential += residentialIndirect;
+  sharedByUse.commercial += commercialElectricNis;
+  sharedByUse.office += officeElectricNis;
   // כל סטייה עתידית בין פירוט השורות לסכום העקיפות מוקצית לפי שטח ושומרת התאמה מלאה לסך הדוח.
   addAllocated(sharedByUse, projectCosts.indirectNis - knownIndirect, areaWeights);
   addAllocated(sharedByUse, projectCosts.commissionsNis, revenueWeights);

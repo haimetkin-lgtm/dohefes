@@ -71,6 +71,8 @@ const DEFAULT_COSTS: CostInputs = {
   brokerageRate: 0.01,
   purchaseTaxRate: 0.06,
   electricConnectionPerUnitNis: 4500,
+  commercialElectricConnectionPerSqmNis: 0,
+  officeElectricConnectionPerSqmNis: 0,
   planningFlatNis: 30000,
   planningConsultantsRate: 0.025,
   engineeringInspectionFlatNis: 0,
@@ -175,6 +177,8 @@ export default function CalculatorPage() {
   const [organizerOverheadRate, setOrganizerOverheadRate] = useState(0.025);
 
   const [purchaseTaxRate, setPurchaseTaxRate] = useState(0.06);
+  const [commercialElectricRate, setCommercialElectricRate] = useState(0);
+  const [officeElectricRate, setOfficeElectricRate] = useState(0);
   const [planningConsultantsRate, setPlanningConsultantsRate] = useState(0.025);
   const [engineeringInspectionFlat, setEngineeringInspectionFlat] = useState(0);
   const [marketingRate, setMarketingRate] = useState(0.025);
@@ -226,6 +230,8 @@ export default function CalculatorPage() {
     setRelocationMonths(costs.relocationMonths);
     setRelocationRentPerUnit(costs.relocationRentPerUnitMonthlyNis);
     setPurchaseTaxRate(costs.purchaseTaxRate);
+    setCommercialElectricRate(costs.commercialElectricConnectionPerSqmNis ?? 0);
+    setOfficeElectricRate(costs.officeElectricConnectionPerSqmNis ?? 0);
     setPlanningConsultantsRate(costs.planningConsultantsRate);
     setEngineeringInspectionFlat(costs.engineeringInspectionFlatNis);
     setMarketingRate(costs.marketingRate);
@@ -286,6 +292,8 @@ export default function CalculatorPage() {
         brokerageRate: 0.01,
         purchaseTaxRate,
         electricConnectionPerUnitNis: 4500,
+        commercialElectricConnectionPerSqmNis: commercialElectricRate,
+        officeElectricConnectionPerSqmNis: officeElectricRate,
         planningFlatNis: 30000,
         planningConsultantsRate,
         engineeringInspectionFlatNis: engineeringInspectionFlat,
@@ -326,7 +334,7 @@ export default function CalculatorPage() {
       projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, publicBuildingCost, reinforcementCost, undergroundCost, undergroundArea, netPlotArea, demolition,
       buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
-      purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
+      purchaseTaxRate, commercialElectricRate, officeElectricRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, organizerFee, organizerOptionTrading, organizerMarketingRate, organizerOverheadRate, landPurchase, bettermentLevy, combinationShare,
       mixedResidentialShare, mixedCommercialShare, mixedOfficeShare, mixedResidentialLandWeight, mixedCommercialLandWeight, mixedOfficeLandWeight, combinationLandValue,
     ],
@@ -1039,6 +1047,14 @@ export default function CalculatorPage() {
                 onChange={(e) => setPurchaseTaxRate(Number(e.target.value))}
                 className="border border-gray-300 rounded-lg px-3 py-2"
               />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">חיבור חשמל למסחר, ₪ למ״ר עיקרי</span>
+              <input type="number" min="0" value={commercialElectricRate} onChange={(e) => setCommercialElectricRate(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-gray-500 text-xs">חיבור חשמל למשרדים, ₪ למ״ר עיקרי</span>
+              <input type="number" min="0" value={officeElectricRate} onChange={(e) => setOfficeElectricRate(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">תכנון ויועצים, % מעלות בנייה</span>

@@ -115,6 +115,8 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["תיווך (%)", inputs.costs.brokerageRate * 100],
     ["מס רכישה (%)", inputs.costs.purchaseTaxRate * 100],
     ["חיבור חשמל ליח״ד (₪)", inputs.costs.electricConnectionPerUnitNis],
+    ["חיבור חשמל למסחר למ״ר עיקרי (₪)", inputs.costs.commercialElectricConnectionPerSqmNis ?? 0],
+    ["חיבור חשמל למשרדים למ״ר עיקרי (₪)", inputs.costs.officeElectricConnectionPerSqmNis ?? 0],
     ["תכנון קבוע (₪)", inputs.costs.planningFlatNis],
     ["תכנון ויועצים מעלות בנייה (%)", inputs.costs.planningConsultantsRate * 100],
     ["פיקוח הנדסי קבוע (₪)", inputs.costs.engineeringInspectionFlatNis],
