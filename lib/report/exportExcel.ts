@@ -89,6 +89,9 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
           ["אחוז בעלים במגורים (%)", (inputs.land.mixedUseResidentialOwnerShare ?? inputs.land.combinationOwnerShare) * 100],
           ["אחוז בעלים במסחר (%)", (inputs.land.mixedUseCommercialOwnerShare ?? inputs.land.combinationOwnerShare) * 100],
           ["אחוז בעלים במשרדים (%)", (inputs.land.mixedUseOfficeOwnerShare ?? inputs.land.combinationOwnerShare) * 100],
+          ["משקל שווי קרקע מגורים למ״ר (₪)", inputs.land.mixedUseResidentialLandWeightPerSqm ?? 12000],
+          ["משקל שווי קרקע מסחר למ״ר (₪)", inputs.land.mixedUseCommercialLandWeightPerSqm ?? 10000],
+          ["משקל שווי קרקע משרדים למ״ר (₪)", inputs.land.mixedUseOfficeLandWeightPerSqm ?? 3500],
         ]
       : []),
     ["שווי קרקע לצורך מס רכישה (₪)", inputs.land.combinationLandValueForTaxNis],
@@ -242,6 +245,19 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
   const wsResults = XLSX.utils.aoa_to_sheet(resultRows);
   wsResults["!cols"] = [{ wch: 30 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, wsResults, "תוצאות");
+
+  if (result.mixedUseProfitability) {
+    const labels = { residential: "מגורים", commercial: "מסחר", office: "משרדים" } as const;
+    const wsUses = XLSX.utils.aoa_to_sheet([
+      ["רווחיות לפי שימוש"],
+      ["שימוש", "הכנסות (₪)", "בנייה ישירה (₪)", "עלויות משותפות (₪)", "מימון (₪)", "סה״כ עלויות (₪)", "רווח (₪)", "רווח לעלות (%)"],
+      ...result.mixedUseProfitability.map((row) => [labels[row.use], round(row.revenueNis), round(row.directConstructionNis), round(row.allocatedSharedCostsNis), round(row.financingNis), round(row.totalCostNis), round(row.profitNis), Number((row.profitToCostRatio * 100).toFixed(2))]),
+      [],
+      ["הערה", "העלויות הישירות מיוחסות לשימוש בפועל; משותפות מחולקות לפי שווי קרקע יחסי, שטח, בנייה או הכנסה. המימון הוא קירוב סטטי כמו בדוח הכולל."],
+    ]);
+    wsUses["!cols"] = [{ wch: 18 }, ...Array.from({ length: 7 }, () => ({ wch: 20 }))];
+    XLSX.utils.book_append_sheet(wb, wsUses, "רווחיות לפי שימוש");
+  }
 
   if (result.organizerProfitability) {
     const organizer = result.organizerProfitability;

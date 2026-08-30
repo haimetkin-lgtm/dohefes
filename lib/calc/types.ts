@@ -182,6 +182,10 @@ export interface LandInputs {
   mixedUseCommercialOwnerShare?: number;
   /** מעורב שימושים: אחוז בעלים נפרד למשרדים. אם חסר בדוח ישן, נופל ל-combinationOwnerShare. */
   mixedUseOfficeOwnerShare?: number;
+  /** משקל שווי קרקע יחסי למ״ר לצורך חלוקת עלויות משותפות בעירוב שימושים. */
+  mixedUseResidentialLandWeightPerSqm?: number;
+  mixedUseCommercialLandWeightPerSqm?: number;
+  mixedUseOfficeLandWeightPerSqm?: number;
   /** קומבינציה: שווי קרקע מוערך למ"ר/יח"ד, לצורך חישוב מס רכישה על חלק היזם בלבד */
   combinationLandValueForTaxNis: number;
 }
@@ -321,6 +325,19 @@ export interface PurchaseGroupAllocationSummary {
   byEquivalentArea: PurchaseGroupAllocationRow[];
 }
 
+export type MixedUseProfitabilityUse = "residential" | "commercial" | "office";
+
+export interface MixedUseProfitabilityRow {
+  use: MixedUseProfitabilityUse;
+  revenueNis: number;
+  directConstructionNis: number;
+  allocatedSharedCostsNis: number;
+  financingNis: number;
+  totalCostNis: number;
+  profitNis: number;
+  profitToCostRatio: number;
+}
+
 /**
  * שורת בדיקת הקצאה והוגנות ליחידה, לפי נספח א.xlsx: מחלקת את שווי הקרקע+עלות ההקמה בין
  * כל היחידות (יזם+דיירים קיימים גם יחד) לפי שטח משוקלל יחסי, ומשווה לשווי השוק שלהן - כלי
@@ -386,6 +403,7 @@ export interface ProjectResult {
   profitability: ProfitabilitySummary;
   organizerProfitability: OrganizerProfitabilitySummary | null;
   purchaseGroupAllocation: PurchaseGroupAllocationSummary | null;
+  mixedUseProfitability: MixedUseProfitabilityRow[] | null;
   unitAllocation: UnitAllocationRow[];
   feasibility: FeasibilityMetrics;
   warnings: string[];

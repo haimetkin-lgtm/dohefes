@@ -66,7 +66,10 @@ describe("ייצוא דוח אפס ל-Excel", () => {
     expect(rows[1]).toContain("כולל מע\"מ");
     expect(rows[2]).toContain("מסחר");
     expect(rows[2]).toContain("ללא מע\"מ");
-    expect(workbook.SheetNames).toEqual(["פרטי פרויקט", "תמהיל דירות", "הנחות ועלויות", "תוצאות"]);
+    expect(workbook.SheetNames).toEqual(["פרטי פרויקט", "תמהיל דירות", "הנחות ועלויות", "תוצאות", "רווחיות לפי שימוש"]);
+    const useRows = XLSX.utils.sheet_to_json<(string | number)[]>(workbook.Sheets["רווחיות לפי שימוש"], { header: 1 });
+    expect(useRows.some((row) => row[0] === "מגורים")).toBe(true);
+    expect(useRows.some((row) => row[0] === "מסחר")).toBe(true);
     const assumptions = XLSX.utils.sheet_to_json<(string | number)[]>(workbook.Sheets["הנחות ועלויות"], { header: 1 });
     expect(assumptions.some((row) => row[0] === "עלות מגורים למ״ר (₪)" && row[1] === 1)).toBe(true);
     expect(assumptions.some((row) => row[0] === "ריבית שנתית (%)" && row[1] === 0)).toBe(true);

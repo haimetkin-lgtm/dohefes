@@ -333,6 +333,21 @@ export default function ReportView({
           )}
         </div>
 
+        {result.mixedUseProfitability && (
+          <div className="mb-7 overflow-x-auto print:overflow-visible rounded-xl border border-[#D9E5DD]">
+            <div className="bg-gray-50 px-4 py-3">
+              <div className="text-sm font-bold text-[#14502F]">רווחיות לפי שימוש</div>
+              <p className="text-[10px] text-gray-500 mt-1">עלויות ישירות מיוחסות לשימוש בפועל; עלויות משותפות מחולקות לפי שווי קרקע יחסי, שטח, בנייה או הכנסה בהתאם לסוג הסעיף. המימון הוא קירוב סטטי כמו בדוח הכולל.</p>
+            </div>
+            <table className="w-full min-w-[700px] print:min-w-0 print:text-[9px] text-xs">
+              <thead><tr className="text-gray-500"><th className="p-2 text-right">שימוש</th><th className="p-2 text-right">הכנסות</th><th className="p-2 text-right">בנייה ישירה</th><th className="p-2 text-right">עלויות משותפות</th><th className="p-2 text-right">מימון</th><th className="p-2 text-right">סה״כ עלויות</th><th className="p-2 text-right">רווח</th><th className="p-2 text-right">רווח לעלות</th></tr></thead>
+              <tbody>{result.mixedUseProfitability.map((row) => (
+                <tr key={row.use} className="border-t border-gray-100 tabular-nums"><td className="p-2 font-medium">{{ residential: "מגורים", commercial: "מסחר", office: "משרדים" }[row.use]}</td><td className="p-2">{nis(row.revenueNis)}</td><td className="p-2">{nis(row.directConstructionNis)}</td><td className="p-2">{nis(row.allocatedSharedCostsNis)}</td><td className="p-2">{nis(row.financingNis)}</td><td className="p-2">{nis(row.totalCostNis)}</td><td className="p-2">{nis(row.profitNis)}</td><td className="p-2 font-bold text-[#14502F]">{fmt(row.profitToCostRatio * 100, 1)}%</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+
         {result.organizerProfitability && (
           <div className="mb-7 rounded-xl border border-[#D9E5DD] p-4">
             <SectionTitle>תחשיב פנימי נפרד, מארגן קבוצת הרכישה</SectionTitle>

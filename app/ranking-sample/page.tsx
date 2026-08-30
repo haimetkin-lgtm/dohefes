@@ -47,8 +47,8 @@ function UnitTable({ title, units }: { title: string; units: SampleUnit[] }) {
   return (
     <div className="min-w-0 mb-6">
       <div className="font-bold text-[#123640] text-sm mb-2">{title}</div>
-      <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full text-xs border-collapse min-w-[640px]">
+      <div className="w-full max-w-full overflow-x-auto print:overflow-visible rounded-lg border border-gray-200">
+        <table className="w-full text-xs border-collapse min-w-[640px] print:min-w-0 print:text-[9px]">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
               <th className="text-right py-2 px-2">יחידה</th>
@@ -146,8 +146,8 @@ export default function RankingSamplePage() {
       <section className="mb-8">
         <div className="font-bold text-[#123640] text-sm mb-1">סדר בחירה ופער ערך</div>
         <p className="text-xs text-gray-500 mb-3">ממוין לפי מקדם הדירה הישנה, מהגבוה לנמוך (סדר הבחירה).</p>
-        <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-xs border-collapse min-w-[900px]">
+        <div className="w-full max-w-full overflow-x-auto print:overflow-visible rounded-lg border border-gray-200">
+          <table className="w-full text-xs border-collapse min-w-[900px] print:min-w-0 print:text-[8px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="text-right py-2 px-2">תור</th>
@@ -198,7 +198,7 @@ export default function RankingSamplePage() {
         </p>
       </section>
 
-      <div className="text-center">
+      <div className="print:hidden text-center">
         <a
           href="/dohefes/ranking/"
           className="inline-block bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold px-6 py-3 rounded-lg transition-colors"

@@ -76,8 +76,8 @@ export default function TrackingSamplePage() {
 
       <section className="min-w-0 mb-7">
         <h2 className="font-bold text-[#123640] text-sm mb-2">תמונת מצב לפי שלב</h2>
-        <div className="w-full max-w-full overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="w-full text-xs min-w-[620px]">
+        <div className="w-full max-w-full overflow-x-auto print:overflow-visible border border-gray-200 rounded-lg">
+          <table className="w-full text-xs min-w-[620px] print:min-w-0 print:text-[9px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="text-right px-3 py-2">שלב</th>
@@ -106,8 +106,8 @@ export default function TrackingSamplePage() {
         {phaseGroups.map((group) => (
           <div key={group.phase} className="min-w-0 border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-[#EAF3EC] px-3 py-2 text-sm font-bold text-[#14502F]">{group.phase}</div>
-            <div className="w-full max-w-full overflow-x-auto">
-              <table className="w-full text-xs min-w-[720px]">
+            <div className="w-full max-w-full overflow-x-auto print:overflow-visible">
+              <table className="w-full text-xs min-w-[720px] print:min-w-0 print:text-[9px]">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500">
                     <th className="text-right px-2 py-2">סעיף</th>

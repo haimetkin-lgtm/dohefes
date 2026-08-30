@@ -9,6 +9,7 @@ import type {
   OrganizerProfitabilitySummary,
   PurchaseGroupAllocationSummary,
   PurchaseGroupAllocationRow,
+  MixedUseProfitabilityRow,
   ProjectResult,
   UnitAllocationRow,
   BreakEvenResult,
@@ -509,6 +510,106 @@ export function computePurchaseGroupAllocation(
   };
 }
 
+export function computeMixedUseProfitability(
+  inputs: ProjectInputs,
+  areas: AreaSummary,
+  revenue: RevenueSummary,
+  projectCosts: CostBreakdown
+): MixedUseProfitabilityRow[] | null {
+  if (inputs.dealType !== "mixedUse") return null;
+  type Use = MixedUseProfitabilityRow["use"];
+  const uses: Use[] = ["residential", "commercial", "office"];
+  const record = () => ({ residential: 0, commercial: 0, office: 0 } satisfies Record<Use, number>);
+  const normalize = (values: Record<Use, number>): Record<Use, number> => {
+    const positive = Object.fromEntries(uses.map((use) => [use, Math.max(0, values[use])])) as Record<Use, number>;
+    const total = uses.reduce((sum, use) => sum + positive[use], 0);
+    return total > 0
+      ? Object.fromEntries(uses.map((use) => [use, positive[use] / total])) as Record<Use, number>
+      : { residential: 1 / 3, commercial: 1 / 3, office: 1 / 3 };
+  };
+  const addAllocated = (target: Record<Use, number>, amount: number, weights: Record<Use, number>) => {
+    for (const use of uses) target[use] += amount * weights[use];
+  };
+
+  const revenueByUse: Record<Use, number> = {
+    residential: revenue.byCategory.residential.developerRevenueExclVatNis + revenue.byCategory.residentialPremium.developerRevenueExclVatNis,
+    commercial: revenue.byCategory.commercial.developerRevenueExclVatNis,
+    office: revenue.byCategory.office.developerRevenueExclVatNis,
+  };
+  const mainAreaByUse: Record<Use, number> = {
+    residential: areas.areaByCategory.residential.mainAreaSqm + areas.areaByCategory.residentialPremium.mainAreaSqm + areas.areaByCategory.publicBuilding.mainAreaSqm,
+    commercial: areas.areaByCategory.commercial.mainAreaSqm,
+    office: areas.areaByCategory.office.mainAreaSqm,
+  };
+  const landValueBasis: Record<Use, number> = {
+    residential: mainAreaByUse.residential * (inputs.land.mixedUseResidentialLandWeightPerSqm ?? 12_000),
+    commercial: mainAreaByUse.commercial * (inputs.land.mixedUseCommercialLandWeightPerSqm ?? 10_000),
+    office: mainAreaByUse.office * (inputs.land.mixedUseOfficeLandWeightPerSqm ?? 3_500),
+  };
+  const areaWeights = normalize(mainAreaByUse);
+  const landWeights = normalize(landValueBasis);
+  const revenueWeights = normalize(revenueByUse);
+
+  const directByUse = record();
+  for (const row of projectCosts.constructionBreakdown) {
+    const amount = row.mainCostNis + row.otherCostNis;
+    if (row.category === "commercial") directByUse.commercial += amount;
+    else if (row.category === "office") directByUse.office += amount;
+    else directByUse.residential += amount;
+  }
+  const categorizedDirect = uses.reduce((sum, use) => sum + directByUse[use], 0);
+  addAllocated(directByUse, projectCosts.directConstructionNis - categorizedDirect, areaWeights);
+  const directWeights = normalize(directByUse);
+
+  const sharedByUse = record();
+  addAllocated(sharedByUse, projectCosts.landNis, landWeights);
+  const residentialUnits = inputs.units
+    .filter((unit) => ["residential", "residentialPremium"].includes(unitCategory(unit.category)))
+    .reduce((sum, unit) => sum + unit.count, 0);
+  const purchaseTaxNis = inputs.land.combinationLandValueForTaxNis * inputs.costs.purchaseTaxRate;
+  const electricNis = residentialUnits * inputs.costs.electricConnectionPerUnitNis;
+  const planningConsultantsNis = projectCosts.directConstructionNis * inputs.costs.planningConsultantsRate;
+  const marketingNis = revenue.developerRevenueExclVatNis * inputs.costs.marketingRate;
+  const residentialRevenueNis = revenueByUse.residential;
+  const legalNis = computeVatInclusiveRevenueBasedAmount(residentialRevenueNis, inputs.costs.legalRate);
+  const legalRefundNis = residentialUnits * inputs.costs.legalRefundPerUnitNis;
+  const overheadNis = projectCosts.directConstructionNis * inputs.costs.overheadRate;
+  const managementNis = projectCosts.directConstructionNis * inputs.costs.managementFeeRate;
+  const contingencyNis = projectCosts.directConstructionNis * inputs.costs.contingencyRate;
+  const relocationNis = inputs.costs.relocationUnitsCount * inputs.costs.relocationMonths * inputs.costs.relocationRentPerUnitMonthlyNis;
+  const directBasedIndirect = planningConsultantsNis + inputs.costs.engineeringInspectionFlatNis + overheadNis + managementNis + contingencyNis;
+  const areaBasedIndirect = projectCosts.municipalFeesNis + inputs.costs.planningFlatNis + inputs.costs.financialSupervisionFlatNis;
+  const residentialIndirect = electricNis + legalNis + legalRefundNis + relocationNis;
+  const knownIndirect = purchaseTaxNis + directBasedIndirect + areaBasedIndirect + marketingNis + residentialIndirect;
+  addAllocated(sharedByUse, purchaseTaxNis, landWeights);
+  addAllocated(sharedByUse, directBasedIndirect, directWeights);
+  addAllocated(sharedByUse, areaBasedIndirect, areaWeights);
+  addAllocated(sharedByUse, marketingNis, revenueWeights);
+  sharedByUse.residential += residentialIndirect;
+  // כל סטייה עתידית בין פירוט השורות לסכום העקיפות מוקצית לפי שטח ושומרת התאמה מלאה לסך הדוח.
+  addAllocated(sharedByUse, projectCosts.indirectNis - knownIndirect, areaWeights);
+  addAllocated(sharedByUse, projectCosts.commissionsNis, revenueWeights);
+
+  const preFinanceWeights = normalize(Object.fromEntries(uses.map((use) => [use, directByUse[use] + sharedByUse[use]])) as Record<Use, number>);
+  const financingByUse = record();
+  addAllocated(financingByUse, projectCosts.financingNis, preFinanceWeights);
+
+  return uses.map((use) => {
+    const totalCostNis = directByUse[use] + sharedByUse[use] + financingByUse[use];
+    const profitNis = revenueByUse[use] - totalCostNis;
+    return {
+      use,
+      revenueNis: revenueByUse[use],
+      directConstructionNis: directByUse[use],
+      allocatedSharedCostsNis: sharedByUse[use],
+      financingNis: financingByUse[use],
+      totalCostNis,
+      profitNis,
+      profitToCostRatio: totalCostNis !== 0 ? profitNis / totalCostNis : 0,
+    };
+  });
+}
+
 /**
  * בדיקת הקצאה והוגנות ליחידה (נספח א.xlsx): מחלקת את שווי הקרקע ועלות ההקמה+כלליות בין כל
  * היחידות (יזם+דיירים קיימים גם יחד, יחד באותה טבלה) לפי שטח משוקלל יחסי, ומשווה לשווי השוק
@@ -746,6 +847,17 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
       warnings.push(`אחוז הבעלים עבור ${label} חייב להיות בין 0 ל-1; הוזן ${share}.`);
     }
   }
+  if (inputs.dealType === "mixedUse") {
+    const landWeights = [
+      ["מגורים", inputs.land.mixedUseResidentialLandWeightPerSqm ?? 12_000],
+      ["מסחר", inputs.land.mixedUseCommercialLandWeightPerSqm ?? 10_000],
+      ["משרדים", inputs.land.mixedUseOfficeLandWeightPerSqm ?? 3_500],
+    ] as const;
+    for (const [label, weight] of landWeights) {
+      if (!Number.isFinite(weight) || weight < 0) warnings.push(`משקל שווי הקרקע עבור ${label} חייב להיות מספר שאינו שלילי.`);
+    }
+    if (landWeights.every(([, weight]) => weight === 0)) warnings.push("נדרש לפחות משקל שווי קרקע חיובי אחד לצורך פילוח רווחיות לפי שימוש.");
+  }
   if (mechanism === "cash" && inputs.land.landPurchaseNis <= 0) {
     warnings.push("לא הוזנה עלות רכישת קרקע.");
   }
@@ -762,6 +874,7 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
   const profitability = computeProfitability(revenue, costs, inputs.costs);
   const organizerProfitability = computeOrganizerProfitability(inputs, revenue, costs);
   const purchaseGroupAllocation = computePurchaseGroupAllocation(inputs, costs);
+  const mixedUseProfitability = computeMixedUseProfitability(inputs, areas, revenue, costs);
   const unitAllocation = computeUnitAllocation(inputs, costs);
 
   const feasibility: FeasibilityMetrics = {
@@ -770,5 +883,5 @@ export function computeProject(inputs: ProjectInputs): ProjectResult {
     sensitivityMatrix: computeSensitivityMatrix(inputs),
   };
 
-  return { areas, revenue, costs, profitability, organizerProfitability, purchaseGroupAllocation, unitAllocation, feasibility, warnings };
+  return { areas, revenue, costs, profitability, organizerProfitability, purchaseGroupAllocation, mixedUseProfitability, unitAllocation, feasibility, warnings };
 }

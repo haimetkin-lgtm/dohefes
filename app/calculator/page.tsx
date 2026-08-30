@@ -106,6 +106,9 @@ const DEFAULT_LAND: LandInputs = {
   mixedUseResidentialOwnerShare: 0.345,
   mixedUseCommercialOwnerShare: 0.38,
   mixedUseOfficeOwnerShare: 0.38,
+  mixedUseResidentialLandWeightPerSqm: 12000,
+  mixedUseCommercialLandWeightPerSqm: 10000,
+  mixedUseOfficeLandWeightPerSqm: 3500,
   combinationLandValueForTaxNis: 0,
 };
 
@@ -156,6 +159,9 @@ export default function CalculatorPage() {
   const [mixedResidentialShare, setMixedResidentialShare] = useState(0.345);
   const [mixedCommercialShare, setMixedCommercialShare] = useState(0.38);
   const [mixedOfficeShare, setMixedOfficeShare] = useState(0.38);
+  const [mixedResidentialLandWeight, setMixedResidentialLandWeight] = useState(12000);
+  const [mixedCommercialLandWeight, setMixedCommercialLandWeight] = useState(10000);
+  const [mixedOfficeLandWeight, setMixedOfficeLandWeight] = useState(3500);
   const [combinationLandValue, setCombinationLandValue] = useState(0);
 
   const [equity, setEquity] = useState(0);
@@ -240,6 +246,9 @@ export default function CalculatorPage() {
     setMixedResidentialShare(land.mixedUseResidentialOwnerShare ?? land.combinationOwnerShare);
     setMixedCommercialShare(land.mixedUseCommercialOwnerShare ?? land.combinationOwnerShare);
     setMixedOfficeShare(land.mixedUseOfficeOwnerShare ?? land.combinationOwnerShare);
+    setMixedResidentialLandWeight(land.mixedUseResidentialLandWeightPerSqm ?? 12000);
+    setMixedCommercialLandWeight(land.mixedUseCommercialLandWeightPerSqm ?? 10000);
+    setMixedOfficeLandWeight(land.mixedUseOfficeLandWeightPerSqm ?? 3500);
     setCombinationLandValue(land.combinationLandValueForTaxNis);
   }
 
@@ -306,6 +315,9 @@ export default function CalculatorPage() {
         mixedUseResidentialOwnerShare: mixedResidentialShare,
         mixedUseCommercialOwnerShare: mixedCommercialShare,
         mixedUseOfficeOwnerShare: mixedOfficeShare,
+        mixedUseResidentialLandWeightPerSqm: mixedResidentialLandWeight,
+        mixedUseCommercialLandWeightPerSqm: mixedCommercialLandWeight,
+        mixedUseOfficeLandWeightPerSqm: mixedOfficeLandWeight,
         combinationLandValueForTaxNis: combinationLandValue,
       },
     }),
@@ -315,7 +327,7 @@ export default function CalculatorPage() {
       relocationUnitsCount, relocationMonths, relocationRentPerUnit,
       purchaseTaxRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, organizerFee, organizerOptionTrading, organizerMarketingRate, organizerOverheadRate, landPurchase, bettermentLevy, combinationShare,
-      mixedResidentialShare, mixedCommercialShare, mixedOfficeShare, combinationLandValue,
+      mixedResidentialShare, mixedCommercialShare, mixedOfficeShare, mixedResidentialLandWeight, mixedCommercialLandWeight, mixedOfficeLandWeight, combinationLandValue,
     ],
   );
 
@@ -769,6 +781,19 @@ export default function CalculatorPage() {
                 <label className="flex flex-col gap-1">
                   <span className="text-gray-500 text-xs">אחוז הבעלים במשרדים</span>
                   <input type="number" min="0" max="1" step="0.001" value={mixedOfficeShare} onChange={(e) => setMixedOfficeShare(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+                <p className="text-xs text-gray-500 sm:col-span-2 mt-2">משקלי שווי קרקע יחסיים למ״ר, לחלוקת עלויות משותפות בין השימושים:</p>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">מגורים (₪ למ״ר)</span>
+                  <input type="number" min="0" value={mixedResidentialLandWeight} onChange={(e) => setMixedResidentialLandWeight(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">מסחר (₪ למ״ר)</span>
+                  <input type="number" min="0" value={mixedCommercialLandWeight} onChange={(e) => setMixedCommercialLandWeight(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">משרדים (₪ למ״ר)</span>
+                  <input type="number" min="0" value={mixedOfficeLandWeight} onChange={(e) => setMixedOfficeLandWeight(Number(e.target.value))} className="border border-gray-300 rounded-lg px-3 py-2" />
                 </label>
               </>
             ) : (

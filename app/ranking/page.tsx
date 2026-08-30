@@ -65,8 +65,8 @@ function UnitGroupTable({
           {addLabel}
         </button>
       </div>
-      <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
-        <table className="w-full text-xs border-collapse min-w-[700px]">
+      <div className="w-full max-w-full overflow-x-auto print:overflow-visible rounded-lg border border-gray-200">
+        <table className="w-full text-xs border-collapse min-w-[700px] print:min-w-0 print:text-[8px]">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
               <th className="text-right py-2 px-2 sticky right-0 bg-gray-50">יחידה</th>
@@ -275,8 +275,8 @@ export default function RankingPage() {
         </button>
       </section>
 
-      <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200 mb-8">
-        <table className="w-full text-xs border-collapse min-w-[500px]">
+      <div className="w-full max-w-full overflow-x-auto print:overflow-visible rounded-lg border border-gray-200 mb-8">
+        <table className="w-full text-xs border-collapse min-w-[500px] print:min-w-0 print:text-[9px]">
           <thead>
             <tr className="bg-gray-50 text-gray-500">
               {criteria.map((c) => (
@@ -357,8 +357,8 @@ export default function RankingPage() {
           ממוין לפי מקדם הדירה הישנה, מהגבוה לנמוך (סדר הבחירה). לכל דייר, בחרו ידנית איזו דירה
           חדשה הוא בפועל לקח.
         </p>
-        <div className="w-full max-w-full overflow-x-auto rounded-lg border border-gray-200">
-          <table className="w-full text-xs border-collapse min-w-[980px]">
+        <div className="w-full max-w-full overflow-x-auto print:overflow-visible rounded-lg border border-gray-200">
+          <table className="w-full text-xs border-collapse min-w-[980px] print:min-w-0 print:text-[8px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500">
                 <th className="text-right py-2 px-2">תור</th>

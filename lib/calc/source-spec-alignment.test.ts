@@ -162,6 +162,24 @@ describe("התאמה מפורשת למפרטי קובצי המקור", () => {
     );
   });
 
+  it("מעורב שימושים: מפיק שלוש רווחיויות שימוש שמתיישבות בדיוק לתוצאה הכוללת", () => {
+    const inputs = project("mixedUse", { commercialConstructionCostPerSqm: 4_000, officeConstructionCostPerSqm: 3_000 });
+    inputs.units = [
+      { name: "מגורים", category: "residential", count: 2, areaSqm: 100, mamadSqm: 10, balconySqm: 10, roofBalconySqm: 0, priceNis: 2_340_000 },
+      { name: "מסחר", category: "commercial", count: 1, areaSqm: 80, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 1_500_000 },
+      { name: "משרדים", category: "office", count: 1, areaSqm: 120, mamadSqm: 0, balconySqm: 0, roofBalconySqm: 0, priceNis: 2_000_000 },
+    ];
+    inputs.land.bettermentLevyNis = 1_000_000;
+    const result = computeProject(inputs);
+    expect(result.mixedUseProfitability?.map((row) => row.use)).toEqual(["residential", "commercial", "office"]);
+    expect(result.mixedUseProfitability!.reduce((sum, row) => sum + row.revenueNis, 0)).toBeCloseTo(result.profitability.revenueNis, 6);
+    expect(result.mixedUseProfitability!.reduce((sum, row) => sum + row.totalCostNis, 0)).toBeCloseTo(result.profitability.totalCostNis, 6);
+    expect(result.mixedUseProfitability!.reduce((sum, row) => sum + row.profitNis, 0)).toBeCloseTo(result.profitability.currentProfitNis, 6);
+    const changed = structuredClone(inputs);
+    changed.land.mixedUseCommercialLandWeightPerSqm = 100_000;
+    expect(computeProject(changed).mixedUseProfitability![1].allocatedSharedCostsNis).toBeGreaterThan(result.mixedUseProfitability![1].allocatedSharedCostsNis);
+  });
+
   it("מעורב שימושים: דוח ישן ללא שדות הפיצול נשאר תואם לאחוז האחיד הישן", () => {
     const inputs = project("mixedUse");
     inputs.land.combinationOwnerShare = 0.4;
