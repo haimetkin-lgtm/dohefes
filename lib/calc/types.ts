@@ -128,6 +128,8 @@ export interface CostInputs {
   unusedCreditCommissionRate: number; // עמלת אי ניצול אשראי, % ממסגרת האשראי
   /** עמלת פתיחת תיק, % מהכנסות היזם כולל מע"מ (0.45% במקור, ר' 01-תמא-38.md ו"תרגיל בית - יזמות") */
   accountOpeningCommissionRate: number;
+  /** קומבינציית תמורות: ערבות ייעודית לבעלי הקרקע, מחושבת ישירות משווי חלקם. */
+  ownerGuaranteeCommissionRate?: number;
 
   // מימון
   annualInterestRate: number; // ריבית שנתית, %
@@ -267,6 +269,8 @@ export interface CostBreakdown {
   totalInclFinancingNis: number;
   /** שכר המארגן בקבוצת רכישה, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
   organizerFeeNis: number;
+  /** עמלת ערבות נפרדת לבעלי הקרקע בקומבינציית תמורות, כלולה ב-commissionsNis. */
+  ownerGuaranteeCommissionNis: number;
   /** דמי שכירות לדיירים הקיימים, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */
   relocationRentNis: number;
   /** אגרות והיטלים עירוניים, כבר כלול ב-indirectNis, מוצג כאן גם בנפרד לתצוגה */

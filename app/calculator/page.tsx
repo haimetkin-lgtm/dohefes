@@ -85,6 +85,7 @@ const DEFAULT_COSTS: CostInputs = {
   guaranteeCommissionRate: 0.0085,
   unusedCreditCommissionRate: 0.0035,
   accountOpeningCommissionRate: 0.0045,
+  ownerGuaranteeCommissionRate: 0.0085,
   annualInterestRate: 0.04,
   constructionMonths: 30,
   permitMonths: 12,

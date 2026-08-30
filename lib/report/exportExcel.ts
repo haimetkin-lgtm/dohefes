@@ -128,6 +128,7 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     ["עמלת ערבות (%)", inputs.costs.guaranteeCommissionRate * 100],
     ["עמלת אי ניצול אשראי (%)", inputs.costs.unusedCreditCommissionRate * 100],
     ["עמלת פתיחת תיק (%)", inputs.costs.accountOpeningCommissionRate * 100],
+    ["עמלת ערבות לבעלי הקרקע (%)", (inputs.costs.ownerGuaranteeCommissionRate ?? 0.0085) * 100],
     [],
     ["מימון ולוחות זמנים"],
     ["ריבית שנתית (%)", inputs.costs.annualInterestRate * 100],
@@ -181,6 +182,9 @@ export function buildWorkbook(inputs: ProjectInputs, result: ProjectResult): XLS
     [isCashLandDeal(inputs.dealType) ? "קרקע (₪)" : "היטל השבחה (₪)", round(result.costs.landNis)],
     ["עקיפות (₪)", round(result.costs.indirectNis)],
     ["עמלות מימון (₪)", round(result.costs.commissionsNis)],
+    ...(result.costs.ownerGuaranteeCommissionNis > 0
+      ? [["מתוכן, ערבות ייעודית לבעלי הקרקע (₪)", round(result.costs.ownerGuaranteeCommissionNis)]]
+      : []),
     ["בנייה ישירה (₪)", round(result.costs.directConstructionNis)],
     ["מימון (₪)", round(result.costs.financingNis)],
     ["סה\"כ עלויות (₪)", round(result.costs.totalInclFinancingNis)],

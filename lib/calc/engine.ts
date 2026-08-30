@@ -393,7 +393,14 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
       ? 0
       : computeVatInclusiveRevenueBasedAmount(revenue.developerRevenueExclVatNis, costs.accountOpeningCommissionRate);
 
-  const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis + accountOpeningCommissionNis;
+  // קומבינציית תמורות: נוסחת המקור התקינה היא חישוב ישיר על שווי חלק הבעלים. אין לשכפל את
+  // הפניית #REF! השבורה בגיליון התזרים (06-קומבינצית-תמורות.md, סעיף 3).
+  const ownerGuaranteeCommissionNis =
+    dealType === "kombinatsiaTemurot"
+      ? revenue.totalRevenueInclVatNis * inputs.land.combinationOwnerShare * (costs.ownerGuaranteeCommissionRate ?? 0.0085)
+      : 0;
+
+  const commissionsNis = guaranteeCommissionNis + unusedCreditCommissionNis + accountOpeningCommissionNis + ownerGuaranteeCommissionNis;
 
   // F. מימון, מפושט: ריבית פשוטה על יתרת חוב ממוצעת (הנחת פריסה ליניארית).
   const avgOutstandingBalanceNis = creditFacilityNis / 2;
@@ -416,6 +423,7 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     totalExclFinancingNis,
     totalInclFinancingNis,
     organizerFeeNis,
+    ownerGuaranteeCommissionNis,
     relocationRentNis,
     municipalFeesNis,
     constructionBreakdown,

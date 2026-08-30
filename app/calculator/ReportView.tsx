@@ -290,6 +290,9 @@ export default function ReportView({
                 <Row label="מתוכן, דמי שכירות לדיירים קיימים" value={nis(result.costs.relocationRentNis)} />
               )}
               <Row label="עמלות מימון" value={nis(result.costs.commissionsNis)} />
+              {result.costs.ownerGuaranteeCommissionNis > 0 && (
+                <Row label="מתוכן, ערבות ייעודית לבעלי הקרקע" value={nis(result.costs.ownerGuaranteeCommissionNis)} />
+              )}
               <Row label="בנייה ישירה" value={nis(result.costs.directConstructionNis)} />
               <Row label="מימון" value={nis(result.costs.financingNis)} />
               <Row label="סה&quot;כ עלויות" value={nis(result.costs.totalInclFinancingNis)} strong />

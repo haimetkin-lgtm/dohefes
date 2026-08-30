@@ -145,6 +145,14 @@ describe("התאמה מפורשת למפרטי קובצי המקור", () => {
     );
   });
 
+  it("קומבינציית תמורות: ערבות הבעלים מחושבת ישירות ואינה משכפלת את #REF! במקור", () => {
+    const result = computeProject(project("kombinatsiaTemurot", { ownerGuaranteeCommissionRate: 0.0085 }));
+    const expected = result.revenue.totalRevenueInclVatNis * 0.4 * 0.0085;
+    expect(result.costs.ownerGuaranteeCommissionNis).toBeCloseTo(expected, 6);
+    const without = computeProject(project("kombinatsiaTemurot", { ownerGuaranteeCommissionRate: 0 }));
+    expect(result.costs.commissionsNis - without.costs.commissionsNis).toBeCloseTo(expected, 6);
+  });
+
   it("מעורב שימושים: הכנסת היזם משתמשת באחוז בעלים נפרד לכל שימוש", () => {
     const inputs = project("mixedUse");
     inputs.units = [
