@@ -32,6 +32,59 @@ RPC וה-partial unique index - רץ בפועל, ר' "מצב בפועל" ב-§3)
 
 ---
 
+## עדכון סטטוס (2026-08-30) - תיקון blocker ה-baseReport + rollout `trackingReports`
+
+**שני rollouts נוספים בוצעו ואומתו מאז המסמך המקורי למעלה** (§3-4 שם עדיין מתארים רק את
+המיגרציה הראשונה/שלוש ה-Functions הראשונות - לא עודכנו, ר' סטטוס מלא כאן):
+
+1. **`20260829151144_dohefes_base_report_secure_backend.sql`** - RPC אטומי ליצירת draft+order
+   ל-`baseReport` בלי `reportId` מהלקוח + `dohefes_get_report_data`/`dohefes_save_report_data`.
+   הותקן ידנית (`db query -f` עטוף `begin;`/`commit;`, **לא** `db push` - היו מיגרציות ממתינות
+   נוספות שאסור היה לסחוף), אושר ב-`migration repair`. פרוסות: `dohefes-create-payment-order`
+   (v2, חוזה חדש - `baseReport` עם `dealType`, בלי `reportId`), `dohefes-get-report-data` (v1,
+   חדשה), `dohefes-save-report-data` (v1, חדשה).
+2. **`20260829070351`** (הוספת `trackingReports` ל-check constraint, עם הגנת אימות שנוספה -
+   סופרת constraint אחד מדויק + משווה הגדרה בפועל לפני כל `DROP`) **ו-`20260829081055`**
+   (`dohefes_tracking_data` + `dohefes_get_tracking_data`/`dohefes_save_tracking_data`) - שתיהן
+   הותקנו ידנית, אותה שיטה, אושרו ב-`migration repair`. פרוסות: `dohefes-get-tracking-data`,
+   `dohefes-save-tracking-data` (שתיהן v1, חדשות).
+
+**סטטוס סופי, מאומת read-only ב-2026-08-30**: כל 4 המיגרציות מותקנות (`migration list` -
+`remote`=`local` בכולן), כל 7 ה-Edge Functions פעילות (`ACTIVE`):
+
+| Function | גרסה |
+|---|---|
+| `dohefes-create-payment-order` | v2 |
+| `dohefes-cardcom-payment-indicator` | v1 |
+| `dohefes-get-product-access` | v1 |
+| `dohefes-get-report-data` | v1 |
+| `dohefes-save-report-data` | v1 |
+| `dohefes-get-tracking-data` | v1 |
+| `dohefes-save-tracking-data` | v1 |
+
+`orders=0, entitlements=0, tracking_data=0` - אין נתוני לקוח אמיתיים בשום שלב מכל הרולאאוטים
+האלה. **לא בוצעה עסקת תשלום אמיתית או sandbox במסגרת אף אחד מהשלבים האלה** - כל אימות היה
+read-only או HTTP שלילי (קלט חסר/שגוי, לפני כל כתיבה ל-DB).
+
+**המשמעות המעשית**: הסכמה, ה-RPCs וה-Functions מוכנים טכנית מקצה לקצה עבור `baseReport` **וגם**
+`trackingReports` - אך **אף אחד מהם לא עבר אינטגרציה חיה מול Cardcom** (§ "גבול האימות" למעלה
+עדיין תקף, כולל למוצרים החדשים האלה).
+
+**ברכישה האמיתית הראשונה של כל אחד מהמוצרים** (`baseReport`/`trackingReports`) - יש לעקוב
+**read-only בלבד** (לא לתקן/לא ליצור ידנית) אחרי השרשרת המלאה:
+
+```
+order (dohefes_payment_orders, status: created→pending→paid)
+  → verified payment (verified_at/paid_at/cardcom_internal_deal_number מלאים)
+    → active entitlement (dohefes_product_entitlements, entitlement_status='active')
+      → tracking/report load/save (dohefes-get-tracking-data/dohefes-get-report-data
+        מחזירות status:"active" בפועל, לא "unavailable")
+```
+בדיוק אותה שיטת אימות שכבר מתועדת ב-§8 למעלה (עבור `cashFlowAnalysis`) - להחיל את אותו דפוס גם
+כאן, לא להמציא מנגנון חדש.
+
+---
+
 ## גבול האימות (חובה לקרוא לפני כל פריסה)
 
 > **המערכת נבדקה טכנית באמצעות בדיקות וסימולציות. לא בוצעה עסקה כספית חיה. האינטגרציה החיה
