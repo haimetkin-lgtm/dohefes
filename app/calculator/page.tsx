@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { computeProject, isCashLandDeal, landMechanism } from "@/lib/calc/engine";
+import { computeProject, isCashLandDeal, landMechanism, computeRelocationRentNis, computeRelocationMovingCostNis } from "@/lib/calc/engine";
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
-import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, UnitType } from "@/lib/calc/types";
+import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, RelocationYear, UnitType } from "@/lib/calc/types";
+import InfoTooltip from "../components/InfoTooltip";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import { resolveActiveAccess, revokeActiveAccess } from "@/lib/payment/payment-storage";
@@ -98,8 +99,9 @@ const DEFAULT_COSTS: CostInputs = {
   organizerMarketingRate: 0.025,
   organizerOverheadRate: 0.025,
   relocationUnitsCount: 0,
-  relocationMonths: 0,
-  relocationRentPerUnitMonthlyNis: 0,
+  relocationBaseMonthlyRentPerUnitNis: 0,
+  relocationYears: [{ months: 0, increasePct: 0 }],
+  relocationMovingCostPerUnitNis: 0,
 };
 
 const DEFAULT_LAND: LandInputs = {
@@ -153,8 +155,9 @@ export default function CalculatorPage() {
   const [roadDrainageBuildingRate, setRoadDrainageBuildingRate] = useState(0);
   const [roadDrainageUndergroundRate, setRoadDrainageUndergroundRate] = useState(0);
   const [relocationUnitsCount, setRelocationUnitsCount] = useState(0);
-  const [relocationMonths, setRelocationMonths] = useState(0);
-  const [relocationRentPerUnit, setRelocationRentPerUnit] = useState(0);
+  const [relocationBaseMonthlyRent, setRelocationBaseMonthlyRent] = useState(0);
+  const [relocationYears, setRelocationYears] = useState<RelocationYear[]>([{ months: 0, increasePct: 0 }]);
+  const [relocationMovingCostPerUnit, setRelocationMovingCostPerUnit] = useState(0);
 
   const [landPurchase, setLandPurchase] = useState(0);
   const [bettermentLevy, setBettermentLevy] = useState(0);
@@ -227,8 +230,9 @@ export default function CalculatorPage() {
     setRoadDrainageBuildingRate(costs.municipalFees.roadDrainageBuildingRatePerSqm);
     setRoadDrainageUndergroundRate(costs.municipalFees.roadDrainageUndergroundRatePerSqm);
     setRelocationUnitsCount(costs.relocationUnitsCount);
-    setRelocationMonths(costs.relocationMonths);
-    setRelocationRentPerUnit(costs.relocationRentPerUnitMonthlyNis);
+    setRelocationBaseMonthlyRent(costs.relocationBaseMonthlyRentPerUnitNis);
+    setRelocationYears(costs.relocationYears?.length > 0 ? costs.relocationYears : [{ months: 0, increasePct: 0 }]);
+    setRelocationMovingCostPerUnit(costs.relocationMovingCostPerUnitNis);
     setPurchaseTaxRate(costs.purchaseTaxRate);
     setCommercialElectricRate(costs.commercialElectricConnectionPerSqmNis ?? 0);
     setOfficeElectricRate(costs.officeElectricConnectionPerSqmNis ?? 0);
@@ -287,8 +291,9 @@ export default function CalculatorPage() {
           roadDrainageUndergroundRatePerSqm: roadDrainageUndergroundRate,
         },
         relocationUnitsCount,
-        relocationMonths,
-        relocationRentPerUnitMonthlyNis: relocationRentPerUnit,
+        relocationBaseMonthlyRentPerUnitNis: relocationBaseMonthlyRent,
+        relocationYears,
+        relocationMovingCostPerUnitNis: relocationMovingCostPerUnit,
         brokerageRate: 0.01,
         purchaseTaxRate,
         electricConnectionPerUnitNis: 4500,
@@ -333,7 +338,7 @@ export default function CalculatorPage() {
     [
       projectName, dealType, units, mainCost, premiumCost, commercialCost, officeCost, publicBuildingCost, reinforcementCost, undergroundCost, undergroundArea, netPlotArea, demolition,
       buildingFeeRate, waterConnectionRate, sewageConnectionRate, roadDrainagePlotRate, roadDrainageBuildingRate, roadDrainageUndergroundRate,
-      relocationUnitsCount, relocationMonths, relocationRentPerUnit,
+      relocationUnitsCount, relocationBaseMonthlyRent, relocationYears, relocationMovingCostPerUnit,
       purchaseTaxRate, commercialElectricRate, officeElectricRate, planningConsultantsRate, engineeringInspectionFlat, marketingRate, legalRate, overheadRate, managementFeeRate, contingencyRate,
       interestRate, constructionMonths, equity, presaleRate, organizerFee, organizerOptionTrading, organizerMarketingRate, organizerOverheadRate, landPurchase, bettermentLevy, combinationShare,
       mixedResidentialShare, mixedCommercialShare, mixedOfficeShare, mixedResidentialLandWeight, mixedCommercialLandWeight, mixedOfficeLandWeight, combinationLandValue,
@@ -392,6 +397,18 @@ export default function CalculatorPage() {
 
   function updateUnit(index: number, patch: Partial<UnitType>) {
     setUnits((prev) => prev.map((u, i) => (i === index ? { ...u, ...patch } : u)));
+  }
+
+  function updateRelocationYear(index: number, patch: Partial<RelocationYear>) {
+    setRelocationYears((prev) => prev.map((y, i) => (i === index ? { ...y, ...patch } : y)));
+  }
+
+  function addRelocationYear() {
+    setRelocationYears((prev) => [...prev, { months: 12, increasePct: 0 }]);
+  }
+
+  function removeRelocationYear(index: number) {
+    setRelocationYears((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
   }
 
   return (
@@ -687,9 +704,9 @@ export default function CalculatorPage() {
 
         <div className="mt-3">
           <div className="text-xs font-medium text-gray-600 mb-2">
-            דמי שכירות לדיירים קיימים לתקופת הבנייה <span className="text-gray-400">כמעט תמיד רלוונטי בפינוי בינוי</span>
+            דמי שכירות והובלה לדיירים קיימים לתקופת הבנייה <span className="text-gray-400">כמעט תמיד רלוונטי בפינוי בינוי</span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm mb-3">
             <label className="flex flex-col gap-1">
               <span className="text-gray-500 text-xs">מספר יחידות קיימות</span>
               <input
@@ -700,27 +717,92 @@ export default function CalculatorPage() {
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-gray-500 text-xs">משך התשלום (חודשים)</span>
+              <span className="text-gray-500 text-xs">שכ&quot;ד חודשי ליחידה בשנה הראשונה (₪)</span>
               <input
                 type="number"
-                value={relocationMonths}
-                onChange={(e) => setRelocationMonths(Number(e.target.value))}
+                value={relocationBaseMonthlyRent}
+                onChange={(e) => setRelocationBaseMonthlyRent(Number(e.target.value))}
                 className="border border-gray-300 rounded-lg px-3 py-2"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-gray-500 text-xs">דמי שכירות חודשיים ליחידה (₪)</span>
+              <span className="text-gray-500 text-xs">עלות הובלה ליחידה, הלוך ושוב (₪)</span>
               <input
                 type="number"
-                value={relocationRentPerUnit}
-                onChange={(e) => setRelocationRentPerUnit(Number(e.target.value))}
+                value={relocationMovingCostPerUnit}
+                onChange={(e) => setRelocationMovingCostPerUnit(Number(e.target.value))}
                 className="border border-gray-300 rounded-lg px-3 py-2"
               />
             </label>
           </div>
-          {relocationUnitsCount > 0 && relocationMonths > 0 && relocationRentPerUnit > 0 && (
-            <p className="text-xs text-gray-400 mt-1">
-              סה&quot;כ: {(relocationUnitsCount * relocationMonths * relocationRentPerUnit).toLocaleString("he-IL")} ₪
+
+          <div className="flex flex-col gap-2">
+            {relocationYears.map((year, index) => (
+              <div key={index} className="grid grid-cols-[3rem_1fr_1fr_auto] items-end gap-2 text-sm">
+                <span className="text-gray-500 text-xs pb-2">שנה {index + 1}</span>
+                <label className="flex flex-col gap-1">
+                  <span className="text-gray-500 text-xs">חודשים בשנה זו</span>
+                  <input
+                    type="number"
+                    value={year.months}
+                    onChange={(e) => updateRelocationYear(index, { months: Number(e.target.value) })}
+                    className="border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </label>
+                {index === 0 ? (
+                  <div />
+                ) : (
+                  <label className="relative flex flex-col gap-1">
+                    <span className="text-gray-500 text-xs flex items-center gap-1">
+                      התייקרות מהשנה הקודמת (%)
+                      {index === 1 && (
+                        <InfoTooltip text="החל מהשנה השנייה ניתן לבחור שיעור התייקרות שכ&quot;ד ביחס לשנה הקודמת (לא ביחס לשנה הראשונה), כדי לשקף עליית שכר דירה במהלך תקופת הבנייה. ניתן להוסיף שנות שכירות נוספות עד תום הבנייה בפועל." />
+                      )}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={year.increasePct * 100}
+                      onChange={(e) => updateRelocationYear(index, { increasePct: Number(e.target.value) / 100 })}
+                      className="border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeRelocationYear(index)}
+                  disabled={relocationYears.length <= 1}
+                  className="text-red-500 text-xs px-2 py-2 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  הסר
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={addRelocationYear} className="mt-2 text-xs font-medium text-[#1D6F42] hover:underline">
+            + הוספת שנת שכירות
+          </button>
+
+          {relocationUnitsCount > 0 && (
+            <p className="text-xs text-gray-400 mt-2">
+              סה&quot;כ שכ&quot;ד:{" "}
+              {computeRelocationRentNis({
+                relocationUnitsCount,
+                relocationBaseMonthlyRentPerUnitNis: relocationBaseMonthlyRent,
+                relocationYears,
+              }).toLocaleString("he-IL")}{" "}
+              ₪
+              {relocationMovingCostPerUnit > 0 && (
+                <>
+                  {" "}
+                  · סה&quot;כ הובלה:{" "}
+                  {computeRelocationMovingCostNis({
+                    relocationUnitsCount,
+                    relocationMovingCostPerUnitNis: relocationMovingCostPerUnit,
+                  }).toLocaleString("he-IL")}{" "}
+                  ₪
+                </>
+              )}
             </p>
           )}
         </div>

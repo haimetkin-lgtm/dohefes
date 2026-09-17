@@ -17,6 +17,8 @@ import type {
   FeasibilityMetrics,
   UnitCategory,
   DealType,
+  RelocationYear,
+  CostInputs,
 } from "./types";
 
 // מנוע החישוב המשותף. מבוסס על שרשרת הליבה שתועדה בשישה מפרטי הנוסחאות
@@ -234,6 +236,36 @@ export function computeMunicipalFees(fees: MunicipalFeeInputs, areas: AreaSummar
   return raw * MUNICIPAL_FEE_MARKUP;
 }
 
+/**
+ * שכ"ד חודשי ליחידה לכל שנה ברשימה, עם התייקרות מצטברת/מתגלגלת - כל שנה (מאינדקס 1 ואילך)
+ * מתייקרת ב-`increasePct` שלה ביחס לשכ"ד **של השנה הקודמת ברשימה**, לא ביחס לשכ"ד הבסיס של
+ * השנה הראשונה (אושר במפורש - "שיעור העלייה ביחס לשנה הקודמת, לא הראשונה"). שנה ריקה
+ * (`years=[]`) מחזירה מערך ריק. פונקציה טהורה, לא נוגעת ב-years המקורי.
+ */
+export function relocationMonthlyRentByYear(baseMonthlyRentPerUnitNis: number, years: readonly RelocationYear[]): number[] {
+  const rents: number[] = [];
+  let previousRent = baseMonthlyRentPerUnitNis;
+  years.forEach((year, index) => {
+    const rent = index === 0 ? baseMonthlyRentPerUnitNis : previousRent * (1 + year.increasePct);
+    rents.push(rent);
+    previousRent = rent;
+  });
+  return rents;
+}
+
+/** סה"כ דמי שכירות לתקופת הפינוי, על פני כל השנים - שימוש יחיד, לא משוכפל (ר' שתי נקודות הקריאה למטה). */
+export function computeRelocationRentNis(
+  costs: Pick<CostInputs, "relocationUnitsCount" | "relocationBaseMonthlyRentPerUnitNis" | "relocationYears">
+): number {
+  const monthlyRentByYear = relocationMonthlyRentByYear(costs.relocationBaseMonthlyRentPerUnitNis, costs.relocationYears);
+  return costs.relocationYears.reduce((sum, year, index) => sum + costs.relocationUnitsCount * year.months * monthlyRentByYear[index], 0);
+}
+
+/** עלות הובלה חד-פעמית (הלוך ושוב) לכל היחידות הקיימות שמתפנות. */
+export function computeRelocationMovingCostNis(costs: Pick<CostInputs, "relocationUnitsCount" | "relocationMovingCostPerUnitNis">): number {
+  return costs.relocationUnitsCount * costs.relocationMovingCostPerUnitNis;
+}
+
 export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue: RevenueSummary): CostBreakdown {
   const { costs, land, dealType } = inputs;
 
@@ -349,8 +381,9 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
   const contingencyNis = directConstructionNis * costs.contingencyRate;
   // שכר מארגן, רלוונטי רק לקבוצת רכישה (0 בשאר סוגי העסקה)
   const organizerFeeNis = dealType === "purchaseGroup" ? costs.organizerFeeNis : 0;
-  // דמי שכירות לדיירים קיימים לתקופת הבנייה, 0 אם אין דיירים קיימים שמתפנים
-  const relocationRentNis = costs.relocationUnitsCount * costs.relocationMonths * costs.relocationRentPerUnitMonthlyNis;
+  // דמי שכירות + הובלה לדיירים קיימים לתקופת הבנייה, 0 אם אין דיירים קיימים שמתפנים
+  const relocationRentNis = computeRelocationRentNis(costs);
+  const relocationMovingCostNis = computeRelocationMovingCostNis(costs);
   const municipalFeesNis = computeMunicipalFees(costs.municipalFees, areas, costs);
 
   const indirectNis =
@@ -369,7 +402,8 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     managementFeeNis +
     contingencyNis +
     organizerFeeNis +
-    relocationRentNis;
+    relocationRentNis +
+    relocationMovingCostNis;
 
   // C. עמלות מימון, מפושט. במקור מחושבות מתוך סימולציית תזרים רבעונית מלאה
   // (ר' 01-תמא-38.md סעיף 5). כאן: אחוז מהכנסה/ממסגרת, כפול 0.5 כקירוב לבסיס
@@ -428,6 +462,7 @@ export function computeCosts(inputs: ProjectInputs, areas: AreaSummary, revenue:
     organizerFeeNis,
     ownerGuaranteeCommissionNis,
     relocationRentNis,
+    relocationMovingCostNis,
     municipalFeesNis,
     constructionBreakdown,
   };
@@ -589,7 +624,9 @@ export function computeMixedUseProfitability(
   const overheadNis = projectCosts.directConstructionNis * inputs.costs.overheadRate;
   const managementNis = projectCosts.directConstructionNis * inputs.costs.managementFeeRate;
   const contingencyNis = projectCosts.directConstructionNis * inputs.costs.contingencyRate;
-  const relocationNis = inputs.costs.relocationUnitsCount * inputs.costs.relocationMonths * inputs.costs.relocationRentPerUnitMonthlyNis;
+  // אותה נוסחה בדיוק כמו ב-computeCosts (relocationRentNis/relocationMovingCostNis) - קריאה
+  // לאותן פונקציות משותפות, לא שכפול הנוסחה, כדי ששני מקומות החישוב לא יסטו זה מזה.
+  const relocationNis = computeRelocationRentNis(inputs.costs) + computeRelocationMovingCostNis(inputs.costs);
   const directBasedIndirect = planningConsultantsNis + inputs.costs.engineeringInspectionFlatNis + overheadNis + managementNis + contingencyNis;
   const areaBasedIndirect = projectCosts.municipalFeesNis + inputs.costs.planningFlatNis + inputs.costs.financialSupervisionFlatNis;
   const residentialIndirect = residentialElectricNis + legalNis + legalRefundNis + relocationNis;

@@ -230,9 +230,19 @@ export default function ReportView({
                   <tr className="border-t border-gray-100 tabular-nums">
                     <td className="py-1.5 px-2">דמי שכירות לדיירים קיימים</td>
                     <td className="py-1.5 px-2 text-gray-300">
-                      {inputs.costs.relocationUnitsCount} יח&apos; × {inputs.costs.relocationMonths} חוד&apos;
+                      {inputs.costs.relocationUnitsCount} יח&apos; ×{" "}
+                      {inputs.costs.relocationYears.reduce((sum, y) => sum + y.months, 0)} חוד&apos;
                     </td>
                     <td className="py-1.5 px-2">{nis(result.costs.relocationRentNis)}</td>
+                  </tr>
+                )}
+                {result.costs.relocationMovingCostNis > 0 && (
+                  <tr className="border-t border-gray-100 tabular-nums">
+                    <td className="py-1.5 px-2">הובלת דיירים קיימים</td>
+                    <td className="py-1.5 px-2 text-gray-300">
+                      {inputs.costs.relocationUnitsCount} יח&apos; הלוך ושוב
+                    </td>
+                    <td className="py-1.5 px-2">{nis(result.costs.relocationMovingCostNis)}</td>
                   </tr>
                 )}
               </tbody>
@@ -288,6 +298,9 @@ export default function ReportView({
               )}
               {result.costs.relocationRentNis > 0 && (
                 <Row label="מתוכן, דמי שכירות לדיירים קיימים" value={nis(result.costs.relocationRentNis)} />
+              )}
+              {result.costs.relocationMovingCostNis > 0 && (
+                <Row label="מתוכן, הובלת דיירים קיימים" value={nis(result.costs.relocationMovingCostNis)} />
               )}
               <Row label="עמלות מימון" value={nis(result.costs.commissionsNis)} />
               {result.costs.ownerGuaranteeCommissionNis > 0 && (

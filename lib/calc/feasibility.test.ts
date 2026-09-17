@@ -28,8 +28,9 @@ function baseCosts(overrides: Partial<CostInputs> = {}): CostInputs {
       roadDrainageUndergroundRatePerSqm: 0,
     },
     relocationUnitsCount: 0,
-    relocationMonths: 0,
-    relocationRentPerUnitMonthlyNis: 0,
+    relocationBaseMonthlyRentPerUnitNis: 0,
+    relocationYears: [{ months: 0, increasePct: 0 }],
+    relocationMovingCostPerUnitNis: 0,
     brokerageRate: 0.01,
     purchaseTaxRate: 0.06,
     electricConnectionPerUnitNis: 3000,
@@ -150,7 +151,11 @@ describe("computeResidualLandValue", () => {
       dealType: "tama38",
       projectName: "תמורה",
       units: [unit({ isCompensationUnit: true, priceNis: 0 }), unit({ name: "יחידה נמכרת" })],
-      costs: baseCosts({ relocationUnitsCount: 5, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3000 }),
+      costs: baseCosts({
+        relocationUnitsCount: 5,
+        relocationBaseMonthlyRentPerUnitNis: 3000,
+        relocationYears: [{ months: 12, increasePct: 0 }],
+      }),
       land: baseLand({ bettermentLevyNis: 100000 }),
     };
     expect(computeResidualLandValue(tama38)).toBeNull();
@@ -226,7 +231,11 @@ describe("מחיר ממוצע למ\"ר בנקודת האיזון, לפי יחי�
       dealType: "tama38",
       projectName: "בדיקת נוסחה דטרמיניסטית",
       units: [compensationUnit, existingStructureUnit, publicBuildingUnit, soldUnitA, soldUnitB],
-      costs: baseCosts({ relocationUnitsCount: 3, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3500 }),
+      costs: baseCosts({
+        relocationUnitsCount: 3,
+        relocationBaseMonthlyRentPerUnitNis: 3500,
+        relocationYears: [{ months: 12, increasePct: 0 }],
+      }),
       land: baseLand({ bettermentLevyNis: 200000 }),
     };
 
@@ -254,7 +263,11 @@ describe("מחיר ממוצע למ\"ר בנקודת האיזון, לפי יחי�
         unit({ name: "יחידת תמורה", count: 10, areaSqm: 90, priceNis: 0, isCompensationUnit: true }),
         unit({ name: "יחידה נמכרת", count: 5, areaSqm: 90, priceNis: 2200000 }),
       ],
-      costs: baseCosts({ relocationUnitsCount: 10, relocationMonths: 12, relocationRentPerUnitMonthlyNis: 3500 }),
+      costs: baseCosts({
+        relocationUnitsCount: 10,
+        relocationBaseMonthlyRentPerUnitNis: 3500,
+        relocationYears: [{ months: 12, increasePct: 0 }],
+      }),
       land: baseLand({ bettermentLevyNis: 200000 }),
     };
     const result = computeProject(inputs);
