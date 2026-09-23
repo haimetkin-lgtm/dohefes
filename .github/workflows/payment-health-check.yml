@@ -1,0 +1,66 @@
+name: Payment Health Check
+
+on:
+  schedule:
+    - cron: "30 * * * *"  # כל שעה (ב-:30, לא לחפוף עם price-vs-value)
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test dohefes-create-payment-order CORS preflight
+        id: cors_check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            -X OPTIONS \
+            "$SUPABASE_URL/functions/v1/dohefes-create-payment-order" \
+            -H "Origin: $DOHEFES_ALLOWED_ORIGIN" \
+            -H "Access-Control-Request-Method: POST" \
+            -H "Access-Control-Request-Headers: x-client-info, content-type, authorization, Idempotency-Key")
+          echo "cors_status=$STATUS" >> $GITHUB_OUTPUT
+          echo "CORS preflight HTTP $STATUS"
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "204" ]; then
+            echo "CORS_FAILED=true" >> $GITHUB_ENV
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          DOHEFES_ALLOWED_ORIGIN: ${{ secrets.DOHEFES_ALLOWED_ORIGIN }}
+
+      - name: Check for recent payment failures (last 2 hours)
+        id: db_check
+        run: |
+          RESULT=$(curl -s --max-time 15 \
+            "$SUPABASE_URL/rest/v1/payment_orders?select=id,status,created_at&status=eq.failed&created_at=gte.$(date -u -d '2 hours ago' '+%Y-%m-%dT%H:%M:%SZ')&limit=5" \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY")
+          COUNT=$(echo "$RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+          echo "failed_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Failed payments in last 2h: $COUNT"
+          if [ "$COUNT" -gt "0" ] 2>/dev/null; then
+            echo "PAYMENTS_FAILED=true" >> $GITHUB_ENV
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Send alert email on failure
+        if: env.CORS_FAILED == 'true' || env.PAYMENTS_FAILED == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.ALERT_EMAIL_USER }}
+          password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
+          to: haimetkin@gmail.com
+          from: Dohefes Monitor <${{ secrets.ALERT_EMAIL_USER }}>
+          subject: "⚠️ התראה: תקלה בתשלום דוחות אפס"
+          body: |
+            התגלתה תקלה באתר דוחות אפס:
+
+            CORS Preflight: ${{ steps.cors_check.outputs.cors_status }}
+            תשלומים כושלים (2 שעות אחרונות): ${{ steps.db_check.outputs.failed_count }}
+
+            בדוק: https://supabase.com/dashboard/project/giygjmacxquucwexmfdd/functions
+            לוגים: https://supabase.com/dashboard/project/giygjmacxquucwexmfdd/logs/edge-functions

@@ -57,7 +57,7 @@ const DOHEFES_CARDCOM_INDICATOR_URL = Deno.env.get("DOHEFES_CARDCOM_INDICATOR_UR
 const DOHEFES_CARDCOM_SUCCESS_URL = Deno.env.get("DOHEFES_CARDCOM_SUCCESS_URL") ?? "";
 const DOHEFES_CARDCOM_ERROR_URL = Deno.env.get("DOHEFES_CARDCOM_ERROR_URL") ?? "";
 const DOHEFES_ALLOWED_ORIGINS = parseAllowedOrigins(Deno.env.get("DOHEFES_ALLOWED_ORIGINS"));
-const ALLOWED_REQUEST_HEADERS = "Content-Type, Idempotency-Key";
+const ALLOWED_REQUEST_HEADERS = "authorization, x-client-info, apikey, Content-Type, Idempotency-Key";
 // jsonResponse/corsPreflightResponse: חולצו ל-_shared/cors.ts (משותף גם עם dohefes-get-product-access
 // העתידית) - אותה התנהגות בדיוק כמו קודם, רק לא משוכפלת בקובץ הזה יותר.
 
