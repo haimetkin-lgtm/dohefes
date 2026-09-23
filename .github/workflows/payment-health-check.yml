@@ -15,7 +15,7 @@ jobs:
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
             -X OPTIONS \
             "$SUPABASE_URL/functions/v1/dohefes-create-payment-order" \
-            -H "Origin: $DOHEFES_ALLOWED_ORIGIN" \
+            -H "Origin: https://haimetkin-lgtm.github.io" \
             -H "Access-Control-Request-Method: POST" \
             -H "Access-Control-Request-Headers: x-client-info, content-type, authorization, Idempotency-Key")
           echo "cors_status=$STATUS" >> $GITHUB_OUTPUT
@@ -25,7 +25,6 @@ jobs:
           fi
         env:
           SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          DOHEFES_ALLOWED_ORIGIN: ${{ secrets.DOHEFES_ALLOWED_ORIGIN }}
 
       - name: Check for recent payment failures (last 2 hours)
         id: db_check
