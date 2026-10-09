@@ -1,23 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import { CUSTOM_PRICE_NIS } from "@/lib/supabase";
-
-const CARDCOM_LINK = process.env.NEXT_PUBLIC_CARDCOM_LINK_CUSTOM;
-const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
+import { CUSTOM_PRICE_NIS, supabase, supabaseConfigured, startCustomCheckout } from "@/lib/supabase";
 
 export default function CustomPage() {
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handlePay() {
-    if (!CARDCOM_LINK) {
-      setError("התשלום המקוון עדיין לא מוגדר. אפשר לפנות בוואטסאפ בינתיים.");
+  async function handlePay() {
+    if (!supabaseConfigured) {
+      setError("המערכת עדיין לא מחוברת. אפשר לפנות בוואטסאפ בינתיים.");
       return;
     }
-    const url = new URL(CARDCOM_LINK);
-    url.searchParams.set("SuccessRedirectUrl", `${SITE_URL}/custom/intake/?paid=true`);
-    url.searchParams.set("FailedRedirectUrl", `${SITE_URL}/custom/?payment=failed`);
-    window.location.href = url.toString();
+    setSubmitting(true);
+    setError(null);
+    try {
+      // הזמנה ריקה ולא משולמת. המזהה נוצר כאן כדי שלא נצטרך לקרוא את השורה בחזרה.
+      // הסכום נקבע בשרת, והתשלום מסומן רק אחרי אישור קארדקום לשרת.
+      const orderId = crypto.randomUUID();
+      const { error: insertError } = await supabase
+        .from("dohefes_custom_orders")
+        .insert({ id: orderId, price_nis: CUSTOM_PRICE_NIS, paid: false, status: "pending_payment" });
+      if (insertError) throw insertError;
+      window.location.href = await startCustomCheckout(orderId);
+    } catch {
+      setError("אירעה שגיאה ביצירת התשלום. אפשר לנסות שוב, או לפנות בוואטסאפ.");
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -52,9 +61,10 @@ export default function CustomPage() {
 
       <button
         onClick={handlePay}
-        className="w-full bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold py-3 rounded-lg transition-colors"
+        disabled={submitting}
+        className="w-full bg-[#1D6F42] hover:bg-[#14502F] text-white font-bold py-3 rounded-lg transition-colors disabled:opacity-60"
       >
-        מעבר לרכישה ותשלום - {CUSTOM_PRICE_NIS.toLocaleString("he-IL")} ₪
+        {submitting ? "מעביר לתשלום..." : `מעבר לרכישה ותשלום - ${CUSTOM_PRICE_NIS.toLocaleString("he-IL")} ₪`}
       </button>
 
       <p className="text-xs text-gray-400 text-center mt-4">
