@@ -45,18 +45,16 @@ jobs:
 
       - name: Send WhatsApp alert
         if: steps.summary.outputs.issue == 'true'
+        # ההודעה נבנית ב-printf: שורות שמתחילות בעמודה 0 בתוך בלוק run שברו את קובץ ה-YAML כולו, והבדיקה לא רצה
         run: |
+          BODY=$(printf '⚠️ *דוחות אפס - תקלת תשלום*\n\nסיבה: %s\n\nלוגים:\nhttps://supabase.com/dashboard/project/giygjmacxquucwexmfdd/logs/edge-functions' "$REASON")
           curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/Messages.json" \
             -u "$TWILIO_SID:$TWILIO_TOKEN" \
             --data-urlencode "From=whatsapp:$TWILIO_WHATSAPP_NUMBER" \
             --data-urlencode "To=whatsapp:+972523728828" \
-            --data-urlencode "Body=⚠️ *דוחות אפס - תקלת תשלום*
-
-סיבה: ${{ steps.summary.outputs.reason }}
-
-לוגים:
-https://supabase.com/dashboard/project/giygjmacxquucwexmfdd/logs/edge-functions"
+            --data-urlencode "Body=$BODY"
         env:
+          REASON: ${{ steps.summary.outputs.reason }}
           TWILIO_SID: ${{ secrets.TWILIO_SID }}
           TWILIO_TOKEN: ${{ secrets.TWILIO_TOKEN }}
           TWILIO_WHATSAPP_NUMBER: ${{ secrets.TWILIO_WHATSAPP_NUMBER }}
