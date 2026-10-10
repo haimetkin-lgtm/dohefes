@@ -45,6 +45,7 @@ export default defineConfig({
       "lib/report/**/*.test.ts",
       "lib/tracking/**/*.test.ts",
       "lib/catalog.test.ts",
+      "lib/subscriptions-api.test.ts",
       "lib/site.test.ts",
       "supabase/functions/_shared/**/*.test.ts",
       "supabase/migrations_tests/**/*.test.ts",

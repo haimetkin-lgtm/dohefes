@@ -3,11 +3,13 @@ import {
   PENDING_TTL_MS,
   addPending,
   cleanupPending,
+  listActiveReports,
   promoteToActive,
   resolveActiveAccess,
   resolvePendingByContext,
   resolvePendingByReportAndProduct,
   revokeActiveAccess,
+  storeActiveAccess,
   touchActiveAccess,
 } from "./payment-storage";
 import type { PendingPurchaseRecord, ProductType, StorageLike } from "./payment-storage";
@@ -407,5 +409,52 @@ describe("PendingPurchaseRecord - טיפוס מיוצא, כולל checkoutUrl/id
   it("בדיקת קומפילציה בלבד - ודא שהטיפוס המיוצא כולל את שני השדות (אם התבנית משתנה, זה נכשל ב-build, לא כאן)", () => {
     const record: PendingPurchaseRecord = { reportId: REPORT_A, productType: "trackingReports", accessToken: "t", checkoutUrl: CHECKOUT_URL, idempotencyKey: IDEMPOTENCY_KEY, createdAt: NOW.toISOString() };
     expect(record.checkoutUrl).toBe(CHECKOUT_URL);
+  });
+});
+
+describe("storeActiveAccess ו-listActiveReports - דוח שנפתח מתוך מנוי", () => {
+  it("כותבת רשומת productAccess שנקראת כרגיל דרך resolveActiveAccess", () => {
+    const storage = new FakeStorage();
+    expect(storeActiveAccess(storage, REPORT_A, "baseReport", "tok-base", NOW)).toEqual({ ok: true });
+    expect(resolveActiveAccess(storage, REPORT_A, "baseReport")).toEqual({
+      accessToken: "tok-base",
+      activatedAt: NOW.toISOString(),
+      lastVerifiedAt: NOW.toISOString(),
+    });
+    expect(resolveActiveAccess(storage, REPORT_A, "trackingReports")).toBeNull();
+  });
+
+  it("לא דורסת רשומות אחרות, ודורסת רק את אותו דוח ומוצר", () => {
+    const storage = new FakeStorage();
+    storeActiveAccess(storage, REPORT_A, "baseReport", "a-base", NOW);
+    storeActiveAccess(storage, REPORT_A, "trackingReports", "a-track", NOW);
+    storeActiveAccess(storage, REPORT_B, "baseReport", "b-base", NOW);
+    storeActiveAccess(storage, REPORT_A, "baseReport", "a-base-2", NOW);
+    expect(resolveActiveAccess(storage, REPORT_A, "baseReport")?.accessToken).toBe("a-base-2");
+    expect(resolveActiveAccess(storage, REPORT_A, "trackingReports")?.accessToken).toBe("a-track");
+    expect(resolveActiveAccess(storage, REPORT_B, "baseReport")?.accessToken).toBe("b-base");
+  });
+
+  it("נכשלת סגור: ערכים ריקים או כשל כתיבה מחזירים ok:false ולא זורקים", () => {
+    const storage = new FakeStorage();
+    expect(storeActiveAccess(storage, "", "baseReport", "tok", NOW)).toEqual({ ok: false });
+    expect(storeActiveAccess(storage, REPORT_A, "baseReport", "", NOW)).toEqual({ ok: false });
+    expect(storeActiveAccess(storage, REPORT_A, "notAProduct" as ProductType, "tok", NOW)).toEqual({ ok: false });
+    storage.failSetItemKeys.add("dohefes.productAccess");
+    expect(storeActiveAccess(storage, REPORT_A, "baseReport", "tok", NOW)).toEqual({ ok: false });
+    expect(resolveActiveAccess(storage, REPORT_A, "baseReport")).toBeNull();
+  });
+
+  it("listActiveReports מחזירה את הדוחות של המוצר מהחדש לישן, ומתעלמת ממוצרים אחרים", () => {
+    const storage = new FakeStorage();
+    storeActiveAccess(storage, REPORT_A, "baseReport", "a", new Date("2026-01-01T00:00:00Z"));
+    storeActiveAccess(storage, REPORT_B, "baseReport", "b", new Date("2026-02-01T00:00:00Z"));
+    storeActiveAccess(storage, REPORT_A, "trackingReports", "t", new Date("2026-03-01T00:00:00Z"));
+    expect(listActiveReports(storage, "baseReport")).toEqual([
+      { reportId: REPORT_B, activatedAt: "2026-02-01T00:00:00.000Z" },
+      { reportId: REPORT_A, activatedAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    expect(listActiveReports(storage, "trackingReports").map((r) => r.reportId)).toEqual([REPORT_A]);
+    expect(listActiveReports(new FakeStorage(), "baseReport")).toEqual([]);
   });
 });

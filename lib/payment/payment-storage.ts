@@ -306,3 +306,34 @@ export function revokeActiveAccess(storage: StorageLike, reportId: string, produ
   delete nextEntries[key];
   writeStore(storage, ACTIVE_KEY, { schemaVersion: ACTIVE_SCHEMA_VERSION, entries: nextEntries });
 }
+
+/** כותבת ישירות רשומת productAccess, בלי מעבר דרך pending. משמשת לדוח שנפתח מתוך מנוי: השרת מחזיר את האסימון
+ *  פעם אחת, ואין תשלום בקארדקום ולכן אין pending לקדם. אותה רשומה בדיוק כמו promoteToActive, כך שטעינה, שמירה
+ *  ומעקב קוראים אותה כרגיל. נכשלת סגור: כשל כתיבה מוחזר כ-ok:false ולא זורק. */
+export function storeActiveAccess(
+  storage: StorageLike,
+  reportId: string,
+  productType: ProductType,
+  accessToken: string,
+  now: Date
+): { ok: boolean } {
+  if (!isNonEmptyStr(reportId) || !isProductType(productType) || !isNonEmptyStr(accessToken)) return { ok: false };
+  const store = readActiveStore(storage);
+  const nowIso = now.toISOString();
+  const nextEntries = {
+    ...store.entries,
+    [activeKey(reportId, productType)]: { accessToken, activatedAt: nowIso, lastVerifiedAt: nowIso },
+  };
+  return writeStore(storage, ACTIVE_KEY, { schemaVersion: ACTIVE_SCHEMA_VERSION, entries: nextEntries });
+}
+
+/** הדוחות שיש להם גישה פעילה שמורה במכשיר הזה למוצר נתון, מהחדש לישן. לתצוגת "הדוחות במכשיר הזה" באזור האישי
+ *  בלבד. אינה הוכחת הרשאה: הטעינה בפועל עדיין עוברת אימות בשרת. */
+export function listActiveReports(storage: StorageLike, productType: ProductType): Array<{ reportId: string; activatedAt: string }> {
+  const store = readActiveStore(storage);
+  const suffix = `:${productType}`;
+  return Object.entries(store.entries)
+    .filter(([key, value]) => key.endsWith(suffix) && typeof value?.activatedAt === "string")
+    .sort((a, b) => b[1].activatedAt.localeCompare(a[1].activatedAt))
+    .map(([key, value]) => ({ reportId: key.slice(0, key.length - suffix.length), activatedAt: value.activatedAt }));
+}

@@ -1,5 +1,6 @@
 import Banner from "./components/Banner";
 import InfoTooltip from "./components/InfoTooltip";
+import SubscriberLinks from "./components/SubscriberLinks";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import { CUSTOM_PRICE_NIS } from "@/lib/supabase";
 
@@ -28,6 +29,10 @@ const FAQ_ITEMS = [
   {
     q: "כמה עולה?",
     a: `דוח אפס עצמאי עולה ${formatPriceNis(CATALOG.baseReport.priceAgorot)} לפרויקט, וכולל דוח מלא לאחר רכישה, צפייה בתוצאות, ייצוא Excel והדפסה/PDF. ${CATALOG.trackingReports.displayName} הם מוצר המשך אופציונלי בתשלום נפרד לדוח קיים, לא כלולים במחיר. דוח בהתאמה אישית, שבו סוכן חכם בונה עבורכם את שלד הדוח מתוך תיאור וקבצים, עולה ${CUSTOM_PRICE_NIS.toLocaleString("he-IL")} ₪.`,
+  },
+  {
+    q: "יש מנוי שנתי?",
+    a: "כן. למי שמפיק דוחות אפס בכמות יש מנויים שנתיים, ליחיד ולמשרד, וגם הצעת מחיר לארגונים. במנוי פותחים פרויקטים כל חודש על חשבון המנוי, וכל פרויקט כולל שמירה בקישור קבוע, ייצוא Excel, הדפסה ודוח מעקב בנייה. המחשבון עצמו נשאר חינמי לכולם. התשלום שנתי, בלי חידוש אוטומטי, בתשלום אחד בהנחה או ב-12 תשלומים, וכל המחירים כוללים מע\"מ. הפרטים והמחירים בדף המנויים.",
   },
   {
     q: "מה ההבדל בין המסלול העצמאי להתאמה האישית?",
@@ -114,6 +119,7 @@ export default function Home() {
         <a href="/dohefes/sample/" className="inline-block mt-3 text-sm font-medium text-[#1D6F42] hover:underline">
           צפה בדוגמת דוח ←
         </a>
+        <SubscriberLinks variant="hero" />
       </section>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">

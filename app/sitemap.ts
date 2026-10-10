@@ -5,7 +5,7 @@ const SITE_URL = "https://haimetkin-lgtm.github.io/dohefes";
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const paths = ["/", "/sample/", "/custom/", "/custom-sample/", "/ranking/", "/ranking-sample/", "/tracking-sample/", "/start/", "/terms/"];
+  const paths = ["/", "/sample/", "/custom/", "/custom-sample/", "/ranking/", "/ranking-sample/", "/tracking-sample/", "/start/", "/subscribe/", "/terms/"];
 
   return paths.map((path) => ({
     url: `${SITE_URL}${path}`,

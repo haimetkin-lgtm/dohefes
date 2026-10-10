@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import Logo from "./components/Logo";
+import SubscriberLinks from "./components/SubscriberLinks";
 import "./globals.css";
 
 const SITE_ORIGIN = "https://haimetkin-lgtm.github.io";
@@ -88,6 +89,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="mailto:haimetkin@gmail.com" className="hover:text-gray-800 transition-colors">
                 צור קשר
               </a>
+              <SubscriberLinks variant="header" />
             </nav>
           </div>
         </header>

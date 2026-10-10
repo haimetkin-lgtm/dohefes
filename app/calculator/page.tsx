@@ -5,6 +5,7 @@ import { computeProject, isCashLandDeal, landMechanism, computeRelocationRentNis
 import { CHAMBER_COSTS, CHAMBER_COST_DATE, type BuildingHeight } from "@/lib/calc/chamberCosts";
 import type { CostInputs, DealType, LandInputs, MunicipalFeeInputs, ProjectInputs, RelocationYear, UnitType } from "@/lib/calc/types";
 import InfoTooltip from "../components/InfoTooltip";
+import SubscriberPanel from "./SubscriberPanel";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { CATALOG, formatPriceNis } from "@/lib/catalog";
 import { resolveActiveAccess, revokeActiveAccess } from "@/lib/payment/payment-storage";
@@ -395,6 +396,13 @@ export default function CalculatorPage() {
     return () => clearTimeout(timer);
   }, [reportId, reportAccessToken, inputs, result]);
 
+  // דוח שנפתח על חשבון מנוי: מעכשיו העמוד עובד כמו דוח שנרכש (שמירה אוטומטית, קישור קבוע, ייצוא פתוח)
+  function handleSubscriberOpened(openedReportId: string, accessToken: string) {
+    setReportAccessToken(accessToken);
+    setReportId(openedReportId);
+    window.history.replaceState(null, "", `?id=${encodeURIComponent(openedReportId)}`);
+  }
+
   function updateUnit(index: number, patch: Partial<UnitType>) {
     setUnits((prev) => prev.map((u, i) => (i === index ? { ...u, ...patch } : u)));
   }
@@ -447,10 +455,11 @@ export default function CalculatorPage() {
             </a>
             .
           </p>
-          <p className="text-xs text-gray-400 mb-6">
+          <p className="text-xs text-gray-400 mb-4">
             עלויות הבנייה נטענות כברירת מחדל מאומדן לשכת שמאי המקרקעין, {CHAMBER_COST_DATE}. אפשר
             לשנות כל ערך.
           </p>
+          <SubscriberPanel dealType={dealType} inputs={inputs} result={result} onOpened={handleSubscriberOpened} />
         </>
       )}
 
